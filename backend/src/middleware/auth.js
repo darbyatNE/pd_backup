@@ -1,4 +1,4 @@
-import { supabase } from '../services/supabase.js';
+import { supabase, getSupabaseWithUser } from '../services/supabase.js';
 
 export const authenticate = async (req, res, next) => {
   try {
@@ -33,8 +33,9 @@ export const requireRole = (allowedRoles) => {
         return res.status(401).json({ error: 'Not authenticated' });
       }
 
-      // Get user role from database
-      const { data: userData, error } = await supabase
+      // Get user role from database (RLS-scoped to the requesting user)
+      const db = getSupabaseWithUser(req.userToken);
+      const { data: userData, error } = await db
         .from('users')
         .select('role')
         .eq('id', req.user.id)

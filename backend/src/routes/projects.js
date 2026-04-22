@@ -63,7 +63,8 @@ router.get('/my-projects', authenticate, async (req, res) => {
 // GET /api/projects - List published projects (marketplace)
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { data: projects, error } = await supabase
+    const db = getSupabaseWithUser(req.userToken);
+    const { data: projects, error } = await db
       .from('projects')
       .select('*')
       .eq('status', 'published')
@@ -84,8 +85,9 @@ router.get('/', authenticate, async (req, res) => {
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
+    const db = getSupabaseWithUser(req.userToken);
 
-    const { data: project, error } = await supabase
+    const { data: project, error } = await db
       .from('projects')
       .select('*')
       .eq('id', id)

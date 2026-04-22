@@ -60,3 +60,4 @@ credentials.json
 .cache/
 temp/
 tmp/
+.gstack/

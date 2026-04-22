@@ -7,21 +7,21 @@ const router = express.Router();
 // GET /api/transactions - List transactions (filtered by user role)
 router.get('/', authenticate, async (req, res) => {
   try {
-    // Get user role
-    const { data: userData } = await supabase
+    const db = getSupabaseWithUser(req.userToken);
+
+    const { data: userData } = await db
       .from('users')
       .select('role')
       .eq('id', req.user.id)
       .single();
 
-    let query = supabase
+    let query = db
       .from('transactions')
       .select('*, project:projects(*), buyer:users!buyer_id(*), seller:users!seller_id(*)');
 
-    // Filter based on role
-    if (userData.role === 'buyer') {
+    if (userData?.role === 'buyer') {
       query = query.eq('buyer_id', req.user.id);
-    } else if (userData.role === 'seller') {
+    } else if (userData?.role === 'seller') {
       query = query.eq('seller_id', req.user.id);
     }
 
@@ -113,8 +113,9 @@ router.put('/:id/status', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    // Verify user is the seller
-    const { data: transaction } = await supabase
+    const db = getSupabaseWithUser(req.userToken);
+
+    const { data: transaction } = await db
       .from('transactions')
       .select('seller_id')
       .eq('id', id)
@@ -124,7 +125,7 @@ router.put('/:id/status', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    const { data: updatedTransaction, error } = await supabase
+    const { data: updatedTransaction, error } = await db
       .from('transactions')
       .update({ status })
       .eq('id', id)
