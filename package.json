@@ -1,0 +1,21 @@
+{
+  "name": "powerdime-portal",
+  "version": "0.1.0",
+  "description": "Power Dime — renewable energy marketplace portal",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "frontend": "npm run dev --workspace=frontend",
+    "backend": "npm run dev --workspace=backend"
+  },
+  "keywords": [
+    "renewable-energy",
+    "marketplace",
+    "ppa"
+  ]
+}
