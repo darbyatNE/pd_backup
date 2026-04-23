@@ -38,6 +38,9 @@ Thumbs.db
 # Supabase
 .supabase/
 
+# PD Module
+pd/config/ec2-db.json
+
 # Terraform
 infrastructure/.terraform/
 infrastructure/.terraform.lock.hcl
