@@ -39,7 +39,7 @@ Thumbs.db
 .supabase/
 
 # PD Module
-pd/config/ec2-db.json
+energy-market/config/ec2-db.json
 
 # Terraform
 infrastructure/.terraform/
