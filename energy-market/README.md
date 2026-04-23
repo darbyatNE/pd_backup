@@ -13,7 +13,13 @@ This module contains the PostgreSQL schema and architecture for the Power Dime e
 - `schema_iso_market_data.sql`: Complete PostgreSQL DDL schema
 - `ARCHITECTURE_v2.md`: Detailed technical architecture documentation
 - `ARCHITECTURE_SUMMARY.md`: High-level overview and business context
-- `config/ec2-db.example.json`: Template for EC2 database connection (copy and configure locally)
+- `config/ec2-db.example.json`: Template for EC2 database connection (copy and configure local only)
+
+## Quick Start for Team
+
+**For basic understanding**: Read this README
+**For business context**: See `ARCHITECTURE_SUMMARY.md`
+**For technical details**: Refer to `ARCHITECTURE_v2.md`
 
 ## Setup
 
