@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import type { ReactNode, Dispatch, SetStateAction, ChangeEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadBuyerDocument } from '../services/api';
 import type { FacilityType, BuyerDocumentCategory } from '../types';
@@ -199,8 +200,8 @@ function StepFacilityInformation({ data, onChange }: { data: any; onChange: (f: 
         'focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition bg-white';
 
     function Select({
-        value, onSelect, options, required = true,
-    }: { value: string; onSelect: (v: string) => void; options: string[]; required?: boolean }) {
+        value, onSelect, options,
+    }: { value: string; onSelect: (v: string) => void; options: string[] }) {
         return (
             <div className="relative">
                 <select className={selectClass} value={value} onChange={e => onSelect(e.target.value)}>
@@ -243,7 +244,7 @@ function StepFacilityInformation({ data, onChange }: { data: any; onChange: (f: 
                         <label className="block text-sm font-medium text-gray-800 mb-2">
                             Number of Sites <span className="text-gray-400 font-normal">(optional)</span>
                         </label>
-                        <Select value={data.num_sites} onSelect={v => onChange('num_sites', v)} options={SITE_COUNTS} required={false} />
+                        <Select value={data.num_sites} onSelect={v => onChange('num_sites', v)} options={SITE_COUNTS} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-800 mb-2">Locations of Interest*</label>
@@ -658,7 +659,7 @@ function ReviewField({ label, value, optional = false }: { label: string; value:
 function ReviewSection({ title, onEdit, children }: {
     title: string;
     onEdit?: () => void;
-    children: React.ReactNode;
+    children: ReactNode;
 }) {
     return (
         <div>
@@ -763,7 +764,7 @@ function StepUploadDocuments({
     setEditDocId 
 }: { 
     docs: Doc[]; 
-    setDocs: React.Dispatch<React.SetStateAction<Doc[]>>;
+    setDocs: Dispatch<SetStateAction<Doc[]>>;
     editDocId: string | null;
     setEditDocId: (id: string | null) => void;
 }) {
@@ -776,7 +777,7 @@ function StepUploadDocuments({
     const deleteDoc = (id: string) =>
         setDocs(prev => prev.filter(d => d.id !== id));
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
         if (!files) return;
 
