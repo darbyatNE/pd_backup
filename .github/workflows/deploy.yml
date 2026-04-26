@@ -6,7 +6,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [PD_Development]
   workflow_dispatch:
 
 permissions:
