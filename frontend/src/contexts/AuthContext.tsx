@@ -103,12 +103,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserId(null);
   };
 
+  const signUp = async (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string }) => {
+    if (import.meta.env.DEV) {
+      console.debug('[Auth] Starting sign-up', { email });
+    }
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          first_name: metadata?.firstName,
+          last_name: metadata?.lastName,
+          role: metadata?.role,
+        },
+      },
+    });
+
+    if (error) {
+      console.error('[Auth] Sign-up failed', { email, error });
+      throw error;
+    }
+
+    if (import.meta.env.DEV) {
+      console.debug('[Auth] Sign-up success', {
+        email,
+        hasSession: Boolean(data.session),
+        hasUser: Boolean(data.user),
+      });
+    }
+
+    if (data.user && metadata) {
+      // If we have a user and metadata, ensure we fetch the updated record
+      // This is helpful if there's a trigger that populates the users table
+      await fetchUserData(data.user.id);
+    }
+
+    return { data, error };
+  };
+
   const value = {
     user,
     session,
     loading,
     signIn,
     signOut,
+    signUp
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -39,9 +39,9 @@ export default function Login() {
       <div className="w-full max-w-md space-y-8">
         <header className="text-center">
           <div className="flex justify-center mb-4">
-            <img 
-              src="/logo.png" 
-              alt="Power Dime" 
+            <img
+              src="/logo.png"
+              alt="Power Dime"
               className="h-12"
             />
           </div>
@@ -100,6 +100,15 @@ export default function Login() {
               {isSubmitting || authLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+          <div className="text-center mt-4">
+            <button
+              type="button"
+              onClick={() => navigate('/onboarding')}
+              className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              Don't have an account? Sign up
+            </button>
+          </div>
         </div>
 
         {/* Demo Credentials - Collapsed by default for production-ready look */}

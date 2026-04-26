@@ -5,9 +5,10 @@ import Layout from './Layout';
 
 interface ProtectedRouteProps {
   children: ReactNode;
+  fullWidth?: boolean;
 }
 
-export default function ProtectedRoute({ children }: ProtectedRouteProps) {
+export default function ProtectedRoute({ children, fullWidth = false }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -25,5 +26,5 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  return <Layout>{children}</Layout>;
+  return <Layout fullWidth={fullWidth}>{children}</Layout>;
 }

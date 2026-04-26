@@ -6,6 +6,8 @@ import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Transactions from './pages/Transactions';
 import Documents from './pages/Documents';
+import Onboarding from './pages/Onboarding';
+import Forecast from './pages/Forecast';
 import JamMetadata from './components/JamMetadata';
 
 function App() {
@@ -47,6 +49,15 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/forecast"
+            element={
+              <ProtectedRoute fullWidth={true}>
+                <Forecast />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>

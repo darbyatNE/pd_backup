@@ -8,6 +8,8 @@ import documentRoutes from './routes/documents.js';
 import technicalDocumentRoutes from './routes/technicalDocuments.js';
 import powerPlanRoutes from './routes/powerPlans.js';
 import exampleDocumentRoutes from './routes/exampleDocuments.js';
+import onBoardingRoutes from './routes/onBoarding.js';
+
 import { errorHandler } from './middleware/errorHandler.js';
 import clientErrorLogger from './middleware/clientErrorLogger.js';
 
@@ -33,6 +35,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/technical-documents', technicalDocumentRoutes);
 app.use('/api/power-plans', powerPlanRoutes);
 app.use('/api/example-documents', exampleDocumentRoutes);
+app.use('/api/onboarding', onBoardingRoutes);
 
 // ==========================================
 // Optional: Client Error Reporting
