@@ -1,8 +1,6 @@
 import { useState, useRef } from 'react';
 import type { ReactNode, Dispatch, SetStateAction, ChangeEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { uploadBuyerDocument } from '../services/api';
-import type { FacilityType, BuyerDocumentCategory } from '../types';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
