@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import type { ReactNode, Dispatch, SetStateAction, ChangeEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../services/supabase';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -1046,7 +1047,22 @@ export default function Onboarding() {
                 });
                 // Capture the ID directly from the result
                 if (res?.data?.user?.id) {
-                    setRegisteredUserId(res.data.user.id);
+                    const userId = res.data.user.id;
+                    setRegisteredUserId(userId);
+
+                    // Update the users table record with profile details
+                    const fullName = `${accountData.firstName} ${accountData.lastName}`;
+                    const { error: updateError } = await supabase
+                        .from('users')
+                        .update({
+                            contact_person: fullName,
+                            role: accountData.role
+                        })
+                        .eq('id', userId);
+
+                    if (updateError) {
+                        console.warn('Profile update failed:', updateError);
+                    }
                 }
                 setStep(1);
             } catch (err) {

@@ -396,11 +396,16 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-  INSERT INTO public.users (id, email, role, created_at, updated_at)
+  INSERT INTO public.users (id, email, role, contact_person, created_at, updated_at)
   VALUES (
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'role', 'buyer'),
+    TRIM(CONCAT(
+      COALESCE(NEW.raw_user_meta_data->>'first_name', ''),
+      ' ',
+      COALESCE(NEW.raw_user_meta_data->>'last_name', '')
+    )),
     NOW(),
     NOW()
   )
