@@ -215,7 +215,7 @@ export default function Documents() {
 
     filteredDocs.forEach(doc => {
       // Check if this document was uploaded during onboarding
-      const meta = (doc as Record<string, unknown>).metadata as Record<string, unknown> | undefined;
+      const meta = ((doc as unknown) as { metadata?: Record<string, unknown> }).metadata;
       if (meta?.source === 'onboarding') {
         onboardingDocs.push(doc);
       } else if (doc.linkedProjectId) {
