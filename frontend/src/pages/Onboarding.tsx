@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { ReactNode, Dispatch, SetStateAction, ChangeEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
@@ -976,6 +977,7 @@ export default function Onboarding() {
     const [registeredUserId, setRegisteredUserId] = useState<string | null>(null);
     const [docs, setDocs] = useState<Doc[]>(INITIAL_DOCS);
     const [editDocId, setEditDocId] = useState<string | null>(null);
+    const navigate = useNavigate();
     const { user, signUp } = useAuth();
 
     // Unified state for Step 0 (Account)
@@ -1085,7 +1087,8 @@ export default function Onboarding() {
         setLoading(true);
         setError(null);
         try {
-            const response = await fetch('http://localhost:3000/api/onboarding/submit', {
+            // 1. Submit onboarding form data
+            const response = await fetch('/api/onboarding/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1096,6 +1099,27 @@ export default function Onboarding() {
 
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Failed to submit');
+
+            // 2. Upload checked documents that have files attached
+            const filesToUpload = docs.filter(d => d.checked && d.file);
+            if (filesToUpload.length > 0) {
+                const uploadFormData = new FormData();
+                filesToUpload.forEach(d => {
+                    if (d.file) uploadFormData.append('files', d.file);
+                });
+                uploadFormData.append('buyer_id', finalUserId);
+
+                const uploadRes = await fetch('/api/onboarding/onboardingdocs', {
+                    method: 'POST',
+                    body: uploadFormData,
+                });
+
+                const uploadResult = await uploadRes.json();
+                if (!uploadRes.ok) {
+                    console.warn('Document upload warning:', uploadResult.error);
+                    // Don't block onboarding success for upload failures
+                }
+            }
 
             // Success! Show success dialog
             setShowSuccess(true);
@@ -1109,12 +1133,16 @@ export default function Onboarding() {
     const goBack = () => setStep(s => Math.max(s - 1, 0));
 
     return (
-        <div className="flex h-screen overflow-hidden">
+        <div className="flex flex-col h-screen overflow-hidden">
+            <div className="flex flex-1 overflow-hidden">
             {/* Sidebar */}
             <aside className="w-[256px] flex-shrink-0 flex flex-col font-['Manrope']" style={{ background: 'rgba(13, 6, 48, 0.78)' }}>
-                <div className="h-[118px] flex items-center px-10 gap-3">
+                <div 
+                    onClick={() => navigate('/login')} 
+                    className="h-[118px] flex items-center px-10 gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                >
                     <img src="/favicon.png" alt="Power Dime" className="w-9 h-9 flex-shrink-0" />
-                    <span className="text-white font-extrabold text-2xl tracking-tight">Power Dime</span>
+                    <span className="text-white font-extrabold text-2xl tracking-tight whitespace-nowrap">Power Dime</span>
                 </div>
                 <nav className="flex-1 py-0 overflow-y-auto">
                     {STEPS.map((label, i) => (
@@ -1167,41 +1195,43 @@ export default function Onboarding() {
                     {step === 7 && <StepReview data={formData} onGoToStep={setStep} />}
                 </div>
 
-                {/* Bottom bar */}
-                <div className="h-[86px] flex-shrink-0 px-10 flex items-center justify-between" style={{ background: '#0D0630' }}>
-                    <button className="h-[34px] w-[202px] bg-[#F5F5F5] text-black text-base font-medium rounded-[7px] flex items-center justify-center transition-colors">
-                        Save & Finish Later
-                    </button>
-                    <div className="flex items-center gap-3">
-                        {step > 0 && (
-                            <button onClick={goBack} disabled={loading} className="h-[34px] px-5 border border-white/30 text-white text-sm rounded-lg hover:bg-white/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                                Back
-                            </button>
-                        )}
-                        {step < STEPS.length - 1 ? (
-                            <button
-                                onClick={goNext}
-                                disabled={loading}
-                                className="h-[34px] w-[94px] bg-[#F5F5F5] text-black text-base font-medium rounded-[7px] flex items-center justify-center gap-1 transition-colors disabled:opacity-70"
-                            >
-                                {loading ? '...' : 'Next'}
-                                {!loading && (
-                                    <svg className="w-4 h-4 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                                    </svg>
-                                )}
-                            </button>
-                        ) : (
-                            <button
-                                onClick={handleSubmit}
-                                disabled={loading}
-                                className="h-[34px] px-6 bg-teal-500 text-white text-sm font-semibold rounded-lg hover:bg-teal-600 transition-colors disabled:opacity-70"
-                            >
-                                {loading ? 'Submitting...' : 'Submit'}
-                            </button>
-                        )}
-                    </div>
+                </div>
+            </div>
+
+            {/* Bottom bar */}
+            <div className="h-[86px] flex-shrink-0 px-10 flex items-center justify-between" style={{ background: '#0D0630' }}>
+                <button className="h-[34px] w-[202px] bg-[#F5F5F5] text-black text-base font-medium rounded-[7px] flex items-center justify-center transition-colors">
+                    Save & Finish Later
+                </button>
+                <div className="flex items-center gap-3">
+                    {step > 0 && (
+                        <button onClick={goBack} disabled={loading} className="h-[34px] px-5 border border-white/30 text-white text-sm rounded-lg hover:bg-white/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                            Back
+                        </button>
+                    )}
+                    {step < STEPS.length - 1 ? (
+                        <button
+                            onClick={goNext}
+                            disabled={loading}
+                            className="h-[34px] w-[94px] bg-[#F5F5F5] text-black text-base font-medium rounded-[7px] flex items-center justify-center gap-1 transition-colors disabled:opacity-70"
+                        >
+                            {loading ? '...' : 'Next'}
+                            {!loading && (
+                                <svg className="w-4 h-4 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                </svg>
+                            )}
+                        </button>
+                    ) : (
+                        <button
+                            onClick={handleSubmit}
+                            disabled={loading}
+                            className="h-[34px] px-6 bg-teal-500 text-white text-sm font-semibold rounded-lg hover:bg-teal-600 transition-colors disabled:opacity-70"
+                        >
+                            {loading ? 'Submitting...' : 'Submit'}
+                        </button>
+                    )}
                 </div>
             </div>
 
