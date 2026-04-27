@@ -757,13 +757,13 @@ function StepReview({ data, onGoToStep }: { data: any; onGoToStep: (s: number) =
 
 // ─── Step 1 — Upload Documents ────────────────────────────────────────────────
 
-function StepUploadDocuments({ 
-    docs, 
-    setDocs, 
-    editDocId, 
-    setEditDocId 
-}: { 
-    docs: Doc[]; 
+function StepUploadDocuments({
+    docs,
+    setDocs,
+    editDocId,
+    setEditDocId
+}: {
+    docs: Doc[];
     setDocs: Dispatch<SetStateAction<Doc[]>>;
     editDocId: string | null;
     setEditDocId: (id: string | null) => void;
@@ -1056,47 +1056,6 @@ export default function Onboarding() {
             } finally {
                 setLoading(false);
             }
-        } else if (step === 1) {
-            // Document Upload Step
-            setLoading(true);
-            try {
-                // Group documents by category
-                const categoryMap: Record<string, File[]> = {};
-                const typeToCategory: Record<string, BuyerDocumentCategory> = {
-                    'Utility Bill': 'historical_invoice',
-                    'Energy Contract': 'utility_contract',
-                    'DCIM Export': 'meter_reading',
-                    'Planning Model': 'grid_data', // fallback
-                    'Storage Spec': 'equipment_spec',
-                    'Power Purchase Agreement': 'utility_contract'
-                };
-
-                docs.forEach(doc => {
-                    if (doc.file && doc.checked) {
-                        const cat = typeToCategory[doc.type] || 'historical_invoice';
-                        if (!categoryMap[cat]) categoryMap[cat] = [];
-                        categoryMap[cat].push(doc.file);
-                    }
-                });
-
-                const facilityType: FacilityType = formData.operational_status === 'Operational' ? 'brownfield' : 'greenfield';
-
-                // Upload each category
-                for (const [category, files] of Object.entries(categoryMap)) {
-                    await uploadBuyerDocument({
-                        files,
-                        facility_type: facilityType,
-                        document_category: category as BuyerDocumentCategory,
-                        plan_type: 'historical'
-                    });
-                }
-
-                setStep(2);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Upload failed.');
-            } finally {
-                setLoading(false);
-            }
         } else {
             setStep(s => Math.min(s + 1, STEPS.length - 1));
         }
@@ -1140,9 +1099,7 @@ export default function Onboarding() {
             {/* Sidebar */}
             <aside className="w-[256px] flex-shrink-0 flex flex-col font-['Manrope']" style={{ background: 'rgba(13, 6, 48, 0.78)' }}>
                 <div className="h-[118px] flex items-center px-10 gap-3">
-                    <div className="w-9 h-9 rounded-full border-2 border-teal-400 flex items-center justify-center flex-shrink-0">
-                        <div className="w-4 h-4 rounded-full border-2 border-teal-400" />
-                    </div>
+                    <img src="/favicon.png" alt="Power Dime" className="w-9 h-9 flex-shrink-0" />
                     <span className="text-white font-extrabold text-2xl tracking-tight">Power Dime</span>
                 </div>
                 <nav className="flex-1 py-0 overflow-y-auto">
