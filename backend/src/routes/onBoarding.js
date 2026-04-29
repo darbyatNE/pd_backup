@@ -45,7 +45,7 @@ router.post('/submit', async (req, res) => {
 // Configure multer for S3 uploads (max 15MB, stored under onboarding/ prefix)
 const uploadToS3 = createS3Upload('onboarding', 15);
 
-// POST /api/onboarding/onboardingdocs — Upload documents during onboarding
+// POST /api/onboarding/onboardingdocs — Upload onboarding documents
 // No auth required because the user just signed up and may not have a session yet.
 router.post('/onboardingdocs', uploadToS3.array('files', 10), async (req, res) => {
     try {
