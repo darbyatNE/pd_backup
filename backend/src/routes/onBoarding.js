@@ -46,7 +46,7 @@ router.post('/submit', async (req, res) => {
 const uploadToS3 = createS3Upload('onboarding', 15);
 
 // POST /api/onboarding/onboardingdocs — Upload onboarding documents
-// No auth required because the user just signed up and may not have a session yet.
+// No auth required because the user just signed up and may not have a session yet as session expires in 15 minutes.
 router.post('/onboardingdocs', uploadToS3.array('files', 10), async (req, res) => {
     try {
         const { buyer_id } = req.body;
