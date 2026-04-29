@@ -47,7 +47,6 @@ const uploadToS3 = createS3Upload('onboarding', 15);
 
 // POST /api/onboarding/onboardingdocs — Upload documents during onboarding
 // No auth required because the user just signed up and may not have a session yet.
-// The buyer_id is passed in the request body.
 router.post('/onboardingdocs', uploadToS3.array('files', 10), async (req, res) => {
     try {
         const { buyer_id } = req.body;
