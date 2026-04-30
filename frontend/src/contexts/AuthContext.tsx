@@ -103,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserId(null);
   };
 
-  const signUp = async (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string }) => {
+  const signUp = async (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string; title?: string }) => {
     if (import.meta.env.DEV) {
       console.debug('[Auth] Starting sign-up', { email });
     }
@@ -115,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           first_name: metadata?.firstName,
           last_name: metadata?.lastName,
           role: metadata?.role,
+          title: metadata?.title,
         },
       },
     });

@@ -108,7 +108,7 @@ export interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string }) => Promise<any>;
+  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string; title?: string }) => Promise<any>;
 }
 
 // Technical Documents
