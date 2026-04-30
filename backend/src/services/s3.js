@@ -86,7 +86,7 @@ export const createS3Upload = (folder, maxSizeMB = 25, options = {}) => {
         ...allowedFileTypes,
       ];
 
-      const allowedExtensions = ['.pdf', '.csv', '.tsv'];
+      const allowedExtensions = ['.pdf', '.csv', '.tsv', '.doc', '.docx', '.xls', '.xlsx'];
       const fileExt = file.originalname.toLowerCase().slice(file.originalname.lastIndexOf('.'));
 
       if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExt)) {

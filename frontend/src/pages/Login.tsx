@@ -14,7 +14,12 @@ export default function Login() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      navigate('/dashboard', { replace: true });
+      console.log('[Login] user.onboarding_completed:', user.onboarding_completed, '| role:', user.role);
+      if (user.role === 'buyer' && !user.onboarding_completed) {
+        navigate('/onboarding', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     }
   }, [authLoading, user, navigate]);
 
@@ -25,7 +30,7 @@ export default function Login() {
 
     try {
       await signIn(email, password);
-      navigate('/dashboard');
+      // Navigation handled by useEffect above once user state updates
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to sign in';
       setError(message);

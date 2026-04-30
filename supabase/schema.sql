@@ -376,6 +376,8 @@ DROP POLICY IF EXISTS "Buyers can view their own power plans" ON public.power_pl
 CREATE POLICY "Buyers can view their own power plans" ON public.power_plans FOR SELECT USING (auth.uid() = buyer_id);
 DROP POLICY IF EXISTS "Buyers can manage their own power plans" ON public.power_plans;
 CREATE POLICY "Buyers can manage their own power plans" ON public.power_plans FOR ALL USING (auth.uid() = buyer_id);
+DROP POLICY IF EXISTS "Allow onboarding document inserts" ON public.power_plans;
+CREATE POLICY "Allow onboarding document inserts" ON public.power_plans FOR INSERT WITH CHECK (true);
 
 -- Buyer projects
 DROP POLICY IF EXISTS "Buyers can view own projects" ON public.buyer_projects;

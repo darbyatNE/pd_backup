@@ -13,6 +13,8 @@ export interface User {
   company_name?: string;
   contact_person?: string;
   phone?: string;
+  title?: string;
+  onboarding_completed?: boolean;
   created_at?: string;
   updated_at?: string;
 }
