@@ -14,7 +14,12 @@ export default function Login() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      navigate('/dashboard', { replace: true });
+      console.log('[Login] user.onboarding_completed:', user.onboarding_completed, '| role:', user.role);
+      if (user.role === 'buyer' && !user.onboarding_completed) {
+        navigate('/onboarding', { replace: true });
+      } else {
+        navigate('/dashboard', { replace: true });
+      }
     }
   }, [authLoading, user, navigate]);
 
@@ -25,7 +30,7 @@ export default function Login() {
 
     try {
       await signIn(email, password);
-      navigate('/dashboard');
+      // Navigation handled by useEffect above once user state updates
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to sign in';
       setError(message);
@@ -39,9 +44,9 @@ export default function Login() {
       <div className="w-full max-w-md space-y-8">
         <header className="text-center">
           <div className="flex justify-center mb-4">
-            <img 
-              src="/logo.png" 
-              alt="Power Dime" 
+            <img
+              src="/logo.png"
+              alt="Power Dime"
               className="h-12"
             />
           </div>
@@ -100,6 +105,15 @@ export default function Login() {
               {isSubmitting || authLoading ? 'Signing in...' : 'Sign In'}
             </button>
           </form>
+          <div className="text-center mt-4">
+            <button
+              type="button"
+              onClick={() => navigate('/onboarding')}
+              className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"
+            >
+              Don't have an account? Sign up
+            </button>
+          </div>
         </div>
 
         {/* Demo Credentials - Collapsed by default for production-ready look */}

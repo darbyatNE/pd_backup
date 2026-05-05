@@ -6,6 +6,8 @@ import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Transactions from './pages/Transactions';
 import Documents from './pages/Documents';
+import Onboarding from './pages/Onboarding';
+import Forecast from './pages/Forecast';
 import MapPage from './pages/Map';
 import JamMetadata from './components/JamMetadata';
 
@@ -45,6 +47,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <Documents />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/onboarding"
+            element={
+              <ProtectedRoute>
+                <Onboarding />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/forecast"
+            element={
+              <ProtectedRoute>
+                <Forecast />
               </ProtectedRoute>
             }
           />

@@ -8,6 +8,7 @@ import { Menu, Transition } from '@headlessui/react';
 
 interface LayoutProps {
   children: ReactNode;
+  fullWidth?: boolean;
 }
 
 const getNavLinks = (role?: string) => {
@@ -21,12 +22,13 @@ const getNavLinks = (role?: string) => {
   links.push(
     { path: '/transactions', label: 'Transactions' },
     { path: '/documents', label: 'Documents' },
+    { path: '/forecast', label: 'Forecast' },
     { path: '/map', label: 'Map' },
   );
   return links;
 };
 
-export default function Layout({ children }: LayoutProps) {
+export default function Layout({ children, fullWidth = false }: LayoutProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -58,7 +60,7 @@ export default function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Navigation Header */}
       <header className="sticky top-0 z-[60] w-full border-b border-slate-200 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className={`mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
           {/* Logo */}
           <Link to="/" className="flex items-center group">
             <img
@@ -156,7 +158,7 @@ export default function Layout({ children }: LayoutProps) {
       />
 
       {/* Main Content */}
-      <main className="relative mx-auto flex w-full max-w-7xl flex-1 flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
+      <main className={`relative mx-auto flex w-full flex-1 flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
         {children}
       </main>
 

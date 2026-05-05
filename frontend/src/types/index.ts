@@ -13,6 +13,8 @@ export interface User {
   company_name?: string;
   contact_person?: string;
   phone?: string;
+  title?: string;
+  onboarding_completed?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -106,6 +108,7 @@ export interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string; title?: string }) => Promise<any>;
 }
 
 // Technical Documents

@@ -52,7 +52,7 @@ export default function Documents() {
   const [filterStage, setFilterStage] = useState<string>('All');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [projectFolders, setProjectFolders] = useState<ProjectFolder[]>([]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['general']));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['general', 'onboarding']));
 
 
 
@@ -211,9 +211,14 @@ export default function Documents() {
     const groups: { folderId: string; folderName: string; folderType?: string; docs: DocumentItem[] }[] = [];
     const projectMap = new Map<string, DocumentItem[]>();
     const generalDocs: DocumentItem[] = [];
+    const onboardingDocs: DocumentItem[] = [];
 
     filteredDocs.forEach(doc => {
-      if (doc.linkedProjectId) {
+      // Check if this document was uploaded during onboarding
+      const meta = ((doc as unknown) as { metadata?: Record<string, unknown> }).metadata;
+      if (meta?.source === 'onboarding') {
+        onboardingDocs.push(doc);
+      } else if (doc.linkedProjectId) {
         const existing = projectMap.get(doc.linkedProjectId) || [];
         existing.push(doc);
         projectMap.set(doc.linkedProjectId, existing);
@@ -221,6 +226,16 @@ export default function Documents() {
         generalDocs.push(doc);
       }
     });
+
+    // Onboarding folder first
+    if (onboardingDocs.length > 0) {
+      groups.push({
+        folderId: 'onboarding',
+        folderName: 'Onboarding Documents',
+        folderType: 'onboarding',
+        docs: onboardingDocs,
+      });
+    }
 
     // Add project folders (even if empty, to show folder structure)
     projectFolders.forEach(folder => {
