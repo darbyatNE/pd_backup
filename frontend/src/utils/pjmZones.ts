@@ -62,6 +62,68 @@ const ZONE_COORDS: Record<string, [number, number]> = {
   'dc':              [-77.0369, 38.9072],
   'washington dc':   [-77.0369, 38.9072],
   'north carolina':  [-79.0193, 35.7596],
+
+  // ISO-NE states and regions
+  'maine':           [-69.4455, 45.2538],
+  'new hampshire':   [-71.5724, 43.1939],
+  'vermont':         [-72.5778, 44.0459],
+  'connecticut':     [-72.7273, 41.6032],
+  'rhode island':    [-71.4774, 41.5801],
+  // Massachusetts: coast entry takes precedence over state centroid for offshore wind
+  'massachusetts coast':     [-70.2, 41.5],   // Cape Cod / offshore wind corridor
+  'massachusetts coastal':   [-70.2, 41.5],
+  'offshore massachusetts':  [-70.1, 41.4],
+  'massachusetts, usa':      [-70.2, 41.5],   // seed data format — pin at coast
+  'massachusetts':           [-71.8, 42.1],   // state centroid fallback
+
+  // NYISO states and regions
+  'new york':        [-74.2179, 43.2994],
+  'new york city':   [-73.9857, 40.7484],
+  'long island':     [-73.1496, 40.7891],
+  'upstate new york':[-75.5268, 43.1009],
+
+  // MISO states and regions
+  'minnesota':       [-94.6859, 46.3797],
+  'wisconsin':       [-89.6165, 44.2685],
+  'iowa':            [-93.0977, 42.0046],
+  'missouri':        [-92.3580, 38.5767],
+  'arkansas':        [-92.3731, 34.9697],
+  'louisiana':       [-91.9623, 31.1695],
+  'mississippi':     [-89.3985, 32.7416],
+  'alabama':         [-86.9023, 32.3182],
+
+  // West Ohio cities (AEP / DAY / DEOK PJM zones)
+  'dayton, oh':      [-84.19, 39.76],
+  'dayton, ohio':    [-84.19, 39.76],
+  'lima, oh':        [-84.11, 40.74],
+  'lima, ohio':      [-84.11, 40.74],
+  'findlay, oh':     [-83.65, 41.04],
+  'findlay, ohio':   [-83.65, 41.04],
+  'toledo, oh':      [-83.56, 41.66],
+  'toledo, ohio':    [-83.56, 41.66],
+  'columbus, oh':    [-83.00, 39.96],
+  'columbus, ohio':  [-83.00, 39.96],
+  'cincinnati, oh':  [-84.51, 39.10],
+  'cincinnati, ohio':[-84.51, 39.10],
+
+  // ERCOT / Texas regions — explicit entries override partial 'texas' match
+  'west texas':      [-101.5, 31.9],   // ERCOT West — Permian Basin wind/solar corridor
+  'west texas, usa': [-101.5, 31.9],
+  'permian basin':   [-102.3, 31.5],
+  'texas coast':     [-97.0, 27.8],    // South Texas / Gulf coast solar
+  'south texas':     [-98.5, 29.0],
+  'north texas':     [-97.3, 33.2],
+  'texas':           [-99.3, 31.0],    // ERCOT general centroid
+  'texas, usa':      [-99.3, 31.0],
+
+  // Southeast states (SERC/TVA — no zone overlay yet but within eastern grid)
+  'florida':         [-81.5158, 27.6648],
+  'georgia':         [-83.6431, 32.1656],
+  'south carolina':  [-80.8964, 33.8361],
+  'tennessee':       [-86.6923, 35.5175],
+
+  // WECC and SPP states intentionally omitted — no zone overlays loaded for those ISOs.
+  // Projects with locations in CA, OR, WA, AZ, NV, CO, WY, MT, NM will appear as Unmapped.
 };
 
 export function getZoneCoords(location: string): [number, number] | null {

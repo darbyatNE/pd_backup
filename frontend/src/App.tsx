@@ -69,7 +69,7 @@ function App() {
           <Route
             path="/map"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute fullWidth>
                 <MapPage />
               </ProtectedRoute>
             }

@@ -59,6 +59,10 @@ infrastructure/**/*.tfstate.backup
 *.pem
 credentials.json
 
+# GeoJSON zone overlays — only PJM is committed; others are sourced locally
+frontend/public/*.geojson
+!frontend/public/PJM_zones.geojson
+
 # Misc
 .cache/
 temp/
