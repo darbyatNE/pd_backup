@@ -4,16 +4,16 @@
 
 ## What Problem Does This Solve?
 
-Energy markets are fragmented. Different regions have different operators (like PJM on the East Coast, ERCOT in Texas), and each publishes their own pricing and demand data. 
+Energy markets are fragmented. Different regions have different operators (PJM on the East Coast, MISO in the Midwest, ERCOT in Texas), and each publishes pricing and demand data in different formats.
 
 **The Challenge**: 
-- Data comes from multiple sources
-- Similar information has different formats and labels
+- Data comes from multiple sources with different formats and labels
 - Need to compare prices and trends across regions
-- Must track historical information for forecasting
+- Must track every pricing node (pnode) per ISO for accurate LMP analysis
+- Must maintain historical information for forecasting
 
 **The Solution**: 
-A single database that stores all this data in a consistent, organized way so our ML engineer(s) can analyze it together.
+A single database that stores all this data in a consistent, organized way — covering all pricing nodes for PJM, MISO, and ERCOT — so our ML engineer(s) can analyze it together. The schema is designed for easy expansion to additional ISOs in North America and abroad.
 
 ---
 
@@ -21,17 +21,24 @@ A single database that stores all this data in a consistent, organized way so ou
 
 ### 1. **Electricity Prices by Location** (da_lmp table)
 
-**Example**: 
-- On April 22 at 2 PM, electricity in Philadelphia cost $45.50/MWh
-- Same day, same time, it cost $43.20/MWh in Pittsburgh
-- Database stores each price with exact time and location
+Day-ahead LMP (Locational Marginal Price) broken into three components: energy, congestion, and loss — stored for every pricing node across PJM, MISO, and ERCOT.
 
-### 2. **Electricity Demand by Region** (zonal_load table)
-Daily forecast and actual measurements of how much power each region needs.
+**Example**: 
+- On April 22 at 2 PM, electricity at a Philadelphia pnode cost $44.50/MWh total (energy $42.15 + congestion $1.80 + loss $0.55)
+- Same time, a Pittsburgh pnode was $41.30/MWh — less congestion in that corridor
+
+### 1a. **Pricing Node Registry** (iso_lmps table)
+All pnodes for each ISO are catalogued here with their type, subtype, and validity window. This is the master list that links `da_lmp` records to named locations.
+
+**Example**: 
+- PJM node 33092371 = "CPLVARNER" (a generation hub in Virginia), effective from 2015-01 onward
+
+### 2. **Electricity Demand by Region** (historical_load_forecasts table)
+Load forecasts and actuals by area for each ISO — used as a key input signal for price forecasting models.
 
 **Example**:
-- PJM's eastern zone will use 15,000 MW tomorrow at peak hours
-- Actual usage was 14,750 MW (for comparison against forecast)
+- PJM forecasted 15,000 MW for the DOM zone tomorrow at peak hours
+- MISO forecasted 22,500 MW for its Illinois/Indiana zone at the same time
 
 ### 3. **Power Line Outages** (transmission_outage table)
 When transmission lines go down for maintenance or emergency, we track it.
@@ -53,9 +60,9 @@ PJM and ERCOT REC futures prices for renewable energy trading.
 
 ### **Reference Folders** (Look-Up Tables)
 These are like master lists that everything else refers to:
-- **ISO Operators**: PJM, ERCOT (who runs each market)
-- **Geographic Zones**: East zone, West zone, South zone (areas within PJM)
-- **Specific Locations (Buses)**: Philadelphia station, Pittsburgh station (exact points where prices are measured)
+- **ISO Operators**: PJM, MISO, ERCOT — identified by UUID for portability; new ISOs can be added with a single row
+- **Pricing Nodes (Pnodes)**: Every node for each ISO, with type classification and validity dates — all loaded for PJM, MISO, and ERCOT
+- **Physical Buses**: Individual substations with geographic coordinates
 - **Gas Trading Hubs**: Henry Hub, Pennsylvania hub, Texas hub
 
 ### **Data Folders** (Actual Measurements)
@@ -84,9 +91,7 @@ Problem: Someone accidentally deletes PJM from the system, what happens to all t
 - Result: Data integrity—you can't accidentally lose interconnected information
 
 ### 3. **Built to Scale**
-Problem: What if we add MISO (Midwest) or NYISO (New York)?
-- Our solution: New ISOs fit into the same structure without redesign
-- Result: Easy expansion to new markets
+PJM, MISO, and ERCOT are active. Adding NYISO, CAISO, or international ISOs requires only adding a row to `iso_registry` and loading their pnodes — no schema rewrites needed.
 
 ### 6. **Fast Data Retrieval**
 Problem: "Show me all prices in PJM for the last 30 days"—scanning billions of records would be slow
@@ -150,10 +155,13 @@ This database feeds the **Expected Value Model**—the intelligent engine that p
 
 ## Current Status
 
-Database is deployed on Amazon EC2  
-All tables created and ready for data  
-Foundation includes PJM and ERCOT structure  
-Supports 6 natural gas basis markets (Henry Hub + regional hubs)   
+Database is deployed on Supabase  
+All tables created and active  
+**Three ISOs live**: PJM, MISO, and ERCOT — data access credentials in place for all three  
+**All pnodes loaded** for PJM, MISO, and ERCOT — tracked in `iso_lmps` with type and validity metadata  
+DA LMP schema captures full price decomposition: energy, congestion, and loss components per node  
+Supports 6 natural gas basis markets (Henry Hub + regional hubs)  
 Includes REC futures tables for PJM and ERCOT renewable energy trading  
+Schema designed for easy expansion to additional ISOs in North America and abroad  
 Designed to prevent common data problems (duplicates, orphaned records, timezone confusion)  
-Two-tier modeling strategy implemented for scalable ML forecasting
+Two-tier modeling strategy in place for scalable ML forecasting

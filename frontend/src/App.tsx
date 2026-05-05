@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Transactions from './pages/Transactions';
 import Documents from './pages/Documents';
+import MapPage from './pages/Map';
 import JamMetadata from './components/JamMetadata';
 
 function App() {
@@ -44,6 +45,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Documents />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/map"
+            element={
+              <ProtectedRoute>
+                <MapPage />
               </ProtectedRoute>
             }
           />

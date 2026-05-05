@@ -21,6 +21,7 @@ const getNavLinks = (role?: string) => {
   links.push(
     { path: '/transactions', label: 'Transactions' },
     { path: '/documents', label: 'Documents' },
+    { path: '/map', label: 'Map' },
   );
   return links;
 };

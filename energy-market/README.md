@@ -4,16 +4,17 @@ This module contains the PostgreSQL schema and architecture for the Power Dime e
 
 ## Overview
 
-- **Database**: PostgreSQL 18+ on AWS EC2
-- **Purpose**: Store and analyze electricity prices, demand, outages, natural gas prices, and REC futures across PJM and ERCOT markets
-- **Architecture**: Multi-tenant design with UTC timestamps, referential integrity, and two-tier ML modeling
+- **Database**: PostgreSQL 18+ on Supabase
+- **Purpose**: Store and analyze electricity prices, demand, outages, natural gas prices, and REC futures across PJM, MISO, and ERCOT markets
+- **Architecture**: Multi-ISO design with UUID-based registry, UTC timestamps, referential integrity, and two-tier ML modeling
+- **Coverage**: All pricing nodes (pnodes) loaded for PJM, MISO, and ERCOT — tracked in the `iso_lmps` registry table
 
 ## Files
 
 - `schema_iso_market_data.sql`: Complete PostgreSQL DDL schema
 - `ARCHITECTURE_v2.md`: Detailed technical architecture documentation
 - `ARCHITECTURE_SUMMARY.md`: High-level overview and business context
-- `config/ec2-db.example.json`: Template for EC2 database connection (copy and configure local only)
+- `config/supabase-db.example.json`: Template for Supabase database connection (copy and configure local only)
 
 ## Quick Start for Team
 
@@ -23,15 +24,15 @@ This module contains the PostgreSQL schema and architecture for the Power Dime e
 
 ## Setup
 
-1. Copy `config/ec2-db.example.json` to `config/ec2-db.json` and fill in your credentials
-2. Ensure SSH access to EC2 instance with the specified key
-3. Schema is already deployed to EC2 - see architecture docs for details
+1. Copy `config/supabase-db.example.json` to `config/supabase-db.json` and fill in your credentials
+2. Ensure you have your Supabase project URL and service role key configured
+3. Schema is already deployed to Supabase - see architecture docs for details
 
 ## Future Development
 
-- API scripts for data ingestion (PJM Data Miner 2, ICE feeds)
 - ML models for price forecasting
 - Dashboard for PPA analysis
+- Expansion to additional ISOs (NYISO, CAISO, SPP)
 
 ## Collaboration
 
