@@ -10,6 +10,192 @@ import {
   SkeletonFilters,
   SkeletonTransactionCard
 } from '../components/Skeleton';
+import { LOAD_PROFILES } from '../data/loadProfile';
+import {
+  getAllocation,
+  setAllocation,
+  defaultAllocation,
+  normalize,
+  type AllocationMap,
+} from '../utils/transactionAllocations';
+
+const SITE_LABEL: Record<string, string> = Object.fromEntries(
+  LOAD_PROFILES.map((p) => [p.siteKey, p.name]),
+);
+
+// ─── Per-transaction allocation panel + edit dialog ─────────────────────────
+
+function AllocationPanel({
+  txnId,
+  energyMwh,
+  onEdit,
+  refreshKey,
+}: {
+  txnId: string;
+  energyMwh: number;
+  onEdit: () => void;
+  refreshKey: number;
+}) {
+  // refreshKey just forces a re-read after the editor saves
+  const allocation = useMemo<AllocationMap>(() => {
+    return getAllocation(txnId)
+      ?? defaultAllocation(LOAD_PROFILES.map((p) => p.siteKey));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txnId, refreshKey]);
+
+  const entries = Object.entries(allocation).filter(([, pct]) => pct > 0);
+  const isSplit = entries.length > 1;
+
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+          Allocated to {isSplit ? `(${entries.length} sites · split)` : ''}
+        </p>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-[11px] font-medium text-teal-700 hover:text-teal-900"
+        >
+          {isSplit ? 'Edit split' : 'Split…'}
+        </button>
+      </div>
+      <ul className="space-y-1">
+        {entries.map(([siteKey, pct]) => {
+          const mw = Math.round((energyMwh * pct) / 100);
+          return (
+            <li key={siteKey} className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-slate-800 truncate">
+                {SITE_LABEL[siteKey] ?? siteKey}
+              </span>
+              <span className="flex-shrink-0 text-slate-500">
+                {pct.toFixed(1)}% · <span className="text-slate-700 font-semibold">{mw.toLocaleString()} MWh</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function AllocationEditor({
+  txnId,
+  projectName,
+  energyMwh,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  txnId: string;
+  projectName: string;
+  energyMwh: number;
+  initial: AllocationMap;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // Local edit state — keyed by every site, defaulting to current alloc or 0
+  const [draft, setDraft] = useState<AllocationMap>(() => {
+    const seed: AllocationMap = {};
+    LOAD_PROFILES.forEach((p) => { seed[p.siteKey] = initial[p.siteKey] ?? 0; });
+    return seed;
+  });
+
+  const total = Object.values(draft).reduce((s, v) => s + v, 0);
+  const isValid = total > 0;
+
+  const update = (siteKey: string, raw: string) => {
+    const v = Math.max(0, Math.min(100, Number(raw) || 0));
+    setDraft({ ...draft, [siteKey]: v });
+  };
+
+  const save = () => {
+    const cleaned: AllocationMap = {};
+    Object.entries(draft).forEach(([k, v]) => { if (v > 0) cleaned[k] = v; });
+    const final = Math.abs(total - 100) > 0.5 ? normalize(cleaned) : cleaned;
+    setAllocation(txnId, final);
+    onSaved();
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-[92%] p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-base font-bold text-slate-900 mb-1">Split contract allocation</h3>
+        <p className="text-xs text-slate-500 mb-4">
+          {projectName} · {energyMwh.toLocaleString()} MWh · distribute across the buyer sites that this contract covers.
+        </p>
+
+        <div className="space-y-2.5">
+          {LOAD_PROFILES.map((p) => {
+            const pct = draft[p.siteKey] ?? 0;
+            const mw = Math.round((energyMwh * pct) / 100);
+            return (
+              <div key={p.siteKey} className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{p.name}</p>
+                  <p className="text-[11px] text-slate-400">{p.location} · {p.settlementZone}</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={pct}
+                    onChange={(e) => update(p.siteKey, e.target.value)}
+                    className="w-16 rounded-md border border-slate-200 px-2 py-1 text-sm text-right outline-none focus:border-teal-400"
+                  />
+                  <span className="text-xs text-slate-400">%</span>
+                  <span className="text-[11px] text-slate-500 w-20 text-right">
+                    {mw.toLocaleString()} MWh
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className={`mt-4 rounded-md px-3 py-2 text-xs ${
+          Math.abs(total - 100) < 0.5
+            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            : 'bg-amber-50 text-amber-700 border border-amber-200'
+        }`}>
+          Total: <strong>{total.toFixed(1)}%</strong>
+          {Math.abs(total - 100) >= 0.5 && (
+            <span className="ml-2">— will be normalized to 100% on save.</span>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs font-medium px-3 py-1.5 rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!isValid}
+            onClick={save}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
+              isValid ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            Save split
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type StatusFilter = 'all' | TransactionStatus;
 type ActionKind = 'success' | 'error';
@@ -33,6 +219,8 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [editingAllocationFor, setEditingAllocationFor] = useState<Transaction | null>(null);
+  const [allocationVersion, setAllocationVersion] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
@@ -217,7 +405,7 @@ export default function Transactions() {
               <p className="mt-1 text-xl sm:text-2xl font-semibold text-slate-900">{metrics.total}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
-              <p className="text-xs font-medium text-amber-600">Submitted</p>
+              <p className="text-xs font-medium text-amber-600">In Progress</p>
               <p className="mt-1 text-xl sm:text-2xl font-semibold text-slate-900">{metrics.submitted}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
@@ -243,7 +431,7 @@ export default function Transactions() {
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                   >
-                    {filter}
+                    {filter === 'submitted' ? 'In Progress' : filter}
                   </button>
                 ))}
               </div>
@@ -299,7 +487,10 @@ export default function Transactions() {
                                 {transaction.project?.generation_type} • {transaction.project?.location}
                               </p>
                             </div>
-                            <StatusBadge status={transaction.status} />
+                            <StatusBadge
+                              status={transaction.status}
+                              label={transaction.status === 'submitted' ? 'In Progress' : undefined}
+                            />
                           </div>
 
                           <div className="grid gap-4 sm:gap-5 grid-cols-3">
@@ -339,8 +530,18 @@ export default function Transactions() {
                           </p>
                           <p className="mt-1.5 text-base font-semibold text-slate-900 truncate">{counterpartName}</p>
                           <p className="mt-3 text-xs sm:text-sm text-slate-500">
-                            Submitted: {formatDate(transaction.created_at)}
+                            Created: {formatDate(transaction.created_at)}
                           </p>
+
+                          {/* Site allocation — only meaningful for accepted contracts */}
+                          {transaction.status === 'accepted' && (
+                            <AllocationPanel
+                              txnId={transaction.id}
+                              energyMwh={transaction.energy_amount_mwh}
+                              onEdit={() => setEditingAllocationFor(transaction)}
+                              refreshKey={allocationVersion}
+                            />
+                          )}
 
                           {userRole === 'seller' && transaction.status === 'submitted' && (
                             <div className="mt-4 sm:mt-5 space-y-2.5">
@@ -371,6 +572,20 @@ export default function Transactions() {
             )}
           </section>
         </>
+      )}
+
+      {editingAllocationFor && (
+        <AllocationEditor
+          txnId={editingAllocationFor.id}
+          projectName={editingAllocationFor.project?.name ?? 'Untitled project'}
+          energyMwh={editingAllocationFor.energy_amount_mwh}
+          initial={
+            getAllocation(editingAllocationFor.id)
+              ?? defaultAllocation(LOAD_PROFILES.map((p) => p.siteKey))
+          }
+          onClose={() => setEditingAllocationFor(null)}
+          onSaved={() => setAllocationVersion((v) => v + 1)}
+        />
       )}
     </div>
   );

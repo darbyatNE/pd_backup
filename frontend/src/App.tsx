@@ -1,5 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { ScopeProvider } from './contexts/ScopeContext';
+import { DashboardViewProvider } from './contexts/DashboardViewContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -8,12 +10,15 @@ import Transactions from './pages/Transactions';
 import Documents from './pages/Documents';
 import Onboarding from './pages/Onboarding';
 import Forecast from './pages/Forecast';
+import Planning from './pages/Planning';
 import MapPage from './pages/Map';
 import JamMetadata from './components/JamMetadata';
 
 function App() {
   return (
     <AuthProvider>
+      <ScopeProvider>
+      <DashboardViewProvider>
       <JamMetadata />
       <Router>
         <Routes>
@@ -21,7 +26,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute fullWidth>
                 <Dashboard />
               </ProtectedRoute>
             }
@@ -67,6 +72,14 @@ function App() {
             }
           />
           <Route
+            path="/planning"
+            element={
+              <ProtectedRoute>
+                <Planning />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/map"
             element={
               <ProtectedRoute fullWidth>
@@ -77,6 +90,8 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>
+      </DashboardViewProvider>
+      </ScopeProvider>
     </AuthProvider>
   );
 }

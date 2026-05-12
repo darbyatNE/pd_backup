@@ -1,0 +1,155 @@
+import { useState } from 'react';
+import { useScopeContext } from '../contexts/ScopeContext';
+import { LOAD_PROFILES } from '../data/loadProfile';
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const YEARS = [2026, 2027, 2028, 2029, 2030];
+
+const SHORT_NAMES: Record<string, string> = {
+  'ashburn-dc':          'Ashburn DC',
+  'manassas-industrial': 'Manassas Ind.',
+  'sterling-hyperscale': 'Sterling HC',
+};
+
+interface ScopeBarProps {
+  fullWidth?: boolean;
+}
+
+export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
+  const {
+    selectedSites, startYear, startMonth, endYear, endMonth,
+    toggleSite, setStartDate, setEndDate,
+  } = useScopeContext();
+
+  // Filter elements (checkboxes + date dropdowns) collapse to a tag-style
+  // summary by default; click "Edit scope" to reveal the editor.
+  const [editing, setEditing] = useState(false);
+
+  const dateRangeLabel = `${MONTH_NAMES[startMonth - 1]} ${startYear} – ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
+
+  return (
+    <div className="border-t border-slate-100 bg-white/90">
+      <div className={`mx-auto flex min-h-10 items-center gap-3 px-4 sm:px-6 lg:px-8 py-1.5 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
+
+        {!editing ? (
+          /* ── Compact summary: site tags with check status + date range ── */
+          <>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
+              Scope
+            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {LOAD_PROFILES.map((p) => {
+                const checked = selectedSites.includes(p.siteKey);
+                return (
+                  <span
+                    key={p.siteKey}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                      checked
+                        ? 'bg-teal-50 border-teal-200 text-teal-700'
+                        : 'bg-slate-50 border-slate-200 text-slate-400 line-through'
+                    }`}
+                    title={checked ? `${SHORT_NAMES[p.siteKey] ?? p.name} — in scope` : `${SHORT_NAMES[p.siteKey] ?? p.name} — out of scope`}
+                  >
+                    <span aria-hidden className={checked ? 'text-teal-600' : 'text-slate-300'}>
+                      {checked ? '✓' : '○'}
+                    </span>
+                    {SHORT_NAMES[p.siteKey] ?? p.name}
+                  </span>
+                );
+              })}
+            </div>
+            <span className="w-px h-4 bg-slate-200 flex-shrink-0" />
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
+              <span aria-hidden className="text-slate-400">📅</span>
+              {dateRangeLabel}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+            >
+              <span aria-hidden>⚙</span> Edit scope
+            </button>
+          </>
+        ) : (
+          /* ── Editor: site checkboxes + date dropdowns (the prior UI) ── */
+          <>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
+              Sites
+            </span>
+            <div className="flex items-center gap-4 flex-wrap">
+              {LOAD_PROFILES.map((p) => {
+                const checked = selectedSites.includes(p.siteKey);
+                return (
+                  <label key={p.siteKey} className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSite(p.siteKey)}
+                      className="w-3.5 h-3.5 rounded accent-teal-600 cursor-pointer"
+                    />
+                    <span className={`text-xs font-medium transition-colors ${checked ? 'text-slate-700' : 'text-slate-400'}`}>
+                      {SHORT_NAMES[p.siteKey] ?? p.name}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            <span className="w-px h-4 bg-slate-200 flex-shrink-0" />
+
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
+              Range
+            </span>
+            <div className="flex items-center gap-2 text-xs flex-wrap">
+              <select
+                value={startMonth}
+                onChange={(e) => setStartDate(startYear, Number(e.target.value))}
+                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+              >
+                {MONTH_NAMES.map((m, i) => (
+                  <option key={m} value={i + 1}>{m}</option>
+                ))}
+              </select>
+              <select
+                value={startYear}
+                onChange={(e) => setStartDate(Number(e.target.value), startMonth)}
+                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+              >
+                {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+
+              <span className="text-slate-400 font-medium">→</span>
+
+              <select
+                value={endMonth}
+                onChange={(e) => setEndDate(endYear, Number(e.target.value))}
+                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+              >
+                {MONTH_NAMES.map((m, i) => (
+                  <option key={m} value={i + 1}>{m}</option>
+                ))}
+              </select>
+              <select
+                value={endYear}
+                onChange={(e) => setEndDate(Number(e.target.value), endMonth)}
+                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+              >
+                {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="ml-auto inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-800 transition-colors"
+            >
+              Done
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,910 @@
+"Issue ID","Issue Type","Summary","Labels","Start Date","Due Date","Sprint","Parent ID","Description"
+"PD-001","Story","Three-page Planning Dashboard with persistent scope and component sub-tabs","planning-module, completed","2026-04-26","2026-04-28","Sprint 1","","Plan / Map / Evaluate top-level dashboard with persistent scope header (site multi-select + duration) and a Capacity / Energy / RECs sub-tab row shared across Plan and Evaluate. Sub-tab state persists across page switches.
+
+ACCEPTANCE CRITERIA:
+- [x] Plan, Map, Evaluate routes wired and gated by ProtectedRoute
+- [x] Scope bar collapse/expand with site checkboxes + start/end year
+- [x] Component sub-tab row visible on Plan and Evaluate (hidden on Map)
+- [x] Cross-page sub-tab state preserved"
+"PD-002","Story","Integrate year-aware load and capacity data structures (multi-year scope, mid-year bumps)","planning-module, completed, math-integration","2026-04-28","2026-04-30","Sprint 1","","Wire the UI and data layer to consume year-aware load multipliers and capacity data. Ensure aggregate-aware helpers (getEffectiveLoadAt, getSiteCapacityForYear) correctly feed the Planning Module charts.
+
+ACCEPTANCE CRITERIA:
+- [x] LoadAdjustment + CapacityByYear types integrated into SiteLoadProfile schema
+- [x] getEffectiveLoadAt data flow handles single-site and aggregate paths correctly
+- [x] All charts and Risk Report read year-aware values (no static fallthroughs)
+- [x] Manassas +25% Jul 2027 demo bump visible everywhere"
+"PD-003","Story","2D + 3D load forecast & procurement chart with contract gen-shape tracking","planning-module, completed, chart","2026-04-30","2026-05-02","Sprint 1","","Plan→Energy chart: 2D mode renders per-hour or per-month bars with teal baseload + amber peak tier backgrounds and per-contract pattern shading. 3D mode shows oblique ribbon (X=hour, Y=MW, Z=month). Contract MW tracks load via getContractLoadMultAt. Over-hedge renders below y=0 in red pattern.
+
+ACCEPTANCE CRITERIA:
+- [x] Hours / Months toggle, year tabs, All years mode for multi-year scope
+- [x] Contract dataKeys are project-name-based for stable Recharts stacking
+- [x] Contract bars cap at totalLoad; excess routes to negative overhedge slot
+- [x] stackOffset=sign applied so over-hedge anchors at y=0 going down"
+"PD-004","Story","Capacity coverage chart with documented expansion stepping","planning-module, completed, chart","2026-05-02","2026-05-04","Sprint 1","","Capacity sub-tab single-color (indigo) capacity bar with per-source SVG patterns. Bar height steps year-over-year for documented expansions.
+
+ACCEPTANCE CRITERIA:
+- [x] CapacityCoverageChart component built per LoadShape2D conventions
+- [x] LINKED_CAPACITY_SOURCES fixture seeds Ashburn 50 + Manassas 30 BRA
+- [x] Sterling renders as fully-uncovered greenfield site
+- [x] Bar height respects getSiteCapacityForYear per row"
+"PD-005","Story","Per-site capacity cards with brownfield + greenfield decision panels","planning-module, completed","2026-05-04","2026-05-06","Sprint 1","","SiteCapacityCard component: brownfield sites show BRA pass-through panel; greenfield sites show options table (Utility Queue, multi-year fixed, BTM BESS, BTM Mini-NG). View Document, Solicit RFQ, BRA History dialogs.
+
+ACCEPTANCE CRITERIA:
+- [x] Brownfield + greenfield panels render based on SITE_CAPACITY_META
+- [x] View Document → Documents page in selection mode
+- [x] Solicit RFQ → ComingSoonDialog with Contracting Module reference
+- [x] View BRA History → ComingSoonDialog with feed-launch reference"
+"PD-006","Story","Risk Report — summary cards + risk decomposition + Contracted Position","planning-module, completed, risk-report","2026-05-05","2026-05-07","Sprint 1","","Evaluate page: 5 summary cards (Baseline, Proposed P50, Savings, Contracted Coverage, Total Load Scope), 5-row risk decomposition table, per-site Contracted Position bars. Year-tab synchronises headline cards with chart.
+
+ACCEPTANCE CRITERIA:
+- [x] Summary cards lifted out of Energy-only block — visible on every sub-tab
+- [x] Contracted Coverage uses year-aware, term-gated, multiplier-aware math
+- [x] Risk decomposition: 5 of 8 metrics with placeholder for the other 3
+- [x] Contracted Position bars on right column"
+"PD-007","Story","Map — OSM basemap, PJM zones, project pins, site pins, Examine Fit","planning-module, completed, map","2026-05-07","2026-05-09","Initial Setup","","MapLibre GL view: OSM basemap, PJM zone overlay, project pins by gen type, buyer site pins. Generation legend doubles as filter. Examine Fit ribbon on project popups offers scope expansion or project detail handoff.
+
+ACCEPTANCE CRITERIA:
+- [x] Map page wired into Layout with full-bleed map + sidebar
+- [x] Project pins fly-to behaviour from sidebar
+- [x] Site pins (Ashburn / Manassas / Sterling — DOM zone) overlaid
+- [x] PJM-only filter (non-PJM projects suppressed by default)"
+"PD-008","Story","Documents page — empty-state UX and soft error handling","planning-module, completed, ux","2026-05-09","2026-05-10","Initial Setup","","Replaced Failed to fetch power plans red error banner with graceful empty state when backend returns 5xx or is unavailable. Underlying error logged to console for diagnostics.
+
+ACCEPTANCE CRITERIA:
+- [x] Catch block sets documents=[] and clears error state
+- [x] EmptyState renders unchanged when result is empty
+- [x] Console.warn preserves diagnostic info"
+"PD-009","Story","Tariff link / unlink flow with selection mode on Documents page","planning-module, completed","2026-05-10","2026-05-12","Demo Prep 1","","View Document dialog on Capacity card opens linked tariff or routes to Documents page in selection mode. Persisted via localStorage.
+
+ACCEPTANCE CRITERIA:
+- [x] TariffDialog opens with link / unlink states
+- [x] Documents page detects selection mode + renders selectable rows
+- [x] Selecting a doc writes the link and navigates back"
+"PD-010","Story","Renamed dashboard surface labels — Plan / Map / Evaluate","planning-module, completed, ux","2026-05-12","2026-05-13","Demo Prep 1","","User-facing labels: Forecast → Plan, Risk → Evaluate. Internal route names unchanged. Hedge Coverage → Contracted Coverage; Hedge Position → Contracted Position.
+
+ACCEPTANCE CRITERIA:
+- [x] DASHBOARD_VIEWS labels updated
+- [x] Risk Report card titles updated
+- [x] Internal var names retained (not user-visible)"
+"PD-011","Story","Demo-ready sim data creation (sites, contracts, capacity sources, REC targets, LMP basis bands)","planning-module, demo-blocker, pre-demo, sim-data","2026-05-13","2026-05-22","Demo Prep 1","","Lock the demo dataset as well-structured TypeScript constants under src/data/. Replaces the live Profiling → Planning data interface for the demo period — the Planning Module reads these fixtures directly with no API calls or backend dependency. Trade-off: predictability and demo-day stability over real-data realism, with the live integration deferred to post-demo.
+
+Coverage:
+- 3 DOM sites (Ashburn / Manassas / Sterling) with full profile: capacity, baseload, peak shape, location, settlement zone, LMP pnode, gen type, REC target %
+- Documented capacity expansions per site (CapacityByYear: Ashburn 50 → 65 → 80, Sterling 75 → 100)
+- Documented load adjustments per site (LoadAdjustments: Manassas +25% from Jul 2027)
+- Linked supply contracts with full granularity (LinkedContract: term, shape, tier, pattern, perSiteMw)
+- Linked capacity sources (LINKED_CAPACITY_SOURCES: per-site BRA pass-through MW)
+- LMP basis bands per zone per month (LMP_PERIODS)
+- Site financials (utility tariff $/MWh, PPA strike, unhedged contract type)
+
+ACCEPTANCE CRITERIA:
+- [ ] All fixture files in src/data/ updated with the locked demo storyline
+- [ ] TypeScript types document the schema so the eventual live data shape matches
+- [ ] Storyline approved by SME / mentor panel
+- [ ] Demo script written referencing concrete numbers from the sim data
+- [ ] TypeScript compilation passes; charts and Risk Report render the full storyline end-to-end"
+"PD-012","Story","Generalised Module Coming Soon popup with completion dates","planning-module, demo-blocker, pre-demo, ux","2026-05-15","2026-05-17","Demo Prep 1","","Generalise ComingSoonDialog into a top-level ModuleHandoffDialog component with: Module name (Contracting / RECs v2 / BRA Feed / Planning v2), completion target, sub-line, payload preview. Apply to every feature that crosses an unfinished module boundary.
+
+ACCEPTANCE CRITERIA:
+- [ ] ModuleHandoffDialog component lives in components/
+- [ ] Completion-date strings centralised in single config object
+- [ ] Wired to: Solicit RFQ, View BRA History, Examine Fit, RECs CTA, 8-slider header, Accept-Transaction button
+- [ ] What's in this module? expand link with 1-paragraph summary per kind"
+"PD-013","Story","RECs sub-tab MVP — target % + coverage gap per site","planning-module, demo-blocker, pre-demo, recs","2026-05-22","2026-05-24","Demo Prep 2","","Ship MVP view for the RECs sub-tab on Plan, Map, Evaluate: per-site REC target %, current REC coverage %, coverage gap MWh, annual ESG cost. Ensure schema supports these UI elements.
+
+ACCEPTANCE CRITERIA:
+- [ ] RECsTab component built with SummaryCard layout
+- [ ] Per-site RECs Position card mirrors Contracted Position structure
+- [ ] Coverage gap shows as % below 100 with Solicit RFQ affordance → popup
+- [ ] Plan→RECs and Map→RECs render real content"
+"PD-014","Story","Map — accepted-transaction site overlay (connector lines)","planning-module, demo-blocker, pre-demo, map","2026-05-24","2026-05-25","Demo Prep 3","","Draw connector from each contracted project pin to the buyer site(s) it hedges (one connector per perSiteMw entry). Hover popup shows project, MW, term, shape.
+
+ACCEPTANCE CRITERIA:
+- [ ] Connectors render as MapLibre GL line layer
+- [ ] Line colour matches contract's gen-type pin colour
+- [ ] Out-of-scope contracts faded
+- [ ] Popup on connector hover with full transaction detail"
+"PD-015","Story","Energy page — per-site condensed transaction summary strip","planning-module, demo-blocker, pre-demo, ux","2026-05-25","2026-05-26","Demo Prep 3","","Per-site row strip between KPI strip and load chart on Plan→Energy. One line per accepted transaction: project · MW · shape · term. Lets user read off what is hedging this site without expanding any panel.
+
+ACCEPTANCE CRITERIA:
+- [ ] One row per selected site, ordered by site name
+- [ ] Each transaction renders: project · MW · shape · start–end
+- [ ] Out-of-term transactions for active year fade
+- [ ] Total contracted MW vs site capacity at right"
+"PD-016","Story","Risk Report Capacity sub-tab — fill in the headline panels","planning-module, demo-blocker, pre-demo, risk-report","2026-05-26","2026-05-28","Demo Prep 3","","Build out the scaffolded Capacity sub-tab on Risk Report: Capacity-cost summary card, BRA volatility band, and Fixed-term-vs-pass-through comparison. Wire UI to consume these metrics.
+
+ACCEPTANCE CRITERIA:
+- [ ] CapacityRiskTab renders alongside universal summary cards
+- [ ] At least 3 numbers per selected site (cleared MW, cost, P10–P90 spread)
+- [ ] BRA history button still routes to ModuleHandoffDialog"
+"PD-017","Story","Examine Fit ribbon → Contracting popup (handoff stub finalised)","planning-module, pre-demo, contracting-handoff","2026-05-27","2026-05-28","Demo Prep 3","","Wire Examine Fit primary CTA to ModuleHandoffDialog with the contracting handoff payload schema documented and visible on hover. Ensures Planning Module formats data correctly for Contracting.
+
+ACCEPTANCE CRITERIA:
+- [ ] Examine Fit primary button opens ModuleHandoffDialog kind=contracting
+- [ ] Payload schema in shared constants file
+- [ ] Hover state on button shows payload preview for SME walkthrough"
+"PD-018","Story","Demo data sweep — finalise synthetic scenarios","planning-module, pre-demo, demo-data","2026-05-28","2026-05-30","Demo Prep 3","","Lock the demo dataset post-Profiling-handoff in the database. Ensure the Planning Module renders the exact storyline required for the presentation.
+
+ACCEPTANCE CRITERIA:
+- [ ] Storyline approved by SME / mentor panel
+- [ ] Same data renders identically before and after migration
+- [ ] Demo script written referencing concrete numbers"
+"PD-019","Story","Pre-demo regression sweep + dry runs","planning-module, pre-demo, qa","2026-05-29","2026-05-31","Demo Prep 3","","Smoke-test full Planning Module against the locked sim data fixtures (PD-128): scope changes, year tabs, site (de)selection, contract term boundaries, mid-year bump, capacity step-ups, over-hedge rendering, every Module-Coming-Soon popup fires correctly. Two clean dry-runs the week of demo.
+
+ACCEPTANCE CRITERIA:
+- [ ] Smoke checklist passes on staging with sim data
+- [ ] No console errors during 10-min walk-through
+- [ ] Two clean dry-runs completed
+- [ ] Mobile / projector resolution verified"
+"PD-020","Story","DEMO DAY — Power Dime Planning Module","planning-module, demo-day, milestone","2026-06-02","2026-06-02","June 2026","","Live demo to mentor panel + president. Walk Pillars 1, 2, 3 in order using the locked demo dataset. Demonstrate: scope/duration control, 4D math through year tabs, Map filter + accepted-transaction overlay, Risk Report P10/P50/P90, Solicit RFQ → completion-date popup.
+
+ACCEPTANCE CRITERIA:
+- [ ] Demo runs without console errors
+- [ ] All popups fire as expected on stub paths
+- [ ] Q&A captured for post-demo backlog"
+"PD-021","Story","Phase 1 retro + Phase 2 sprint kickoff","planning-module, milestone","2026-06-03","2026-06-04","June 2026","","Retrospective on Phase 1 delivery. Capture demo-day Q&A. Prioritise the Commercial 1.0 backlog into a Phase 2 sprint plan. Roadmap update.
+
+ACCEPTANCE CRITERIA:
+- [ ] Retro notes captured
+- [ ] Demo Q&A logged and triaged
+- [ ] Phase 2 sprint plan drafted
+- [ ] Roadmap doc updated"
+"PD-022","Story","Phase 2 kickoff + Commercial 1.0 sprint planning","planning-module, post-demo, milestone","2026-06-05","2026-06-12","June 2026","","Decompose Commercial 1.0 backlog into 2-week sprints through end of year. Confirm vendor selections (3-ISO data feed, monitoring stack, ML runtime). Resourcing plan if additional engineers needed.
+
+ACCEPTANCE CRITERIA:
+- [ ] Sprint plan locked through Sep 30
+- [ ] Vendor decisions captured (3-ISO data, monitoring, ML)
+- [ ] Hiring plan if applicable"
+"PD-023","Story","DB Foundation schema (sites, contracts, site_financials)","planning-module, post-demo, db-architecture","2026-06-08","2026-06-15","June 2026","","Define Supabase tables and RLS policies for the Profiling → Planning handoff: sites (capacity, baseload, peak shape ref, location, settlement zone, LMP pnode, gen type, REC target %), supply_contracts (full granularity: project_name, gen_type, mw_covered, shape, tier, pattern, start_year/month, end_year/month, perSiteMw allocation), and site_financials (utility tariff $/MWh, ppa strike, unhedged contract type).
+
+ACCEPTANCE CRITERIA:
+- [ ] Schema migration files written (supabase/migrations/)
+- [ ] RLS policies: buyer can only see their own sites + contracts
+- [ ] Indexes on (buyer_id), (site_key), (project_name)
+- [ ] Seed data inserts for the 3 demo sites + their contracts
+- [ ] Migration runs cleanly on a fresh DB"
+"PD-024","Story","Contracting Module schema alignment","contracting-module, post-demo, contracting-handoff","2026-06-08","2026-06-26","June 2026","","Joint design session with Contracting team to lock the schema for the Planning ↔ Contracting handoffs (RFQ payload, accepted-transaction back-fill). Documented payload contracts for: Solicit RFQ, Examine Fit, Accept Transaction.
+
+ACCEPTANCE CRITERIA:
+- [ ] Payload schemas approved by both teams
+- [ ] Schema doc committed to shared repo
+- [ ] Mock receivers built so Planning Module can be tested end-to-end before Contracting backend is live"
+"PD-025","Story","Backend API v1 — sites + contracts + site_financials endpoints","planning-module, post-demo, api","2026-06-15","2026-07-03","June 2026","","REST endpoints under /api/sites, /api/contracts, /api/site-financials. Auth via existing Supabase JWT. Response shapes match the canned-data shapes locked by PD-128 so the chart / Risk Report code doesn't change at the call sites when the live path lands.
+
+ACCEPTANCE CRITERIA:
+- [ ] GET /api/sites — returns array of SiteLoadProfile-compatible objects
+- [ ] GET /api/contracts?siteKeys=... — returns LinkedContract objects
+- [ ] GET /api/site-financials — returns SiteFinancials objects
+- [ ] All endpoints respect RLS (buyer_id from JWT)
+- [ ] OpenAPI spec generated and committed
+- [ ] Response shapes byte-compatible with PD-128 sim-data fixtures"
+"PD-026","Story","Universal 3-ISO Database Schema Design (PJM, MISO, ERCOT)","data-architecture, schema, post-demo","2026-06-15","2026-06-30","June 2026","","Design a normalized database schema capable of handling data from PJM, MISO, and ERCOT — the three ISOs targeted for Commercial v1.0. Must standardize node naming, time intervals, price (DA/RT), load, outages, and constraints into unified tables. Schema designed to extend cleanly to CAISO/SPP/NYISO/ISONE in v1.1.
+
+ACCEPTANCE CRITERIA:
+- [ ] Normalized tables designed for iso_prices, iso_load, iso_outages, iso_constraints
+- [ ] Mapping table created to translate native ISO node IDs (PJM pnodes, MISO CPNodes, ERCOT settlement points) to internal system IDs
+- [ ] Schema review completed with engineering team
+- [ ] Migrations written and applied to staging
+- [ ] Extension path documented for adding additional ISOs in v1.1"
+"PD-027","Story","Macro Commodity & Basis Schema Design","data-architecture, schema, post-demo","2026-06-15","2026-06-30","June 2026","","Design the schema to store forward and historical market prices for macro commodities. Includes Natural Gas (Henry Hub), Western Hub (Power), MISO Indiana Hub, ERCOT North Hub, and regional basis hubs.
+
+ACCEPTANCE CRITERIA:
+- [ ] Tables designed for macro_prices (historical) and macro_forwards
+- [ ] Support for multiple commodities (NG, Power) and pricing hubs across PJM/MISO/ERCOT
+- [ ] Schema handles daily/monthly forward curve snapshots
+- [ ] Migrations written and applied to staging"
+"PD-028","Story","3-ISO Data Feed Vendor Selection & API Auth (PJM, MISO, ERCOT)","data-feed, post-demo","2026-06-15","2026-06-30","June 2026","","Evaluate and select a unified data vendor (e.g., Yes Energy, Velocity Suite) vs. building 3 direct ISO API connectors. Secure API credentials and establish rate-limit strategies for PJM, MISO, and ERCOT.
+
+ACCEPTANCE CRITERIA:
+- [ ] Vendor evaluation matrix completed (Cost vs. Integration effort, all 3 ISOs covered)
+- [ ] Decision memo finalized and contract signed
+- [ ] API credentials provisioned in dev + staging for PJM, MISO, ERCOT
+- [ ] Test queries successfully executed against vendor API for each ISO"
+"PD-029","Story","Background job infrastructure (queue + workers)","planning-module, post-demo, infrastructure","2026-06-15","2026-07-15","June 2026","","Stand up async job runner to orchestrate external math engines and data feeds: ML simulations, ingestion pipelines (3-ISO data, RECs, metered), historical backfill jobs, reconciliation jobs.
+
+ACCEPTANCE CRITERIA:
+- [ ] Worker service deployed with auto-scaling
+- [ ] Job framework with typed payloads
+- [ ] Retry + DLQ + alerting on stuck jobs
+- [ ] First job (LMP ingestion smoke) running on staging"
+"PD-030","Story","Integrate Contracting Module — RFQ Builder handoff","contracting-module, post-demo, commercial-1.0","2026-07-01","2026-08-15","July 2026","","Ensure the Planning Module correctly structures and dispatches data to the Contracting Module's RFQ Builder. Pre-fills RFQ requirements from user's scope, duration, risk tolerances.
+
+ACCEPTANCE CRITERIA:
+- [ ] RFQ schema matches Planning's handoff payload
+- [ ] Builder UI lets buyer review + edit auto-drafted requirements
+- [ ] Targeted provider list selectable / editable
+- [ ] Solicit creates a Transaction record in pending state"
+"PD-031","Story","Ingestion Pipeline: 3-ISO Price & Load Data (Live)","data-ingestion, post-demo","2026-07-01","2026-08-15","July 2026","","Build the live ingestion pipeline to pull Day-Ahead (DA) / Real-Time (RT) prices and load data (forecast/actual) across PJM, MISO, and ERCOT. Continuous polling on schedules appropriate to each ISO; rolling 30-day window maintained.
+
+ACCEPTANCE CRITERIA:
+- [ ] Ingestion jobs configured for DA/RT prices across PJM, MISO, ERCOT
+- [ ] Ingestion jobs configured for Load data (forecast + actual) across all 3 ISOs
+- [ ] Data correctly normalizes into the universal iso_prices and iso_load tables
+- [ ] Schema-drift detection and gap-fill logic implemented
+- [ ] Per-ISO timezone + DST handling validated"
+"PD-032","Story","Auth + Supabase RLS hardening across Planning surfaces","planning-module, post-demo, security","2026-07-01","2026-08-15","July 2026","","Audit every Planning page for proper auth + row-level scope. Pen-test: buyer A cannot see buyer B's data via URL manipulation. Service-role usage limited to backend-only.
+
+ACCEPTANCE CRITERIA:
+- [ ] RLS policies on every Planning-relevant table
+- [ ] Service-role usage limited to backend
+- [ ] Penetration test: buyer-impersonation attempts blocked
+- [ ] Auth token refresh handled gracefully"
+"PD-033","Story","Profiling Module → Planning Module data interface (live)","planning-module, post-demo, profiling-handoff","2026-07-06","2026-07-24","July 2026","","Replace fixture imports (PD-128 sim data) with live API reads from Backend API v1 (PD-014). Ensure the Planning Module correctly consumes data written by the Onboarding form. Demo-mode feature flag (PD-013) provides fallback to the fixture path during cutover and as ongoing demo-day insurance.
+
+ACCEPTANCE CRITERIA:
+- [ ] Frontend hooks (useSites, useContracts) replace fixture imports
+- [ ] All chart math + Risk Report verified against live data (numerically identical to fixture path within rounding)
+- [ ] Onboarding form writes through to the same Supabase tables
+- [ ] Demo-mode flag (PD-013) preserves fixture path as safety net
+- [ ] Manassas / Ashburn / Sterling demo storyline lives in DB, not in code"
+"PD-034","Story","Historical Backfill: 3-ISO Price & Load (5 years)","data-ingestion, post-demo, historical-backfill","2026-07-13","2026-08-31","July 2026","","Backfill 5 years of historical PJM, MISO, and ERCOT DA + RT prices and load. Powers historical basis distributions used by the ML simulator. Runs as one-time job batches per ISO + reconciliation pass to confirm coverage.
+
+ACCEPTANCE CRITERIA:
+- [ ] 5-year coverage for all in-use pnodes / CPNodes / settlement points
+- [ ] Reconciliation report: gaps documented or filled per ISO
+- [ ] Historical basis P10/P50/P90 distributions computed per ISO
+- [ ] ML can read historical bands per pricing point
+- [ ] Backfill jobs are resumable (no need to restart from zero on failure)"
+"PD-035","Story","BRA forward forecast model — data integration","planning-module, post-demo, data-feed, forward-curve","2026-07-13","2026-08-31","July 2026","","Internal forward forecast model for BRA clearing prices per zone per delivery year. Outputs P10/P50/P90 bands consumable by the Capacity Risk view. Combines historical clearings, supply/demand projections, and external forward markers.
+
+ACCEPTANCE CRITERIA:
+- [ ] Forecast methodology documented
+- [ ] Model outputs successfully write to bra_forward table
+- [ ] Capacity Risk panel reads forward bands
+- [ ] Backtest report: forecast vs. actual on prior 3 delivery years"
+"PD-036","Story","Ingestion Pipeline: 3-ISO Outage & Constraint Data","data-ingestion, post-demo","2026-07-15","2026-08-31","July 2026","","Build the ingestion pipeline to pull generation/transmission outages and binding constraints across PJM, MISO, and ERCOT. Store in normalized schema for UI and math engine consumption.
+
+ACCEPTANCE CRITERIA:
+- [ ] Ingestion jobs configured for Outages (planned/unplanned) across 3 ISOs
+- [ ] Ingestion jobs configured for Constraints (congestion points) across 3 ISOs
+- [ ] Data correctly normalizes into iso_outages and iso_constraints
+- [ ] Alerting configured for pipeline failures"
+"PD-037","Story","Ingestion Pipeline: Macro Commodity & Basis (HH, Western Hub, Indiana Hub, ERCOT North)","data-ingestion, post-demo","2026-07-15","2026-08-31","July 2026","","Build the ingestion pipeline to pull historical and forward curves for Henry Hub (NG), Western Hub (Power, PJM), Indiana Hub (Power, MISO), ERCOT North Hub (Power), and regional basis hubs.
+
+ACCEPTANCE CRITERIA:
+- [ ] Ingestion jobs configured for Henry Hub, Western Hub, Indiana Hub, ERCOT North
+- [ ] Ingestion jobs configured for regional basis hubs across PJM/MISO/ERCOT
+- [ ] Data normalizes into macro_prices and macro_forwards tables
+- [ ] Daily curve snapshots successfully stored and versioned"
+"PD-038","Story","Data Quality & Validation Framework","data-architecture, post-demo, data-quality","2026-07-15","2026-08-15","July 2026","","Cross-cutting framework to validate ingested data against expected shape, units, timezone, and continuity. Three ISOs with different schemas means schema-drift, unit mismatches (kW vs MW, MWh vs GWh), and timezone bugs are inevitable. Dedicated framework saves debugging time and gives ops a consistent surface for data-issue triage.
+
+ACCEPTANCE CRITERIA:
+- [ ] Validator interface with rules: timestamp continuity, unit consistency, sign convention, value bounds
+- [ ] Per-source rule sets (PJM, MISO, ERCOT each have their quirks)
+- [ ] Validation runs as part of every ingestion job
+- [ ] Failures surface in the feed-health dashboard with actionable detail
+- [ ] Documented runbook for the top 5 expected validation failures"
+"PD-039","Story","Site metered interval data — ingestion pipeline (design + build)","planning-module, post-demo, data-feed, data-ingestion","2026-07-15","2026-08-31","July 2026","","Build the ingestion path for buyer-supplied 15-min interval metered data, populating site_metered. Sources: utility EDI feeds, customer CSV uploads, direct meter pulls.
+
+ACCEPTANCE CRITERIA:
+- [ ] Ingestion job per source type
+- [ ] Validation: timestamp continuity, unit consistency, sign convention
+- [ ] Gap-fill strategy for short outages (interpolation) vs. long (flag)
+- [ ] Onboarding flow can trigger initial ingestion + first refresh"
+"PD-040","Story","Demo-mode feature flag (live-data + fixture both available)","planning-module, post-demo, infrastructure","2026-07-27","2026-07-31","July 2026","","Feature flag (env var or settings toggle) that lets the app fall back to the existing fixtures if the live data path is unavailable, so a demo disaster (network outage, bad migration) doesn't kill the demo.
+
+ACCEPTANCE CRITERIA:
+- [ ] VITE_DATA_MODE env var: live | fixture
+- [ ] data hooks branch on this flag
+- [ ] Fixture path retained even after Profiling handoff lands
+- [ ] Toggle accessible via /admin/debug page (dev-only)"
+"PD-041","Story","UI Integration: 3-ISO Map Overlay & Macro Price References","planning-module, ui, post-demo","2026-08-01","2026-09-15","August 2026","","Update the Planning Module UI and MapLibre layers to support PJM, MISO, and ERCOT footprints. Wire the Risk Report to reference NG (Henry Hub) and zonal Power hubs (Western Hub for PJM, Indiana Hub for MISO, ERCOT North for ERCOT) as macro context.
+
+ACCEPTANCE CRITERIA:
+- [ ] Map layer toggles support PJM, MISO, ERCOT
+- [ ] Site pins correctly associate with their respective ISO zones
+- [ ] Risk Report UI displays macro context (HH + appropriate Power hub) per site
+- [ ] UI gracefully handles switching between sites in different ISOs"
+"PD-042","Story","Contracting Module — Transaction state machine integration","contracting-module, post-demo, commercial-1.0","2026-08-16","2026-09-30","August 2026","","Wire the Planning Module to react to the Contracting Module's Transaction state machine (Pending → Accepted). On accept, transaction is back-fed to Planning so it appears in load chart, Risk Report, Map.
+
+ACCEPTANCE CRITERIA:
+- [ ] State diagram + DB schema agreed
+- [ ] Accept-transaction button on Risk Report → state machine
+- [ ] Planning Module hot-reloads when a transaction lands
+- [ ] Audit log of state transitions per transaction"
+"PD-043","Story","Historical BRA backfill (10 years)","planning-module, post-demo, historical-backfill","2026-08-16","2026-09-15","August 2026","","Backfill 10 years of historical BRA clearing data per zone per delivery year. Powers the historical comparison band on the Capacity Risk panel.
+
+ACCEPTANCE CRITERIA:
+- [ ] 10-year coverage per zone
+- [ ] Capacity Risk panel renders historical envelope
+- [ ] Reconciliation report: any documented zone splits / mergers handled"
+"PD-044","Story","Orchestrate stochastic ML simulation data pipeline","planning-module, post-demo, commercial-1.0, risk-engine","2026-09-01","2026-09-30","September 2026","","Build the backend infrastructure to trigger the external ML engine, cache the resulting probabilistic bands, and wire the Risk Report UI to render them dynamically.
+
+ACCEPTANCE CRITERIA:
+- [ ] Simulation service triggered via background job
+- [ ] Results cached per (scope, scenario-set, contract-stack-hash)
+- [ ] Risk Report renders bands within 500 ms of scope change
+- [ ] Job runs on background-job infra; not blocking the API"
+"PD-045","Story","Expand Risk Report UI and schema for 8 risk dimensions","planning-module, post-demo, commercial-1.0, risk-engine","2026-09-01","2026-10-15","September 2026","","Update the database schema and UI decomposition table to consume and display all 8 risk dimensions generated by the math engine (including Long-Term Market Risk, Execution Risk, Counterparty Risk).
+
+ACCEPTANCE CRITERIA:
+- [ ] All 8 rows in risk decomposition populated with real numbers
+- [ ] P10/P50/P90 bands per row rendered from ML outputs
+- [ ] Risks 4–8 coming next release footer removed"
+"PD-046","Story","REC tracking system feeds — PJM-GATS, M-RETS, ERCOT","planning-module, post-demo, data-feed, data-ingestion, recs","2026-09-01","2026-09-30","September 2026","","Ingestion pipeline for REC tracking systems matching the v1.0 ISO scope: PJM-GATS (PJM), M-RETS (MISO), and ERCOT REC (ERCOT). Pulls certificate inventory, retirement events, and vintage-year allocations into recs_ledger.
+
+ACCEPTANCE CRITERIA:
+- [ ] PJM-GATS adaptor (primary, drives DOM-zone demo sites)
+- [ ] M-RETS adaptor (MISO sites)
+- [ ] ERCOT REC adaptor (ERCOT sites)
+- [ ] recs_ledger reads drive RECs sub-tab live
+- [ ] Extension hooks documented for NEPOOL-GIS / WREGIS in v1.1"
+"PD-047","Story","Historical site metered backfill (3 years)","planning-module, post-demo, historical-backfill","2026-09-01","2026-09-30","September 2026","","Backfill 3 years of 15-min metered data per site (where available). Populates the historical load distribution used to validate forecast shape and detect anomalies.
+
+ACCEPTANCE CRITERIA:
+- [ ] 3-year coverage where data is available; gaps documented
+- [ ] Comparison report: live forecast vs. historical shape
+- [ ] Anomaly detection job runs nightly against the backfill"
+"PD-048","Story","Migrate tariff link store from localStorage to Supabase","planning-module, post-demo, commercial-1.0","2026-09-08","2026-09-22","September 2026","","Migrate site→tariff-document links from localStorage to Supabase so links survive across devices and team members. Same for transactionAllocations.ts.
+
+ACCEPTANCE CRITERIA:
+- [ ] Schema: site_tariff_links (site_key, plan_id, linked_at, linked_by)
+- [ ] Read/write hook replaces localStorage helpers
+- [ ] Existing localStorage data migrated on first load
+- [ ] RLS: only buyer's own site links readable"
+"PD-049","Story","Live monitoring — feed health dashboard","planning-module, post-demo, monitoring, observability","2026-09-15","2026-10-15","September 2026","","Operations dashboard showing real-time health of every live feed: 3-ISO price & load, 3-ISO outage & constraint, BRA forward, REC tracking systems, site metered, macro commodities. Per feed: last-successful-pull timestamp, lag vs. expected, schema drift indicators.
+
+ACCEPTANCE CRITERIA:
+- [ ] Dashboard page (admin-only) showing all feeds
+- [ ] Per-feed: last-pull, lag, gap count, schema-version
+- [ ] Public status page (status.powerdime.com or similar)
+- [ ] Daily ops review readout uses this dashboard"
+"PD-050","Story","Risk Preference Slider UX Research","planning-module, post-demo, ux-research","2026-09-15","2026-09-30","September 2026","","User-research to lock the UX of the 8-dimension Risk Preference inputs before implementation. Test slider vs. numeric vs. tier (Required / Preferred / Neutral / Avoid / Refuse). Validate label clarity for each of the 8 risk dimensions with target-buyer interviews.
+
+ACCEPTANCE CRITERIA:
+- [ ] 5–7 target-buyer user interviews completed
+- [ ] Slider vs. numeric vs. tier decision documented with rationale
+- [ ] Final label + tooltip copy approved by SME
+- [ ] Wireframes ready as input to the implementation ticket"
+"PD-051","Story","8 Risk Preference Sliders (Pillar 2 master filter)","planning-module, post-demo, commercial-1.0","2026-10-01","2026-10-31","October 2026","","Persistent header on Plan / Map / Evaluate exposes 8 inputs (one per risk dimension) using the UX format chosen during the UX research. Filters Map project pins, identifies RFQ targets via cross-reference, re-ranks Risk Report solicitations.
+
+ACCEPTANCE CRITERIA:
+- [ ] Slider/tier UI in scope bar (collapsible advanced panel)
+- [ ] State persisted to user profile
+- [ ] Map filter wired to slider values
+- [ ] RFQ Builder pre-populated provider list reflects sliders"
+"PD-052","Story","Forward Curve Service Integration — LMP / basis / BRA","planning-module, post-demo, forward-curve","2026-10-01","2026-11-15","October 2026","","Build the API and database layer to consume and serve the centralised forward-curve data (LMP forwards, basis forwards, BRA forwards) to the ML engine and Risk Report UI.
+
+ACCEPTANCE CRITERIA:
+- [ ] forward_curves table populated daily
+- [ ] Versioned snapshots (curve_version) referenced by simulations
+- [ ] API: GET /api/forward-curve?pnode=...&date=...
+- [ ] Backtest report: curve accuracy vs. realised over prior 12 months"
+"PD-053","Story","Live monitoring — alerting + reconciliation","planning-module, post-demo, monitoring, observability","2026-10-01","2026-10-31","October 2026","","Alerting rules on top of the feed health dashboard: PagerDuty/Slack on feed staleness, schema drift, gap detection, ingestion job failure. Nightly reconciliation jobs.
+
+ACCEPTANCE CRITERIA:
+- [ ] PagerDuty integration with severity tiers
+- [ ] Reconciliation jobs nightly with email summary
+- [ ] Runbook for each alert kind
+- [ ] On-call rotation operational"
+"PD-054","Story","Implement time-matched REC data structures and UI overlays","planning-module, post-demo, commercial-1.0, recs","2026-10-15","2026-11-30","October 2026","","Update the database schema and UI to support full time-matching (24-h, monthly, annual). Ensure the RECs sub-tab can render coverage by hour-of-day based on data provided by the math engine.
+
+ACCEPTANCE CRITERIA:
+- [ ] Onboarding captures matching window per site
+- [ ] RECs sub-tab renders coverage by hour-of-day for 24-h matched sites
+- [ ] Shortfall cost differs based on matching window strictness
+- [ ] Scheme overlays: REC, AEPS, REGO"
+"PD-055","Story","Customer Success Playbook for Beta Onboarding","planning-module, post-demo, customer-success","2026-10-20","2026-11-14","October 2026","","Document the end-to-end playbook for onboarding a beta customer: kickoff call agenda, site profile intake template, contract import format, REC target intake, expected timeline per step, escalation paths. Required input to the Beta Customer Pilots ticket.
+
+ACCEPTANCE CRITERIA:
+- [ ] Playbook document published in internal wiki
+- [ ] Site profile intake template (CSV / form) ready
+- [ ] Contract import format documented
+- [ ] First-week customer activity timeline written
+- [ ] Internal walk-through with Sales + CS teams"
+"PD-056","Story","API Layer v2 — rate limiting, caching, observability","planning-module, post-demo, api, infrastructure","2026-11-01","2026-11-30","November 2026","","Productionise the API layer: per-user + per-IP rate limiting, response caching for hot read paths, structured request logging, p95 latency budgets.
+
+ACCEPTANCE CRITERIA:
+- [ ] Rate limit middleware operational with per-route budgets
+- [ ] Redis (or equivalent) caching layer with TTLs documented
+- [ ] Structured request logs shipped to log aggregator
+- [ ] p95 latency dashboard per endpoint"
+"PD-057","Story","Performance — large portfolio support (100+ sites)","planning-module, post-demo, performance","2026-11-01","2026-11-30","November 2026","","Profile chart math and Risk Report UI against a 100-site fixture. Add memoisation, virtual scroll on Documents/Transactions, lazy Map pins to ensure the Planning Module remains performant.
+
+ACCEPTANCE CRITERIA:
+- [ ] Synthetic 100-site fixture
+- [ ] Scope change → chart re-render < 200 ms
+- [ ] Risk Report ML < 1 s cached / < 5 s cold
+- [ ] Map renders 100+ pins without frame drop"
+"PD-058","Story","Audit log + observability","planning-module, post-demo, ops, security","2026-11-15","2026-11-30","November 2026","","Wire Sentry (or equivalent) for client errors, structured backend logs, audit log table for every state-mutating user action (tariff link, transaction accept, RFQ solicitation).
+
+ACCEPTANCE CRITERIA:
+- [ ] Sentry initialised with release tagging
+- [ ] Backend logs structured + shipped
+- [ ] Audit log table + admin-only viewer
+- [ ] Alerting rules: 5xx rate, p95 latency, failed ML inference"
+"PD-059","Story","Disaster Recovery + Backup Strategy","planning-module, post-demo, ops, security","2026-11-15","2026-12-05","November 2026","","Define and implement the DR + backup strategy required for any commercial release: Supabase backup cadence, point-in-time recovery (PITR) configuration, ingested-feed re-fetch playbook, regional failover plan if applicable, RPO and RTO targets documented and tested.
+
+ACCEPTANCE CRITERIA:
+- [ ] PITR enabled with documented RPO target
+- [ ] Backup restoration drill executed end-to-end on staging
+- [ ] Re-fetch playbook for each ingestion source (3-ISO, BRA, RECs, metered, macro)
+- [ ] Runbook for the 3 most-likely DR scenarios
+- [ ] RTO target documented + signed off by CTO"
+"PD-060","Story","Beta customer pilots","planning-module, post-demo, commercial-1.0","2026-11-15","2026-12-19","November 2026","","Onboard 2–3 design-partner customers in beta. Real onboarding flows, real ingestion of their site data across PJM/MISO/ERCOT, real RFQ runs through the Contracting Module. Feedback loop into Commercial 1.0 release. Five-week window so each customer has time for kickoff → ingestion → first RFQ → feedback.
+
+ACCEPTANCE CRITERIA:
+- [ ] 2–3 customers signed beta agreements
+- [ ] Onboarding completed for each (kickoff → site profile → contract import)
+- [ ] First RFQ solicited via the platform per customer
+- [ ] Feedback captured and triaged into v1.0 hot-fix vs. v1.1 backlog"
+"PD-061","Story","White-label theming (logo, palette, custom domain)","planning-module, post-demo, commercial-1.0","2026-12-01","2026-12-22","December 2026","","Per-tenant theme: logo, colour palette, custom domain. Commercial 1.0 prerequisite for selling to enterprise customers who want their own brand on the platform.
+
+ACCEPTANCE CRITERIA:
+- [ ] Theme config per tenant in DB
+- [ ] CSS variables driven by theme
+- [ ] Custom domain routing operational
+- [ ] Admin page for tenant config"
+"PD-062","Story","Documentation Site Build","planning-module, post-demo, commercial-1.0, documentation","2026-12-01","2026-12-22","December 2026","","Public documentation site covering: getting started, site profile intake, the Plan / Map / Evaluate surfaces, the 8 risk dimensions, RFQ workflow, REC time-matching, API reference for integrators. Required reading for new buyers and beta customers.
+
+ACCEPTANCE CRITERIA:
+- [ ] docs.powerdime.com (or equivalent) live with structured navigation
+- [ ] Getting-started guide complete with screenshots
+- [ ] Surface-by-surface reference (Plan, Map, Evaluate)
+- [ ] API reference auto-generated from OpenAPI spec
+- [ ] Search operational"
+"PD-063","Story","Multi-tenant org separation (sub-portfolios)","planning-module, post-demo, commercial-1.0","2026-12-08","2026-12-22","December 2026","","Within a buyer organisation, support sub-portfolios (e.g. by business unit, geography). Scope bar gains an org level above sites. RLS extends to org membership.
+
+ACCEPTANCE CRITERIA:
+- [ ] Org hierarchy in DB
+- [ ] Scope bar org selector
+- [ ] RLS: user sees only their org's data
+- [ ] Admin page for org structure"
+"PD-064","Story","Export-to-PDF for Risk Report (Before & After deliverable)","planning-module, post-demo, commercial-1.0","2026-12-08","2026-12-22","December 2026","","Generate the Before & After report as a downloadable PDF for the buyer's internal stakeholders. Renders the Risk Report's summary cards + decomposition + Contracted Position with branding.
+
+ACCEPTANCE CRITERIA:
+- [ ] Server-side PDF generation (Puppeteer or headless Chrome)
+- [ ] Tenant branding applied
+- [ ] Download triggered from Risk Report page
+- [ ] Generated PDFs stored for audit / re-download"
+"PD-065","Story","Commercial 1.0 release prep","planning-module, post-demo, commercial-1.0, milestone","2026-12-14","2026-12-22","December 2026","","Final release readiness: production deploy, runbooks, on-call rotation, billing integration, marketing site update. Window deliberately ends Dec 22 so the back half of December is a quiet period for hot-fixes rather than active deployment.
+
+ACCEPTANCE CRITERIA:
+- [ ] Production deploy validated
+- [ ] Runbooks reviewed
+- [ ] On-call rotation live (with holiday-period coverage explicitly assigned)
+- [ ] Pricing + billing live
+- [ ] Marketing site updated for launch announcement"
+"PD-066","Story","Saved scenarios (compare hedge-stack A vs B)","planning-module, post-demo, commercial-1.0","2026-12-15","2026-12-22","December 2026","","Save the current hedge-stack as a named scenario so the user can compare the proposed-stack against an alternative. Drives the Risk Report comparative analysis story.
+
+ACCEPTANCE CRITERIA:
+- [ ] Save current state as scenario
+- [ ] Side-by-side Risk Report compares 2 scenarios
+- [ ] Scenarios persist per user across devices
+- [ ] Diff view highlights what changed"
+"PD-067","Story","COMMERCIAL 1.0 LAUNCH (PJM + MISO + ERCOT)","planning-module, milestone, commercial-1.0","2026-12-31","2026-12-31","December 2026","","Power Dime Commercial 1.0 release. Live 3-ISO data feeds (PJM, MISO, ERCOT) covering DA/RT prices, load, outages, and constraints; macro commodity references (Henry Hub, Western Hub, Indiana Hub, ERCOT North); BRA forward forecast; full 8 risk dimensions with stochastic ML; 8 risk-preference inputs; time-matched RECs (PJM-GATS / M-RETS / ERCOT REC); Contracting Module integration end-to-end; 2–3 beta customers transitioned to production; documentation site live.
+
+ACCEPTANCE CRITERIA:
+- [ ] Production release announcement published
+- [ ] Beta customers transitioned to production tier
+- [ ] All 3 ISO feeds running green for 7 consecutive days
+- [ ] On-call rotation operational with holiday-period coverage
+- [ ] v1.1 backlog drafted (CAISO / SPP / NYISO / ISONE expansion + customer-feedback hot-fixes)
+- [ ] Q1 2027 sales pipeline opened"
+"PD-068","Sub-task","Wiring & sync test: Layout top-nav (Plan/Map/Evaluate) + sub-tab routing","wiring-test, pre-demo","2026-05-25","2026-05-25","Demo Prep 3","PD-001","End-to-end wiring + sync verification for the top-level navigation and Capacity/Energy/RECs sub-tab row. Confirms route changes preserve scope/sub-tab state via DashboardViewContext.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (route → context → Layout → page render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (scope, year, sub-tab persist across nav)
+- [ ] Test cases documented in QA test plan"
+"PD-069","Sub-task","Wiring & sync test: ScopeBar — sites, dates, lock/unlock + ScopeContext propagation","wiring-test, pre-demo","2026-05-25","2026-05-25","Demo Prep 3","PD-001","End-to-end wiring + sync verification for the ScopeBar component (collapse/expand, site multi-select, start/end year+month, lock toggle) and ScopeContext propagation to every chart, table, and Risk metric.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (ScopeBar → ScopeContext → consumers in Plan/Map/Evaluate)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (scope changes re-flow through all year-aware math)
+- [ ] Test cases documented in QA test plan"
+"PD-070","Sub-task","Wiring & sync test: Plan→Energy — CapacityBox / KPI strip (year-aware)","wiring-test, pre-demo","2026-05-26","2026-05-26","Demo Prep 3","PD-003","End-to-end wiring + sync verification for the Plan→Energy KPI strip: Market Capacity, Forecast Capacity, Baseload, Peak Demand (above baseload), Load Factor, Annual Load — all year-aware via getSiteCapacityForYear and getScopeAvgAnnualLoadMwh.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (profile → year-aware helpers → KPI render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (capacity expansion + load adjustment lift KPIs proportionally)
+- [ ] Test cases documented in QA test plan"
+"PD-071","Sub-task","Wiring & sync test: Plan→Energy — LoadForecastChart 2D mode (hours + months)","wiring-test, pre-demo","2026-05-26","2026-05-26","Demo Prep 3","PD-003","End-to-end wiring + sync verification for the 2D bars: per-hour and per-month modes, contract gen-shape patterns stacking under load tier backgrounds, over-hedge segment below y=0.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (loadShape + contracts → buildRow → Recharts stack)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (term-staggered contracts + multipliers visible per row)
+- [ ] Test cases documented in QA test plan"
+"PD-072","Sub-task","Wiring & sync test: Plan→Capacity — CapacityRollup + CapacityCoverageChart pipeline","wiring-test, pre-demo","2026-05-26","2026-05-26","Demo Prep 3","PD-004","End-to-end wiring + sync verification for the Plan→Capacity tab top-of-page summary and the year-aware capacity bar chart with per-source patterns and over-hedge below y=0.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (LINKED_CAPACITY_SOURCES → getSiteCapacityForYear → chart render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (year tab + scope changes update bar height + sources)
+- [ ] Test cases documented in QA test plan"
+"PD-073","Sub-task","Wiring & sync test: Plan→Capacity — SiteCapacityCard panels + dialogs","wiring-test, pre-demo","2026-05-26","2026-05-26","Demo Prep 3","PD-005","End-to-end wiring + sync verification for the per-site capacity cards: brownfield BRA panel, greenfield options table, View Document dialog (link/unlink), Solicit RFQ button, View BRA History button.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (site profile → card → dialog → handoff popup or Documents page)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (tariff link persists; popup callbacks fire correctly)
+- [ ] Test cases documented in QA test plan"
+"PD-074","Sub-task","Wiring & sync test: Plan→Energy — LoadForecastChart 3D oblique ribbon","wiring-test, pre-demo","2026-05-27","2026-05-27","Demo Prep 3","PD-003","End-to-end wiring + sync verification for the 3D mode (X=hour, Y=MW, Z=month) using year-aware effective load + capacity ceiling.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (getEffectiveLoadAt → SVG ribbon paths)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (year tab change re-renders ribbon)
+- [ ] Test cases documented in QA test plan"
+"PD-075","Sub-task","Wiring & sync test: Plan→Energy — year tabs + all-years + adjustment notice banner","wiring-test, pre-demo","2026-05-27","2026-05-27","Demo Prep 3","PD-003","End-to-end wiring + sync verification for the year-tab control, the All years multi-year mode, and the amber adjustment-notice banner that surfaces when any in-scope site has a documented load step-change.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (yearOptions → activeYear → chart + banner)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (banner reflects only in-scope adjustments; All years tiles every month)
+- [ ] Test cases documented in QA test plan"
+"PD-076","Sub-task","Wiring & sync test: Plan→Energy — CostTime / EnergyMix / ProcurementSchedule / RiskAlerts panels","wiring-test, pre-demo","2026-05-27","2026-05-27","Demo Prep 3","PD-003","End-to-end wiring + sync verification for the four lower panels on the Energy tab. Confirms each panel reads its own data correctly and re-renders on scope/year change.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (data source → panel render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (scope change updates each panel)
+- [ ] Test cases documented in QA test plan"
+"PD-077","Sub-task","Wiring & sync test: Plan→RECs — MVP target / coverage gap","wiring-test, pre-demo","2026-05-27","2026-05-27","Demo Prep 3","PD-013","End-to-end wiring + sync verification for the RECs sub-tab MVP: per-site target %, current REC coverage %, gap MWh, annual ESG cost.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (REC target + REC contracts → gap math → render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (Solicit RFQ affordance fires correct popup)
+- [ ] Test cases documented in QA test plan"
+"PD-078","Sub-task","Wiring & sync test: Plan→Energy — per-site transaction summary strip","wiring-test, pre-demo","2026-05-27","2026-05-27","Demo Prep 3","PD-015","End-to-end wiring + sync verification for the per-site condensed transaction strip (project · MW · shape · term).
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (LINKED_CONTRACTS → strip render with term gating)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (out-of-term transactions fade for active year)
+- [ ] Test cases documented in QA test plan"
+"PD-079","Sub-task","Wiring & sync test: Map — OSM basemap + PJM zone overlay","wiring-test, pre-demo","2026-05-28","2026-05-28","Demo Prep 3","PD-007","End-to-end wiring + sync verification for the MapLibre basemap load and the PJM zone GeoJSON overlay rendering.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (tiles fetch → MapLibre → zone fill/line layers)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (resize, pan/zoom, tile cache)
+- [ ] Test cases documented in QA test plan"
+"PD-080","Sub-task","Wiring & sync test: Map — project pins + generation legend filter","wiring-test, pre-demo","2026-05-28","2026-05-28","Demo Prep 3","PD-007","End-to-end wiring + sync verification for project pin placement (per gen type), pin colour, and the generation-legend filter that toggles types on/off.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (project list → pin layer → legend filter state)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (PJM-only filter + scope-aware pin visibility)
+- [ ] Test cases documented in QA test plan"
+"PD-081","Sub-task","Wiring & sync test: Map — site pins + project popup + Examine Fit ribbon","wiring-test, pre-demo","2026-05-28","2026-05-28","Demo Prep 3","PD-007","End-to-end wiring + sync verification for buyer site pins (DOM zone), the project popup, and the Examine Fit ribbon that surfaces when project term exceeds active scope.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (site profile → pin → popup → Examine Fit handoff payload)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (Examine Fit → ModuleHandoffDialog payload preview)
+- [ ] Test cases documented in QA test plan"
+"PD-082","Sub-task","Wiring & sync test: Map — sidebar list + fly-to + accepted-transaction overlay","wiring-test, pre-demo","2026-05-28","2026-05-28","Demo Prep 3","PD-014","End-to-end wiring + sync verification for the right sidebar project list, click-to-fly behaviour, and the connector lines linking each contracted project to the buyer site(s) it hedges.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (sidebar click → flyTo; LINKED_CONTRACTS → connector lines)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (connectors update on scope + transaction changes; faded out-of-scope)
+- [ ] Test cases documented in QA test plan"
+"PD-083","Sub-task","Wiring & sync test: Evaluate — universal year tabs + Load Profile strip + 5 summary cards","wiring-test, pre-demo","2026-05-29","2026-05-29","Demo Prep 3","PD-006","End-to-end wiring + sync verification for the always-visible Risk Report header: year tabs, Load Profile context strip (Market Capacity / Baseload / Peak above baseload), and the five summary cards (Baseline, Proposed P50, Savings, Contracted Coverage, Total Load Scope).
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (scope + year + contracts → year-aware annual MWh + cards)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (Contracted Coverage matches the Energy chart for the active year)
+- [ ] Test cases documented in QA test plan"
+"PD-084","Sub-task","Wiring & sync test: Evaluate→Energy — risk decomposition table + Contracted Position bars","wiring-test, pre-demo","2026-05-29","2026-05-29","Demo Prep 3","PD-006","End-to-end wiring + sync verification for the 5-row risk decomposition table (Total Delivered, Base Price, Basis, Unhedged Shape, ESG) and the per-site Contracted Position bars (on-peak / off-peak).
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (SITE_RISK + scope → table + bars)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (year tab change re-flows table values)
+- [ ] Test cases documented in QA test plan"
+"PD-085","Sub-task","Wiring & sync test: Evaluate→Energy — Monthly Basis Detail table","wiring-test, pre-demo","2026-05-29","2026-05-29","Demo Prep 3","PD-006","End-to-end wiring + sync verification for the Monthly Basis Detail table including scope-month clipping and per-period P10/P50/P90 colour rules.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (LMP_PERIODS → scope-clipped rows → render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (boundary years respect startMonth / endMonth)
+- [ ] Test cases documented in QA test plan"
+"PD-086","Sub-task","Wiring & sync test: Evaluate→RECs — Risk View","wiring-test, pre-demo","2026-05-29","2026-05-29","Demo Prep 3","PD-013","End-to-end wiring + sync verification for the RECs Risk View on Evaluate (target % vs coverage, ESG cost band).
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (REC target + REC contracts → risk view)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (scope-aware totals match Plan→RECs)
+- [ ] Test cases documented in QA test plan"
+"PD-087","Sub-task","Wiring & sync test: Evaluate→Capacity — CapacityRiskTab panels","wiring-test, pre-demo","2026-05-29","2026-05-29","Demo Prep 3","PD-016","End-to-end wiring + sync verification for the Capacity Risk sub-tab: Capacity-cost summary card, BRA volatility band, Fixed-term-vs-pass-through comparison.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (capacity sources + BRA history → panel render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (View BRA History routes to ModuleHandoffDialog)
+- [ ] Test cases documented in QA test plan"
+"PD-088","Sub-task","Wiring & sync test: Projects — list + filters + search + CreateProjectModal + TermSheet","wiring-test, pre-demo","2026-05-30","2026-05-30","Demo Prep 3","PD-001","End-to-end wiring + sync verification for the Projects page including the 27-column CreateProjectModal and the ProjectTermSheet view.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (form → DB → list refresh + Map pin appearance)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (new project visible on Map after publish)
+- [ ] Test cases documented in QA test plan"
+"PD-089","Sub-task","Wiring & sync test: Transactions — pipeline + allocation + search","wiring-test, pre-demo","2026-05-30","2026-05-30","Demo Prep 3","PD-001","End-to-end wiring + sync verification for the Transactions page: Pending / In Progress / Accepted pipeline, per-transaction site allocation display, RowActions, and search/filter.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (transaction state → pipeline render → allocation read)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (allocations persist via transactionAllocations.ts)
+- [ ] Test cases documented in QA test plan"
+"PD-090","Sub-task","Wiring & sync test: Login + auth + ProtectedRoute","wiring-test, pre-demo","2026-05-30","2026-05-30","Demo Prep 3","PD-001","End-to-end wiring + sync verification for Login form, Supabase session establishment, ProtectedRoute redirect logic, and auth-token refresh on long sessions.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (login → session → protected page render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (logout clears session + ScopeContext + DashboardViewContext)
+- [ ] Test cases documented in QA test plan"
+"PD-091","Sub-task","Wiring & sync test: Documents — list + empty state + selection mode + search","wiring-test, pre-demo","2026-05-30","2026-05-30","Demo Prep 3","PD-008","End-to-end wiring + sync verification for the Documents page list view, empty-state UX (no error banners on backend failure), search/filter, and the selection-mode return path used by tariff linking.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (getPowerPlans → list + selection mode)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (selection navigates back with link payload)
+- [ ] Test cases documented in QA test plan"
+"PD-092","Sub-task","Wiring & sync test: Documents — upload modal + DocumentProcessor","wiring-test, pre-demo","2026-05-30","2026-05-30","Demo Prep 3","PD-008","End-to-end wiring + sync verification for UploadModal, FileUpload, and the DocumentProcessor pipeline (JamMetadata extraction).
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (file → upload → processor → metadata persisted)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (uploaded doc appears in list immediately)
+- [ ] Test cases documented in QA test plan"
+"PD-093","Sub-task","Wiring & sync test: Tariff link / unlink full cycle","wiring-test, pre-demo","2026-05-31","2026-05-31","Demo Prep 3","PD-009","End-to-end wiring + sync verification for the full tariff-link cycle: View Document on Capacity card → Documents selection mode → click doc → write link → return → Capacity card shows linked state.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (TariffDialog → Documents → write → render linked state)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (unlink path also tested; persists across page nav)
+- [ ] Test cases documented in QA test plan"
+"PD-094","Sub-task","Wiring & sync test: ModuleHandoffDialog (Solicit RFQ / Examine Fit / View BRA / Accept Txn)","wiring-test, pre-demo","2026-05-31","2026-05-31","Demo Prep 3","PD-012","End-to-end wiring + sync verification for the generalised ModuleHandoffDialog: every CTA that crosses an unfinished module boundary opens a popup naming the module + completion date + payload preview.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (CTA click → dialog → payload preview)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (each kind shows correct module name + date + sub-line)
+- [ ] Test cases documented in QA test plan"
+"PD-095","Sub-task","Wiring & sync test: Onboarding → Planning visibility","wiring-test, post-demo","2026-07-27","2026-07-28","July 2026","PD-033","End-to-end wiring + sync verification that data entered via Onboarding (multi-step form, site profile intake, REC target intake, existing-contract import) appears in the Planning Module without manual refresh.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (Onboarding submit → DB → Planning hooks)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (new site appears in ScopeBar + charts on next render)
+- [ ] Test cases documented in QA test plan"
+"PD-096","Sub-task","Wiring & sync test: Background job infra + queue + retry + DLQ","wiring-test, post-demo","2026-07-30","2026-07-31","July 2026","PD-029","End-to-end wiring + sync verification for the async job runner: enqueue → worker → success / retry / DLQ → alert.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (enqueue API → worker → result store + alerting)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (DLQ message triggers alert, runbook surfaced)
+- [ ] Test cases documented in QA test plan"
+"PD-097","Sub-task","Wiring & sync test: 3-ISO schema → ingestion → API → UI propagation","wiring-test, post-demo","2026-07-30","2026-07-31","July 2026","PD-031","End-to-end wiring + sync verification that data ingested into the 3-ISO normalized tables (PJM, MISO, ERCOT) flows correctly through the API layer into the Planning Module charts and Risk Report.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (vendor → ingestion → iso_prices/iso_load → API → UI)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (each ISO renders correctly; node mapping translates to internal IDs)
+- [ ] Test cases documented in QA test plan"
+"PD-098","Sub-task","Wiring & sync test: Auth + RLS hardening cross-tenant","wiring-test, post-demo","2026-07-30","2026-07-31","July 2026","PD-032","End-to-end wiring + sync verification that buyer A cannot see buyer B's data on any Planning surface, even via URL manipulation.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (JWT → RLS policy → data scope)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (impersonation pen-test: 0 leaks across all routes)
+- [ ] Test cases documented in QA test plan"
+"PD-099","Sub-task","Wiring & sync test: BRA forward forecast → Capacity Risk panel","wiring-test, post-demo","2026-07-30","2026-07-31","July 2026","PD-035","End-to-end wiring + sync verification for the BRA forward forecast model output flowing into the Capacity Risk panel's P10/P50/P90 band.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (model → bra_forward → Capacity Risk band render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (forecast version pinned to scenario for reproducibility)
+- [ ] Test cases documented in QA test plan"
+"PD-100","Sub-task","Wiring & sync test: Macro Commodity ingestion → forward-curve UI","wiring-test, post-demo","2026-07-30","2026-07-31","July 2026","PD-037","End-to-end wiring + sync verification for Henry Hub, Western Hub, Indiana Hub, and ERCOT North ingestion → macro_prices / macro_forwards → Risk Report references.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (vendor → macro tables → UI references)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (per-ISO Power hub correctly paired with site)
+- [ ] Test cases documented in QA test plan"
+"PD-101","Sub-task","Wiring & sync test: Data Quality framework → all ingestion pipelines","wiring-test, post-demo","2026-07-30","2026-07-31","July 2026","PD-038","End-to-end wiring + sync verification that every ingestion job runs through the Data Quality validators and that failures surface in the feed-health dashboard with actionable detail.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (ingestion → validator → pass/fail + dashboard)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (sample bad data triggers correct validator + alert)
+- [ ] Test cases documented in QA test plan"
+"PD-102","Sub-task","Wiring & sync test: Site metered ingestion → load chart","wiring-test, post-demo","2026-07-30","2026-07-31","July 2026","PD-039","End-to-end wiring + sync verification for buyer-supplied 15-min metered data flowing into site_metered → load chart shape calibration → forecast validation.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (CSV/EDI/meter → site_metered → forecast hook)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (gap-fill flagged correctly; unit normalisation correct)
+- [ ] Test cases documented in QA test plan"
+"PD-103","Sub-task","Wiring & sync test: RFQ Builder handoff cycle (Solicit → Contracting → back-fill)","wiring-test, post-demo","2026-08-28","2026-08-31","August 2026","PD-030","End-to-end wiring + sync verification for the full Planning ↔ Contracting RFQ cycle: Solicit RFQ button → handoff payload → RFQ Builder → pending Transaction record → back-fill into Planning.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (CTA → payload → Contracting → Transaction → Planning hot-reload)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (rejected / cancelled RFQ flows back correctly)
+- [ ] Test cases documented in QA test plan"
+"PD-104","Sub-task","Wiring & sync test: 3-ISO Live + Historical 5-yr backfill integrated","wiring-test, post-demo","2026-08-28","2026-08-31","August 2026","PD-034","End-to-end wiring + sync verification that the 5-year historical backfill seamlessly precedes the live ingestion window with no gaps and matching schemas.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (backfill window meets live window; no gap, no overlap)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (ML reads continuous historical→live series)
+- [ ] Test cases documented in QA test plan"
+"PD-105","Sub-task","Wiring & sync test: 3-ISO Outage & Constraint feeds → UI surfaces","wiring-test, post-demo","2026-08-28","2026-08-31","August 2026","PD-036","End-to-end wiring + sync verification for outage and constraint data flowing into iso_outages / iso_constraints and any UI surfaces consuming them (Map overlay, Risk Report context).
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (vendor → iso_outages/iso_constraints → UI)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (planned vs unplanned outage tagging consistent)
+- [ ] Test cases documented in QA test plan"
+"PD-106","Sub-task","Wiring & sync test: 3-ISO Map overlay + Macro reference UI","wiring-test, post-demo","2026-08-28","2026-08-31","August 2026","PD-041","End-to-end wiring + sync verification that the Map can toggle PJM/MISO/ERCOT footprints and the Risk Report surfaces the correct macro Power hub per site.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (ISO toggle → zone overlay swap; site → hub mapping)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (cross-ISO scope renders without crashes)
+- [ ] Test cases documented in QA test plan"
+"PD-107","Sub-task","Wiring & sync test: Historical BRA backfill (10 yr) → Capacity Risk","wiring-test, post-demo","2026-09-12","2026-09-15","September 2026","PD-043","End-to-end wiring + sync verification that the 10-year BRA backfill renders as the historical envelope on the Capacity Risk panel.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (backfill → bra_history → Capacity Risk envelope)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (zone splits/mergers handled correctly across the 10 yr window)
+- [ ] Test cases documented in QA test plan"
+"PD-108","Sub-task","Wiring & sync test: Transaction state machine integration","wiring-test, post-demo","2026-09-28","2026-09-30","September 2026","PD-042","End-to-end wiring + sync verification for the Pending → In Progress → Accepted → Settled transitions and Planning Module hot-reload on Accepted.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (state transition → audit log → Planning back-fill)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (load chart + Risk Report + Map overlay all update on Accept)
+- [ ] Test cases documented in QA test plan"
+"PD-109","Sub-task","Wiring & sync test: ML simulation pipeline","wiring-test, post-demo","2026-09-28","2026-09-30","September 2026","PD-044","End-to-end wiring + sync verification for the ML orchestration: scope hash → simulation job → cached bands → Risk Report render within the 500 ms target.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (scope change → job dispatch → cache → render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (cache invalidation when contract stack changes)
+- [ ] Test cases documented in QA test plan"
+"PD-110","Sub-task","Wiring & sync test: 8 risk dimensions UI + schema","wiring-test, post-demo","2026-09-28","2026-09-30","September 2026","PD-045","End-to-end wiring + sync verification that all 8 risk dimensions render in the Risk Report decomposition table with ML P10/P50/P90 bands.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (8 models → simulation → 8 rows render)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (Long-Term Market, Execution, Counterparty rows non-empty)
+- [ ] Test cases documented in QA test plan"
+"PD-111","Sub-task","Wiring & sync test: REC tracking system feeds (PJM-GATS / M-RETS / ERCOT)","wiring-test, post-demo","2026-09-28","2026-09-30","September 2026","PD-046","End-to-end wiring + sync verification for the three REC tracking system adaptors → recs_ledger → RECs sub-tab.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (PJM-GATS + M-RETS + ERCOT → ledger → UI)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (per-ISO sites read from correct registry)
+- [ ] Test cases documented in QA test plan"
+"PD-112","Sub-task","Wiring & sync test: Historical site metered backfill","wiring-test, post-demo","2026-09-28","2026-09-30","September 2026","PD-047","End-to-end wiring + sync verification for 3-year metered backfill landing in site_metered + driving the load-shape comparison report.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (backfill → site_metered → comparison report)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (anomaly detection nightly job reads the backfill)
+- [ ] Test cases documented in QA test plan"
+"PD-113","Sub-task","Wiring & sync test: Tariff link Supabase migration","wiring-test, post-demo","2026-09-28","2026-09-30","September 2026","PD-048","End-to-end wiring + sync verification that tariff links persist via Supabase, survive cross-device sessions, and that legacy localStorage links migrate cleanly.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (link → site_tariff_links → render across sessions)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (legacy localStorage migrated on first authenticated load)
+- [ ] Test cases documented in QA test plan"
+"PD-114","Sub-task","Wiring & sync test: Live monitoring feed health dashboard","wiring-test, post-demo","2026-10-12","2026-10-15","October 2026","PD-049","End-to-end wiring + sync verification that every live feed reports last-pull, lag, gap count, and schema version on the admin dashboard and the public status page.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (job heartbeat → feed_health table → dashboard + status page)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (intentional feed pause shows up within 5 min)
+- [ ] Test cases documented in QA test plan"
+"PD-115","Sub-task","Wiring & sync test: 8 Risk Preference inputs → Map filter + RFQ targeting","wiring-test, post-demo","2026-10-28","2026-10-31","October 2026","PD-051","End-to-end wiring + sync verification for the 8 risk-preference inputs filtering Map pins and pre-populating the RFQ Builder targeted-provider list.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (slider/tier value → ScopeContext → Map filter + RFQ list)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (Refuse hides; Required highlights; persistence across sessions)
+- [ ] Test cases documented in QA test plan"
+"PD-116","Sub-task","Wiring & sync test: Live monitoring alerting + reconciliation","wiring-test, post-demo","2026-10-28","2026-10-31","October 2026","PD-053","End-to-end wiring + sync verification for PagerDuty/Slack alerts on feed staleness, schema drift, and gap detection, plus nightly reconciliation jobs.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (rule trigger → on-call notify → runbook reference)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (recon delta surfaces in nightly summary)
+- [ ] Test cases documented in QA test plan"
+"PD-117","Sub-task","Wiring & sync test: Forward Curve Service API → ML + Risk Report","wiring-test, post-demo","2026-11-12","2026-11-15","November 2026","PD-052","End-to-end wiring + sync verification for the Forward Curve Service API serving versioned curves to ML and the Risk Report.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (curve daily build → API → simulation snapshot)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (curve_version pinned per simulation; reproducible runs)
+- [ ] Test cases documented in QA test plan"
+"PD-118","Sub-task","Wiring & sync test: Time-matched REC engine → RECs UI","wiring-test, post-demo","2026-11-26","2026-11-30","November 2026","PD-054","End-to-end wiring + sync verification for the full time-matching engine: per-site matching window → hourly REC coverage → RECs sub-tab visualisations and shortfall cost.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (matching window → engine → RECs sub-tab)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (24-h, monthly, annual modes produce different shortfalls)
+- [ ] Test cases documented in QA test plan"
+"PD-119","Sub-task","Wiring & sync test: API Layer v2 (rate limit + cache + observability)","wiring-test, post-demo","2026-11-26","2026-11-30","November 2026","PD-056","End-to-end wiring + sync verification for the productionised API: rate-limit enforcement, cache hit/miss behaviour, structured request logs, p95 dashboards.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (request → middleware → cache → handler → log)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (over-limit responses correct; cache TTL respected)
+- [ ] Test cases documented in QA test plan"
+"PD-120","Sub-task","Wiring & sync test: Performance — large portfolio (100+ sites)","wiring-test, post-demo","2026-11-26","2026-11-30","November 2026","PD-057","End-to-end wiring + sync verification that a 100+ site portfolio renders within performance budgets (chart < 200 ms, ML cached < 1 s, cold < 5 s; Map pans 100+ pins without frame drop).
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (large fixture → render budget met)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (memoisation + virtual scroll + lazy pins all engaged)
+- [ ] Test cases documented in QA test plan"
+"PD-121","Sub-task","Wiring & sync test: Audit log + observability","wiring-test, post-demo","2026-11-26","2026-11-30","November 2026","PD-058","End-to-end wiring + sync verification that every state-mutating action writes an audit-log entry and that Sentry captures client errors with release tags.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (action → audit_log → admin viewer; client error → Sentry)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (alert rules fire on synthetic 5xx surge)
+- [ ] Test cases documented in QA test plan"
+"PD-122","Sub-task","Wiring & sync test: Disaster Recovery + Backup restore drill","wiring-test, post-demo","2026-12-01","2026-12-05","November 2026","PD-059","End-to-end wiring + sync verification of the DR strategy: PITR restoration drill on staging + re-fetch playbook executed for each ingestion source.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (backup → restore → re-fetch → service green)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (RTO + RPO targets met in drill)
+- [ ] Test cases documented in QA test plan"
+"PD-123","Sub-task","Wiring & sync test: White-label theming","wiring-test, post-demo","2026-12-21","2026-12-22","December 2026","PD-061","End-to-end wiring + sync verification for per-tenant theme: logo, palette, custom domain routing operate without leaking another tenant's brand.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (theme config → CSS vars + asset paths + domain)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (tenant switch in admin updates branding immediately)
+- [ ] Test cases documented in QA test plan"
+"PD-124","Sub-task","Wiring & sync test: Documentation site search + nav","wiring-test, post-demo","2026-12-21","2026-12-22","December 2026","PD-062","End-to-end wiring + sync verification for docs.powerdime.com: navigation, search, getting-started flow, API reference auto-generated from OpenAPI.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (build pipeline → deploy → search index)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (API reference matches deployed OpenAPI spec)
+- [ ] Test cases documented in QA test plan"
+"PD-125","Sub-task","Wiring & sync test: Multi-tenant org separation","wiring-test, post-demo","2026-12-21","2026-12-22","December 2026","PD-063","End-to-end wiring + sync verification for org-level scoping: ScopeBar org selector, RLS extension to org membership, and the admin org-management page.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (org membership → RLS → ScopeBar selector → data filter)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (org switch re-flows scope; cross-org access blocked)
+- [ ] Test cases documented in QA test plan"
+"PD-126","Sub-task","Wiring & sync test: Export-to-PDF Risk Report","wiring-test, post-demo","2026-12-21","2026-12-22","December 2026","PD-064","End-to-end wiring + sync verification for PDF generation: download triggers, tenant branding applied, generated file matches on-screen Risk Report content.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (download click → server-side render → file delivered)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (multi-page layout, fonts, charts render correctly)
+- [ ] Test cases documented in QA test plan"
+"PD-127","Sub-task","Wiring & sync test: Saved scenarios (compare A vs B)","wiring-test, post-demo","2026-12-21","2026-12-22","December 2026","PD-066","End-to-end wiring + sync verification for save-and-compare: snapshot current scope+contracts, side-by-side Risk Report, diff highlights.
+
+ACCEPTANCE CRITERIA:
+- [ ] Feature sync wiring completed end-to-end (snapshot → store → compare view)
+- [ ] Sync testing completed with 0 errors and 0 unexpected results
+- [ ] Cross-component dependencies verified (snapshots persist across sessions; diff is correct)
+- [ ] Test cases documented in QA test plan"
+"PD-128","Sub-task","Wiring & sync test: Final cross-feature regression for v1.0 launch","wiring-test, post-demo, commercial-1.0","2026-12-26","2026-12-29","December 2026","PD-067","Full-portfolio cross-feature regression: every wiring & sync test from May → November re-run on the production-bound build, with a focus on cross-page state preservation, multi-ISO scope changes, RFQ → Contracting → back-fill cycle, time-matched REC matching, and the ML + Forward Curve consistency under load.
+
+ACCEPTANCE CRITERIA:
+- [ ] All wiring & sync test cases re-executed against release candidate
+- [ ] 0 errors and 0 unexpected results across the full suite
+- [ ] Cross-component dependencies verified (no regression vs September / October passes)
+- [ ] Sign-off from QA + CTO before go-live"

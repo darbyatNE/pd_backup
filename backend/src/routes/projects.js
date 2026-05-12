@@ -133,6 +133,9 @@ router.post('/', authenticate, async (req, res) => {
       // VPPA Settlement fields
       settlement_point,
       connection_point,
+      // ISO / zone
+      iso,
+      zone,
       // JSONB fields
       vppa_terms,
       price_schedule
@@ -199,6 +202,14 @@ router.post('/', authenticate, async (req, res) => {
       insertData.connection_point = connection_point;
     }
 
+    // Add ISO / zone if provided
+    if (iso) {
+      insertData.iso = iso;
+    }
+    if (zone) {
+      insertData.zone = zone;
+    }
+
     // Add JSONB fields if provided
     if (vppa_terms) {
       insertData.vppa_terms = vppa_terms;
@@ -255,6 +266,9 @@ router.put('/:id', authenticate, async (req, res) => {
       // VPPA Settlement fields
       settlement_point,
       connection_point,
+      // ISO / zone
+      iso,
+      zone,
       // JSONB fields
       vppa_terms,
       price_schedule
@@ -294,6 +308,10 @@ router.put('/:id', authenticate, async (req, res) => {
     // VPPA Settlement fields
     if (settlement_point !== undefined) updateData.settlement_point = settlement_point;
     if (connection_point !== undefined) updateData.connection_point = connection_point;
+
+    // ISO / zone
+    if (iso !== undefined) updateData.iso = iso;
+    if (zone !== undefined) updateData.zone = zone;
 
     // JSONB fields
     if (vppa_terms !== undefined) updateData.vppa_terms = vppa_terms;

@@ -4,11 +4,14 @@ type StatusType = 'success' | 'warning' | 'error' | 'info' | 'neutral';
 
 interface StatusBadgeProps {
   status: string;
+  /** Optional display override — renders this text instead of `status` while keeping the original
+   *  value for tone/type detection. */
+  label?: string;
   type?: StatusType;
   className?: string;
 }
 
-export default function StatusBadge({ status, type, className = '' }: StatusBadgeProps) {
+export default function StatusBadge({ status, label, type, className = '' }: StatusBadgeProps) {
   const badgeType = useMemo(() => {
     if (type) return type;
     
@@ -32,7 +35,7 @@ export default function StatusBadge({ status, type, className = '' }: StatusBadg
     <span
       className={`inline-flex items-center rounded-lg px-2.5 py-0.5 text-xs font-medium capitalize ${styles[badgeType]} ${className}`}
     >
-      {status}
+      {label ?? status}
     </span>
   );
 }

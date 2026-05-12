@@ -17,7 +17,7 @@ export type ProcessingStatus = 'pending' | 'processing' | 'processed' | 'needs_r
 
 export type SettlementType = 'physical' | 'financial' | 'contract_for_difference';
 
-export type GenerationTypeExtended = 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hydrogen' | 'Hybrid';
+export type GenerationTypeExtended = 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hydrogen' | 'Hybrid' | 'Combined Cycle' | 'Peaker';
 
 // ============================================================================
 // SELLER PROJECT (VPPA) INTERFACES

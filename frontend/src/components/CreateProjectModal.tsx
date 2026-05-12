@@ -52,6 +52,8 @@ interface EditableProject {
     eac_scheme?: EACScheme | '';
     settlement_point?: string;
     connection_point?: string;
+    iso?: string;
+    zone?: string;
 }
 
 interface CreateProjectModalProps {
@@ -69,6 +71,31 @@ interface BrownfieldFormData {
     facility_type: string;
     approximate_power_kw: string;
     notes: string;
+
+    // Site Onboarding (from intake sheet)
+    site_id: string;
+    iso_rto: string;
+    state: string;
+    county_metro: string;
+    longitude: string;
+    latitude: string;
+    utility_lse: string;
+    load_zone: string;
+    pnode_id: string;
+    voltage_kv: string;
+    peak_load_mw: string;
+    avg_load_mw: string;
+    load_shape: string;
+    operating_hours: string;
+    criticality: string;
+    backup_gen_type: string;
+    backup_gen_capacity_mw: string;
+    backup_gen_duration_hours: string;
+    primary_supply_type: string;
+    preferred_clean_gen_type: string;
+    preferred_gen_shape: string;
+    rec_coverage_target_pct: string;
+    growth_ramp: string;
 
     // RFP Requirements
     target_capacity_mw: string;
@@ -172,18 +199,88 @@ interface GenerationProjectFormData {
     // VPPA Settlement
     settlement_point: string;
     connection_point: string;
+    // ISO / zone
+    iso: string;
+    zone: string;
 }
 
 const FACILITY_TYPES = [
-    'Data Center',
-    'Manufacturing',
-    'Office',
-    'Warehouse',
-    'Retail',
-    'Healthcare',
-    'Education',
-    'Other'
+    'Hyperscale data center',
+    'Colocation',
+    'Enterprise data center',
+    'AI cluster',
+    'Edge compute',
+    'Industrial load',
 ];
+
+// Onboarding sheet dropdowns
+const ISO_RTOS = ['PJM', 'MISO', 'ERCOT', 'SPP', 'NYISO', 'ISO-NE', 'CAISO', 'WECC'];
+
+const US_STATES = [
+    'AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA',
+    'ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR',
+    'PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY',
+];
+
+const LOAD_ZONES = ['AEP', 'DOM', 'COMED', 'ATSI', 'APS', 'DUQ', 'DUKE', 'DAYTON'];
+
+const PJM_ZONES = ['AEP', 'APS', 'ATSI', 'BGE', 'COMED', 'DAY', 'DEOK', 'DPL', 'DOM', 'DUQ', 'EKPC', 'JCPL', 'LGE', 'METED', 'PENELEC', 'PECO', 'PEPCO', 'PPL', 'PSEG', 'RECO', 'UGI'];
+
+const VOLTAGE_KV_OPTIONS = ['34.5', '69', '115', '138', '230'];
+
+const LOAD_SHAPES = [
+    'Baseload',
+    'Baseload with overnight dip',
+    'Daytime-peaking',
+    'Evening-ramping',
+    'Weekday-peaking',
+    'Highly variable',
+];
+
+const OPERATING_HOURS_OPTIONS = [
+    '24x7',
+    '24x7x365',
+    'Weekday business hours',
+    'Extended weekday hours',
+    'Weekday peaks',
+    'Mission critical',
+    'Seasonal operation',
+];
+
+const CRITICALITY_TIERS = ['Tier II', 'Tier III', 'Tier III+', 'Tier IV', 'Mission critical'];
+
+const BACKUP_GEN_TYPES = [
+    'Diesel',
+    'Natural Gas',
+    'Diesel + Battery',
+    'Natural Gas + Battery',
+    'Diesel + Flywheel',
+    'Battery only',
+];
+
+const PRIMARY_SUPPLY_TYPES = [
+    'Grid Retail',
+    'Utility Tariff',
+    'Wholesale Pass-Through',
+    'Retail + Hedge',
+    'Sleeved Supply',
+    'Market-Based Supply',
+    'Hybrid Renewable Portfolio',
+];
+
+const PREFERRED_CLEAN_GEN_TYPES = [
+    'Solar',
+    'Wind',
+    'Solar + Firming',
+    'Wind + Firming',
+    'Solar + Storage',
+    'Wind + Solar Hybrid',
+    'Wind-Weighted',
+];
+
+const PREFERRED_GEN_SHAPES = ['Daytime', 'Evening', 'Overnight', 'Flat', 'Load-Following', 'Solar-Heavy'];
+
+const GROWTH_RAMPS = ['Flat growth', 'Stepped expansion', 'Rapid growth', 'Unknown growth'];
 
 const EQUIPMENT_TYPES = [
     'Servers',
@@ -270,9 +367,33 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         // Basic Info
         name: '',
         location: '',
-        facility_type: 'Data Center',
+        facility_type: 'Hyperscale data center',
         approximate_power_kw: '',
         notes: '',
+        // Site Onboarding
+        site_id: '',
+        iso_rto: 'PJM',
+        state: '',
+        county_metro: '',
+        longitude: '',
+        latitude: '',
+        utility_lse: '',
+        load_zone: '',
+        pnode_id: '',
+        voltage_kv: '',
+        peak_load_mw: '',
+        avg_load_mw: '',
+        load_shape: '',
+        operating_hours: '',
+        criticality: '',
+        backup_gen_type: '',
+        backup_gen_capacity_mw: '',
+        backup_gen_duration_hours: '',
+        primary_supply_type: '',
+        preferred_clean_gen_type: '',
+        preferred_gen_shape: '',
+        rec_coverage_target_pct: '',
+        growth_ramp: '',
         // RFP Requirements
         target_capacity_mw: '',
         target_annual_quantity_mwh: '',
@@ -294,6 +415,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
     });
 
     // Collapsible sections state for buyer forms
+    const [showSiteProfile, setShowSiteProfile] = useState(true);
     const [showBuyerRFP, setShowBuyerRFP] = useState(false);
     const [showBuyerEnvironmental, setShowBuyerEnvironmental] = useState(false);
 
@@ -344,6 +466,8 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         expected_cod: '',
         description: '',
         status: 'draft',
+        iso: 'PJM',
+        zone: '',
         // VPPA Pricing
         fixed_price_per_mwh: '',
         eac_price_per_mwh: '',
@@ -562,9 +686,33 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 setBrownfieldForm({
                     name: editProject.name,
                     location: editProject.location,
-                    facility_type: getMetadataString(metadata, 'facility_type', 'Data Center'),
+                    facility_type: getMetadataString(metadata, 'facility_type', 'Hyperscale data center'),
                     approximate_power_kw: getMetadataToString(metadata, 'approximate_power_kw'),
                     notes: getMetadataString(metadata, 'notes'),
+                    // Site Onboarding
+                    site_id: getMetadataString(metadata, 'site_id'),
+                    iso_rto: getMetadataString(metadata, 'iso_rto', 'PJM'),
+                    state: getMetadataString(metadata, 'state'),
+                    county_metro: getMetadataString(metadata, 'county_metro'),
+                    longitude: getMetadataToString(metadata, 'longitude'),
+                    latitude: getMetadataToString(metadata, 'latitude'),
+                    utility_lse: getMetadataString(metadata, 'utility_lse'),
+                    load_zone: getMetadataString(metadata, 'load_zone'),
+                    pnode_id: getMetadataString(metadata, 'pnode_id'),
+                    voltage_kv: getMetadataToString(metadata, 'voltage_kv'),
+                    peak_load_mw: getMetadataToString(metadata, 'peak_load_mw'),
+                    avg_load_mw: getMetadataToString(metadata, 'avg_load_mw'),
+                    load_shape: getMetadataString(metadata, 'load_shape'),
+                    operating_hours: getMetadataString(metadata, 'operating_hours'),
+                    criticality: getMetadataString(metadata, 'criticality'),
+                    backup_gen_type: getMetadataString(metadata, 'backup_gen_type'),
+                    backup_gen_capacity_mw: getMetadataToString(metadata, 'backup_gen_capacity_mw'),
+                    backup_gen_duration_hours: getMetadataToString(metadata, 'backup_gen_duration_hours'),
+                    primary_supply_type: getMetadataString(metadata, 'primary_supply_type'),
+                    preferred_clean_gen_type: getMetadataString(metadata, 'preferred_clean_gen_type'),
+                    preferred_gen_shape: getMetadataString(metadata, 'preferred_gen_shape'),
+                    rec_coverage_target_pct: getMetadataToString(metadata, 'rec_coverage_target_pct'),
+                    growth_ramp: getMetadataString(metadata, 'growth_ramp'),
                     // RFP Requirements
                     target_capacity_mw: editProject.target_capacity_mw?.toString() || '',
                     target_annual_quantity_mwh: editProject.target_annual_quantity_mwh?.toString() || '',
@@ -649,6 +797,9 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                     // VPPA Settlement
                     settlement_point: editProject.settlement_point || '',
                     connection_point: editProject.connection_point || '',
+                    // ISO / zone
+                    iso: editProject.iso || 'PJM',
+                    zone: editProject.zone || '',
                 });
             }
         }
@@ -683,11 +834,35 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 required_eac_scheme: brownfieldForm.required_eac_scheme || null,
                 renewable_percentage_target: brownfieldForm.renewable_percentage_target ? Number(brownfieldForm.renewable_percentage_target) : null,
                 net_neutral_target_year: brownfieldForm.net_neutral_target_year ? Number(brownfieldForm.net_neutral_target_year) : null,
-                // Metadata for facility info
+                // Metadata for facility info + onboarding profile
                 metadata: {
                     facility_type: brownfieldForm.facility_type,
                     approximate_power_kw: brownfieldForm.approximate_power_kw ? Number(brownfieldForm.approximate_power_kw) : null,
-                    notes: brownfieldForm.notes
+                    notes: brownfieldForm.notes,
+                    // Site Onboarding
+                    site_id: brownfieldForm.site_id || null,
+                    iso_rto: brownfieldForm.iso_rto || null,
+                    state: brownfieldForm.state || null,
+                    county_metro: brownfieldForm.county_metro || null,
+                    longitude: brownfieldForm.longitude ? Number(brownfieldForm.longitude) : null,
+                    latitude: brownfieldForm.latitude ? Number(brownfieldForm.latitude) : null,
+                    utility_lse: brownfieldForm.utility_lse || null,
+                    load_zone: brownfieldForm.load_zone || null,
+                    pnode_id: brownfieldForm.pnode_id || null,
+                    voltage_kv: brownfieldForm.voltage_kv ? Number(brownfieldForm.voltage_kv) : null,
+                    peak_load_mw: brownfieldForm.peak_load_mw ? Number(brownfieldForm.peak_load_mw) : null,
+                    avg_load_mw: brownfieldForm.avg_load_mw ? Number(brownfieldForm.avg_load_mw) : null,
+                    load_shape: brownfieldForm.load_shape || null,
+                    operating_hours: brownfieldForm.operating_hours || null,
+                    criticality: brownfieldForm.criticality || null,
+                    backup_gen_type: brownfieldForm.backup_gen_type || null,
+                    backup_gen_capacity_mw: brownfieldForm.backup_gen_capacity_mw ? Number(brownfieldForm.backup_gen_capacity_mw) : null,
+                    backup_gen_duration_hours: brownfieldForm.backup_gen_duration_hours ? Number(brownfieldForm.backup_gen_duration_hours) : null,
+                    primary_supply_type: brownfieldForm.primary_supply_type || null,
+                    preferred_clean_gen_type: brownfieldForm.preferred_clean_gen_type || null,
+                    preferred_gen_shape: brownfieldForm.preferred_gen_shape || null,
+                    rec_coverage_target_pct: brownfieldForm.rec_coverage_target_pct ? Number(brownfieldForm.rec_coverage_target_pct) : null,
+                    growth_ramp: brownfieldForm.growth_ramp || null,
                 }
             };
 
@@ -836,6 +1011,9 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 // VPPA Settlement
                 settlement_point: generationForm.settlement_point || null,
                 connection_point: generationForm.connection_point || null,
+                // ISO / zone
+                iso: generationForm.iso || null,
+                zone: generationForm.zone || null,
                 // Metadata for description
                 metadata: {
                     description: generationForm.description
@@ -1054,6 +1232,308 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                     placeholder="Current facility power consumption"
                                                 />
                                             </div>
+                                        </div>
+
+                                        {/* Site Onboarding Profile - Collapsible */}
+                                        <div className="border rounded-lg">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowSiteProfile(!showSiteProfile)}
+                                                className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors"
+                                            >
+                                                <span className="text-sm font-semibold text-gray-900">Site Onboarding Profile</span>
+                                                {showSiteProfile ? (
+                                                    <ChevronUpIcon className="h-5 w-5 text-gray-500" />
+                                                ) : (
+                                                    <ChevronDownIcon className="h-5 w-5 text-gray-500" />
+                                                )}
+                                            </button>
+                                            {showSiteProfile && (
+                                                <div className="p-4 space-y-5 border-t">
+                                                    {/* Site Identification */}
+                                                    <div>
+                                                        <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Site Identification</h5>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Site ID</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={brownfieldForm.site_id}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, site_id: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="Internal site identifier"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">ISO/RTO</label>
+                                                                <select
+                                                                    value={brownfieldForm.iso_rto}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, iso_rto: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select ISO/RTO...</option>
+                                                                    {ISO_RTOS.map((iso) => <option key={iso} value={iso}>{iso}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
+                                                                <select
+                                                                    value={brownfieldForm.state}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, state: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select state...</option>
+                                                                    {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">County / Metro</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={brownfieldForm.county_metro}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, county_metro: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="e.g., Loudoun County"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">X (Lon)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.0001"
+                                                                    value={brownfieldForm.longitude}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, longitude: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="e.g., -77.5636"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Y (Lat)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    step="0.0001"
+                                                                    value={brownfieldForm.latitude}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, latitude: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="e.g., 39.0438"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Utility / LSE</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={brownfieldForm.utility_lse}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, utility_lse: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="e.g., Dominion Energy VA"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Load Zone</label>
+                                                                <select
+                                                                    value={brownfieldForm.load_zone}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, load_zone: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select zone...</option>
+                                                                    {LOAD_ZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Pnode ID</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={brownfieldForm.pnode_id}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, pnode_id: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="PJM/ISO pricing node"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Voltage (kV)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    list="voltage-kv-options"
+                                                                    step="0.1"
+                                                                    value={brownfieldForm.voltage_kv}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, voltage_kv: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="34.5 / 69 / 115 / 138 / 230"
+                                                                />
+                                                                <datalist id="voltage-kv-options">
+                                                                    {VOLTAGE_KV_OPTIONS.map((v) => <option key={v} value={v} />)}
+                                                                </datalist>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Load Profile */}
+                                                    <div>
+                                                        <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Load Profile</h5>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Peak Load (MW)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={brownfieldForm.peak_load_mw}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, peak_load_mw: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Average Load (MW)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={brownfieldForm.avg_load_mw}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, avg_load_mw: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Load Shape</label>
+                                                                <select
+                                                                    value={brownfieldForm.load_shape}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, load_shape: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select shape...</option>
+                                                                    {LOAD_SHAPES.map((s) => <option key={s} value={s}>{s}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Operating Hours</label>
+                                                                <select
+                                                                    value={brownfieldForm.operating_hours}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, operating_hours: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select...</option>
+                                                                    {OPERATING_HOURS_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Criticality</label>
+                                                                <select
+                                                                    value={brownfieldForm.criticality}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, criticality: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select tier...</option>
+                                                                    {CRITICALITY_TIERS.map((c) => <option key={c} value={c}>{c}</option>)}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Backup Generation */}
+                                                    <div>
+                                                        <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Backup Generation</h5>
+                                                        <div className="grid grid-cols-3 gap-4">
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Backup Gen Type</label>
+                                                                <select
+                                                                    value={brownfieldForm.backup_gen_type}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, backup_gen_type: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">None / Select...</option>
+                                                                    {BACKUP_GEN_TYPES.map((b) => <option key={b} value={b}>{b}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Capacity (MW)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    value={brownfieldForm.backup_gen_capacity_mw}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, backup_gen_capacity_mw: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Duration (Hours)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.1"
+                                                                    value={brownfieldForm.backup_gen_duration_hours}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, backup_gen_duration_hours: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Procurement Preferences */}
+                                                    <div>
+                                                        <h5 className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Procurement Preferences</h5>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Primary Supply Type</label>
+                                                                <select
+                                                                    value={brownfieldForm.primary_supply_type}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, primary_supply_type: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select...</option>
+                                                                    {PRIMARY_SUPPLY_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Clean Gen Type</label>
+                                                                <select
+                                                                    value={brownfieldForm.preferred_clean_gen_type}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, preferred_clean_gen_type: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select...</option>
+                                                                    {PREFERRED_CLEAN_GEN_TYPES.map((p) => <option key={p} value={p}>{p}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Preferred Gen Shape</label>
+                                                                <select
+                                                                    value={brownfieldForm.preferred_gen_shape}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, preferred_gen_shape: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select...</option>
+                                                                    {PREFERRED_GEN_SHAPES.map((p) => <option key={p} value={p}>{p}</option>)}
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">REC Coverage Target (%)</label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    max="100"
+                                                                    step="1"
+                                                                    value={brownfieldForm.rec_coverage_target_pct}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, rec_coverage_target_pct: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                    placeholder="e.g., 100"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-sm font-medium text-gray-700 mb-1">Growth Ramp</label>
+                                                                <select
+                                                                    value={brownfieldForm.growth_ramp}
+                                                                    onChange={(e) => setBrownfieldForm({ ...brownfieldForm, growth_ramp: e.target.value })}
+                                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                >
+                                                                    <option value="">Select...</option>
+                                                                    {GROWTH_RAMPS.map((g) => <option key={g} value={g}>{g}</option>)}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* RFP Requirements Section - Collapsible */}
@@ -1614,6 +2094,38 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                     className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
                                                     placeholder="e.g., Nevada, USA"
                                                 />
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        ISO
+                                                    </label>
+                                                    <select
+                                                        value={generationForm.iso}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, iso: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                    >
+                                                        {ISO_RTOS.map(iso => (
+                                                            <option key={iso} value={iso}>{iso}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Zone
+                                                    </label>
+                                                    <select
+                                                        value={generationForm.zone}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, zone: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                    >
+                                                        <option value="">Select zone</option>
+                                                        {PJM_ZONES.map(z => (
+                                                            <option key={z} value={z}>{z}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
                                             </div>
 
                                             <div>

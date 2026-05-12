@@ -52,8 +52,8 @@ const ZONE_COORDS: Record<string, [number, number]> = {
   'new jersey':      [-74.4057, 40.0583],
   'maryland':        [-76.6413, 39.0458],
   'delaware':        [-75.5277, 38.9108],
-  'virginia':        [-78.6569, 37.4316],
   'west virginia':   [-80.4549, 38.5976],
+  'virginia':        [-78.6569, 37.4316],
   'ohio':            [-82.9071, 40.4173],
   'kentucky':        [-84.2700, 37.8393],
   'illinois':        [-89.3985, 40.6331],
@@ -105,6 +105,14 @@ const ZONE_COORDS: Record<string, [number, number]> = {
   'columbus, ohio':  [-83.00, 39.96],
   'cincinnati, oh':  [-84.51, 39.10],
   'cincinnati, ohio':[-84.51, 39.10],
+
+  // Northern Virginia data-center cities (DOM / Dominion zone)
+  'ashburn, va':       [-77.4875, 39.0438],
+  'ashburn, virginia': [-77.4875, 39.0438],
+  'manassas, va':       [-77.4753, 38.7509],
+  'manassas, virginia': [-77.4753, 38.7509],
+  'sterling, va':       [-77.4286, 39.0062],
+  'sterling, virginia': [-77.4286, 39.0062],
 
   // ERCOT / Texas regions — explicit entries override partial 'texas' match
   'west texas':      [-101.5, 31.9],   // ERCOT West — Permian Basin wind/solar corridor

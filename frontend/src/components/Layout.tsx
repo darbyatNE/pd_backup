@@ -5,28 +5,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { UserCircleIcon } from './Icons';
 import MobileNav from './MobileNav';
 import { Menu, Transition } from '@headlessui/react';
+import ScopeBar from './ScopeBar';
+import { useDashboardView, DASHBOARD_VIEWS, DASHBOARD_SUBTABS } from '../contexts/DashboardViewContext';
 
 interface LayoutProps {
   children: ReactNode;
   fullWidth?: boolean;
 }
 
-const getNavLinks = (role?: string) => {
-  const links = [
-    { path: '/dashboard', label: 'Dashboard' },
-    { path: '/projects', label: 'Projects' },
-  ];
-  if (role === 'buyer') {
-    links.push({ path: '/projects?tab=my-projects', label: 'Data Center Sites' });
-  }
-  links.push(
-    { path: '/transactions', label: 'Transactions' },
-    { path: '/documents', label: 'Documents' },
-    { path: '/forecast', label: 'Forecast' },
-    { path: '/map', label: 'Map' },
-  );
-  return links;
-};
+const getNavLinks = (_role?: string) => [];
 
 export default function Layout({ children, fullWidth = false }: LayoutProps) {
   const { user, signOut } = useAuth();
@@ -56,6 +43,13 @@ export default function Layout({ children, fullWidth = false }: LayoutProps) {
 
   const navLinks = getNavLinks(user?.role);
 
+  // Dashboard view toggle (Planning / Map / Risk) lives in the global header
+  // so the same ribbon is visible from any of the three views.
+  const { view, setView, subTab, setSubTab } = useDashboardView();
+  const onDashboard = location.pathname.replace(/\/$/, '') === '/dashboard';
+  // Sub-tabs only meaningful on Planning and Risk (not Map)
+  const showSubTabs = onDashboard && (view === 'forecast' || view === 'planning');
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Navigation Header */}
@@ -71,7 +65,7 @@ export default function Layout({ children, fullWidth = false }: LayoutProps) {
           </Link>
 
           {/* Centered Desktop Navigation */}
-          <nav className="hidden md:flex md:gap-1 flex-1 justify-center mx-4">
+          <nav className="hidden md:flex md:gap-1 flex-1 justify-center mx-4 items-center">
             {navLinks.map((link) => (
               <Link
                 key={link.path}
@@ -84,6 +78,34 @@ export default function Layout({ children, fullWidth = false }: LayoutProps) {
                 {link.label}
               </Link>
             ))}
+            {/* Dashboard view toggle — only on /dashboard */}
+            {onDashboard ? (
+              <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+                {DASHBOARD_VIEWS.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setView(v.id)}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                      view === v.id
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              /* Off-dashboard pages (Projects / Transactions / Documents) get a
+                 visible Dashboard link in the same slot to return home. */
+              <Link
+                to="/dashboard"
+                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+              >
+                <span aria-hidden>←</span>
+                Dashboard
+              </Link>
+            )}
           </nav>
 
           {/* User Profile */}
@@ -146,6 +168,34 @@ export default function Layout({ children, fullWidth = false }: LayoutProps) {
             </div>
           </div>
         </div>
+        {/* Sub-tab row — Capacity / Energy / RECs, shown only on Planning & Risk views */}
+        {showSubTabs && (
+          <div className="border-t border-slate-100 bg-slate-50/60">
+            <div className={`mx-auto flex h-10 items-center gap-3 px-4 sm:px-6 lg:px-8 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
+              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
+                Topic
+              </span>
+              <div className="flex items-center gap-1 text-xs">
+                {DASHBOARD_SUBTABS.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSubTab(t.id)}
+                    className={`px-3 py-1 rounded-md font-medium transition-colors ${
+                      subTab === t.id
+                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Scope bar — site checkboxes + date range, synced across all pages */}
+        <ScopeBar fullWidth={fullWidth} />
       </header>
 
       {/* Mobile Navigation Drawer */}

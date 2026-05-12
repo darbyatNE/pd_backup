@@ -22,7 +22,7 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline';
 
-type GenerationFilter = 'all' | 'Solar' | 'Wind';
+type GenerationFilter = 'all' | string;
 type SubmissionState = 'idle' | 'submitting' | 'success' | 'error';
 type TabType = 'marketplace' | 'my-projects';
 
@@ -30,9 +30,22 @@ interface InterestFormState {
   energy_amount_mwh: string;
   start_date: string;
   contract_duration_years: number;
+  shape: string;
   net_neutral_target: boolean;
   generation_preference: string;
 }
+
+const SHAPE_OPTIONS = [
+  'Flat (7×24)',
+  'On-Peak (5×16)',
+  'Off-Peak',
+  'As-Generated',
+  'Block (custom)',
+] as const;
+
+// Wholesale-market deals are capped at 7 years for terms-pricing reasons —
+// supplier balance-sheet exposure beyond that requires a different product.
+const MAX_CONTRACT_YEARS = 7;
 
 interface BuyerProject {
   id: string;
@@ -60,6 +73,7 @@ const defaultFormState: InterestFormState = {
   energy_amount_mwh: '',
   start_date: '',
   contract_duration_years: 3,
+  shape: 'Flat (7×24)',
   net_neutral_target: true,
   generation_preference: '',
 };
@@ -178,6 +192,7 @@ export default function Projects() {
         energy_amount_mwh: '',
         start_date: '',
         contract_duration_years: 3,
+        shape: 'Flat (7×24)',
         net_neutral_target: true,
         generation_preference: activeProject.generation_type,
       });
@@ -322,6 +337,23 @@ export default function Projects() {
       });
   }, [projects, sellerProjects, generationFilter, searchTerm, activeTab]);
 
+  // Build the generation-type tab list dynamically from whatever's actually
+  // in the visible deal list — always lead with "all", then each unique
+  // generation_type, sorted alphabetically for stable ordering.
+  const availableGenFilters = useMemo<GenerationFilter[]>(() => {
+    const displayProjects = activeTab === 'marketplace' ? projects : sellerProjects;
+    const types = Array.from(new Set(displayProjects.map((p) => p.generation_type))).sort();
+    return ['all', ...types];
+  }, [projects, sellerProjects, activeTab]);
+
+  // Reset filter to "all" when the active filter is no longer in the list
+  // (e.g., user toggled tabs and the prior gen type isn't represented).
+  useEffect(() => {
+    if (!availableGenFilters.includes(generationFilter)) {
+      setGenerationFilter('all');
+    }
+  }, [availableGenFilters, generationFilter]);
+
   const filteredSellerProjects = useMemo(() => {
     if (activeTab === 'my-projects') {
       return sellerProjects;
@@ -357,11 +389,13 @@ export default function Projects() {
     setSubmissionMessage('');
 
     try {
+      const cappedYears = Math.min(MAX_CONTRACT_YEARS, Math.max(1, Number(formState.contract_duration_years)));
       const payload = {
         project_id: activeProject.id,
         energy_amount_mwh: Number(formState.energy_amount_mwh),
         start_date: formState.start_date,
-        contract_duration_years: Number(formState.contract_duration_years),
+        contract_duration_years: cappedYears,
+        shape: formState.shape,
         net_neutral_target: formState.net_neutral_target,
         generation_preference: formState.generation_preference,
       };
@@ -390,6 +424,7 @@ export default function Projects() {
         energy_amount_mwh: '',
         start_date: '',
         contract_duration_years: 3,
+        shape: 'Flat (7×24)',
         net_neutral_target: true,
         generation_preference: activeProject.generation_type,
       });
@@ -437,7 +472,7 @@ export default function Projects() {
           onClick={() => setCreateModalOpen(true)}
           className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500 flex-shrink-0"
         >
-          {user?.role === 'buyer' ? 'Create Data Center Site' : 'Create Generation Project'}
+          Add Project
         </button>
       </div>
 
@@ -517,28 +552,28 @@ export default function Projects() {
                   <table className="min-w-full divide-y divide-slate-200">
                     <thead className="bg-slate-50 text-left text-xs font-medium text-slate-700">
                       <tr>
-                        <th className="px-6 py-3">Project Name</th>
-                        <th className="px-6 py-3">Type</th>
-                        <th className="px-6 py-3">Location</th>
-                        <th className="px-6 py-3">Created</th>
-                        <th className="px-6 py-3 text-right w-[170px]">Actions</th>
+                        <th className="px-6 py-2">Project Name</th>
+                        <th className="px-6 py-2">Type</th>
+                        <th className="px-6 py-2">Location</th>
+                        <th className="px-6 py-2">Created</th>
+                        <th className="px-6 py-2 text-right w-[170px]">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 bg-white text-sm">
                       {buyerProjects.map((project) => (
                         <tr key={project.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setViewingBuyerProject(project)}>
-                          <td className="px-6 py-4 font-medium text-slate-900">{project.name}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-2.5 font-medium text-slate-900">{project.name}</td>
+                          <td className="px-6 py-2.5">
                             <StatusBadge
                               status={project.project_type === 'brownfield' ? 'Brownfield' : 'Greenfield'}
                               type="info"
                             />
                           </td>
-                          <td className="px-6 py-4 text-slate-700">{project.location}</td>
-                          <td className="px-6 py-4 text-slate-700">
+                          <td className="px-6 py-2.5 text-slate-700">{project.location}</td>
+                          <td className="px-6 py-2.5 text-slate-700">
                             {new Date(project.created_at).toLocaleDateString()}
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-6 py-2.5 text-right">
                             <RowActionGroup>
                               <RowActionButton
                                 label="Edit"
@@ -580,30 +615,34 @@ export default function Projects() {
                   <table className="min-w-full divide-y divide-slate-200">
                     <thead className="bg-slate-50 text-left text-xs font-medium text-slate-700">
                       <tr>
-                        <th className="px-6 py-3">Project Name</th>
-                        <th className="px-6 py-3">Type</th>
-                        <th className="px-6 py-3">Capacity</th>
-                        <th className="px-6 py-3">Location</th>
-                        <th className="px-6 py-3">Status</th>
-                        <th className="px-6 py-3 text-right w-[240px]">Actions</th>
+                        <th className="px-6 py-2">Project Name</th>
+                        <th className="px-6 py-2">Type</th>
+                        <th className="px-6 py-2">Capacity</th>
+                        <th className="px-6 py-2">Location</th>
+                        <th className="px-6 py-2">ISO</th>
+                        <th className="px-6 py-2">Zone</th>
+                        <th className="px-6 py-2">Status</th>
+                        <th className="px-6 py-2 text-right w-[240px]">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 bg-white text-sm">
                       {filteredSellerProjects.map((project) => (
                         <tr key={project.id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setViewingSellerProject(project)}>
-                          <td className="px-6 py-4 font-medium text-slate-900">{project.name}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-2.5 font-medium text-slate-900">{project.name}</td>
+                          <td className="px-6 py-2.5">
                             <StatusBadge status={project.generation_type} type="info" />
                           </td>
-                          <td className="px-6 py-4 text-slate-900">{project.capacity_mw} MW</td>
-                          <td className="px-6 py-4 text-slate-700">{project.location}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-2.5 text-slate-900">{project.capacity_mw} MW</td>
+                          <td className="px-6 py-2.5 text-slate-700">{project.location}</td>
+                          <td className="px-6 py-2.5 text-slate-700">{project.iso || '—'}</td>
+                          <td className="px-6 py-2.5 text-slate-700">{project.zone || '—'}</td>
+                          <td className="px-6 py-2.5">
                             <StatusBadge
                               status={project.status === 'draft' ? 'Draft' : project.status === 'unpublished' ? 'Unpublished' : 'Published'}
                               type={project.status === 'published' ? 'success' : 'warning'}
                             />
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-6 py-2.5 text-right">
                             <RowActionGroup>
                               {(project.status === 'draft' || project.status === 'unpublished') && (
                                 <RowActionButton
@@ -683,7 +722,7 @@ export default function Projects() {
               <section className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm mt-4 sm:mt-6 overflow-hidden">
                 <div className="flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
-                    {(['all', 'Solar', 'Wind'] as GenerationFilter[]).map((filter) => (
+                    {availableGenFilters.map((filter) => (
                       <button
                         key={filter}
                         type="button"
@@ -726,18 +765,20 @@ export default function Projects() {
                     <table className="min-w-full divide-y divide-slate-200">
                       <thead className="bg-slate-50 text-left text-xs font-medium text-slate-700">
                         <tr>
-                          <th className="px-3 sm:px-4 py-3 whitespace-nowrap">Project</th>
-                          <th className="px-3 sm:px-4 py-3 whitespace-nowrap">Type</th>
-                          <th className="px-3 sm:px-4 py-3 whitespace-nowrap">Capacity</th>
-                          <th className="px-3 sm:px-4 py-3 whitespace-nowrap hidden sm:table-cell">Location</th>
-                          <th className="px-3 sm:px-4 py-3 whitespace-nowrap hidden md:table-cell">Price</th>
-                          <th className="px-2 sm:px-3 py-3 text-right w-[130px]">Actions</th>
+                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap">Project</th>
+                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap">Type</th>
+                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap">Capacity</th>
+                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden sm:table-cell">Location</th>
+                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden md:table-cell">ISO</th>
+                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden md:table-cell">Zone</th>
+                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden md:table-cell">Price</th>
+                          <th className="px-2 sm:px-3 py-2 text-right w-[130px]">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 bg-white text-sm">
                         {filteredProjects.map((project) => (
                           <tr key={project.id} className={`hover:bg-slate-50 ${project.seller_id === user?.id ? 'bg-indigo-50/40' : ''}`}>
-                            <td className="px-3 sm:px-4 py-3 sm:py-4">
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5">
                               <div className="font-medium text-slate-900 max-w-[150px] sm:max-w-none truncate">
                                 {project.name}
                                 {project.seller_id === user?.id && (
@@ -747,21 +788,27 @@ export default function Projects() {
                                 )}
                               </div>
                             </td>
-                            <td className="px-3 sm:px-4 py-3 sm:py-4">
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5">
                               <StatusBadge status={project.generation_type} type="info" />
                             </td>
-                            <td className="px-3 sm:px-4 py-3 sm:py-4 text-slate-900 whitespace-nowrap">
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-900 whitespace-nowrap">
                               {project.capacity_mw} MW
                             </td>
-                            <td className="px-3 sm:px-4 py-3 sm:py-4 text-slate-700 hidden sm:table-cell">
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden sm:table-cell">
                               <span className="max-w-[120px] truncate inline-block">{project.location}</span>
                             </td>
-                            <td className="px-3 sm:px-4 py-3 sm:py-4 text-slate-900 hidden md:table-cell whitespace-nowrap">
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden md:table-cell whitespace-nowrap">
+                              {project.iso || '—'}
+                            </td>
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden md:table-cell whitespace-nowrap">
+                              {project.zone || '—'}
+                            </td>
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-900 hidden md:table-cell whitespace-nowrap">
                               {project.fixed_price_per_mwh != null
                                 ? `$${project.fixed_price_per_mwh}/MWh${project.eac_price_per_mwh ? ` + $${project.eac_price_per_mwh} EAC` : ''}`
                                 : '—'}
                             </td>
-                            <td className="px-2 sm:px-3 py-3 sm:py-4 text-right">
+                            <td className="px-2 sm:px-3 py-2 sm:py-2.5 text-right">
                               <RowActionGroup>
                                 <RowActionButton
                                   label="View"
@@ -818,6 +865,8 @@ export default function Projects() {
           eac_scheme: editingSellerProject.eac_scheme as EACScheme | '' | undefined,
           settlement_point: editingSellerProject.settlement_point,
           connection_point: editingSellerProject.connection_point,
+          iso: editingSellerProject.iso,
+          zone: editingSellerProject.zone,
         } : null)}
       />
 
@@ -844,7 +893,7 @@ export default function Projects() {
           />
 
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-3 sm:py-4">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-2 sm:py-4">
               <h2 className="text-lg sm:text-xl font-semibold text-slate-900 truncate pr-4">{activeProject.name}</h2>
               <button
                 type="button"
@@ -866,6 +915,14 @@ export default function Projects() {
                   <div>
                     <p className="text-xs font-medium text-slate-500">Location</p>
                     <p className="mt-1 text-sm text-slate-900">{activeProject.location}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-500">ISO</p>
+                    <p className="mt-1 text-sm text-slate-900">{activeProject.iso || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-slate-500">Zone</p>
+                    <p className="mt-1 text-sm text-slate-900">{activeProject.zone || '—'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-slate-500">Capacity</p>
@@ -943,17 +1000,37 @@ export default function Projects() {
                           <input
                             type="number"
                             min={1}
-                            max={25}
+                            max={MAX_CONTRACT_YEARS}
                             value={formState.contract_duration_years}
                             onChange={(event) =>
                               handleInterestChange(
                                 'contract_duration_years',
-                                Number(event.target.value)
+                                Math.min(MAX_CONTRACT_YEARS, Number(event.target.value))
                               )
                             }
                             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
                           />
+                          <p className="mt-1 text-[11px] text-slate-400">Max {MAX_CONTRACT_YEARS} years</p>
                         </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                          Shape *
+                        </label>
+                        <select
+                          value={formState.shape}
+                          onChange={(event) => handleInterestChange('shape', event.target.value)}
+                          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                          required
+                        >
+                          {SHAPE_OPTIONS.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          Delivery profile: <strong>Flat</strong> = 7×24 firm · <strong>5×16</strong> = on-peak weekdays · <strong>As-Generated</strong> = matches the asset's output
+                        </p>
                       </div>
 
                       <div>
@@ -1007,7 +1084,7 @@ export default function Projects() {
             aria-hidden="true"
           />
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-3 sm:py-4">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-2 sm:py-4">
               <h2 className="text-lg sm:text-xl font-semibold text-slate-900 truncate pr-4">{viewingBuyerProject.name}</h2>
               <button
                 type="button"
@@ -1160,7 +1237,7 @@ export default function Projects() {
             aria-hidden="true"
           />
           <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-3 sm:py-4">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 py-2 sm:py-4">
               <h2 className="text-lg sm:text-xl font-semibold text-slate-900 truncate pr-4">{viewingSellerProject.name}</h2>
               <button
                 type="button"
@@ -1174,7 +1251,7 @@ export default function Projects() {
             <div className="p-4 sm:p-6">
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-sm font-semibold text-slate-900 mb-3">Project Details</h3>
+                  <h3 className="text-sm font-semibold text-slate-900 mb-3">Load Project / Offer Details</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs font-medium text-slate-500">Technology</p>
@@ -1183,6 +1260,14 @@ export default function Projects() {
                     <div>
                       <p className="text-xs font-medium text-slate-500">Location</p>
                       <p className="mt-1 text-sm text-slate-900">{viewingSellerProject.location || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">ISO</p>
+                      <p className="mt-1 text-sm text-slate-900">{viewingSellerProject.iso || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">Zone</p>
+                      <p className="mt-1 text-sm text-slate-900">{viewingSellerProject.zone || '—'}</p>
                     </div>
                     <div>
                       <p className="text-xs font-medium text-slate-500">Capacity</p>

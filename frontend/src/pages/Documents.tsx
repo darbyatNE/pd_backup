@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import { setTariffLink } from '../utils/tariffContracts';
 
 import {
   getPowerPlans,
@@ -45,6 +47,13 @@ interface ProjectFolder {
 
 export default function Documents() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Selection mode: navigated from Capacity tab to link a contract to a site
+  const linkFor = searchParams.get('linkFor');
+  const linkSiteName = searchParams.get('siteName') ?? '';
+  const linkKind = searchParams.get('kind'); // currently only 'tariff'
+  const isLinking = Boolean(linkFor && linkKind);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,8 +124,12 @@ export default function Documents() {
       allDocs.sort((a, b) => new Date(b.displayDate).getTime() - new Date(a.displayDate).getTime());
       setDocuments(allDocs);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to load documents';
-      setError(message);
+      // Treat fetch failures as "no documents" rather than a red banner — the
+      // common cause is an empty table or unconfigured backend in dev. Log the
+      // underlying error to the console so devs can still see it.
+      console.warn('[Documents] fetch failed; rendering empty state:', err);
+      setDocuments([]);
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -269,8 +282,43 @@ export default function Documents() {
     return groups;
   }, [filteredDocs, projectFolders]);
 
+  // Selection-mode handler: link the chosen document to the originating site,
+  // then bounce back to the dashboard so the Capacity tab reflects the link.
+  const handleSelectForLink = (doc: DocumentItem) => {
+    if (!isLinking || !linkFor) return;
+    if (linkKind === 'tariff') {
+      setTariffLink(linkFor, {
+        docId: doc.id,
+        docName: doc.file_name || 'Untitled Document',
+      });
+    }
+    navigate('/dashboard');
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
+      {/* Selection-mode banner */}
+      {isLinking && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              Select a document to link as <span className="capitalize">{linkKind}</span>
+              {linkSiteName ? ` for ${linkSiteName}` : ''}
+            </p>
+            <p className="text-xs text-slate-600 mt-0.5">
+              Click <strong>Select</strong> on any row below to link that contract.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="text-xs font-medium px-3 py-1.5 rounded-md border border-teal-300 bg-white text-teal-700 hover:bg-teal-50"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       <div className="sm:flex sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">Documents Hub</h1>
@@ -436,6 +484,15 @@ export default function Documents() {
                               {new Date(doc.displayDate).toLocaleDateString()}
                             </td>
                             <td className="relative whitespace-nowrap py-3 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                              {isLinking && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSelectForLink(doc)}
+                                  className="mr-2 inline-flex items-center rounded-md bg-teal-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-700"
+                                >
+                                  Select
+                                </button>
+                              )}
                               <RowActionGroup>
                                 <RowActionButton
                                   label="Download"

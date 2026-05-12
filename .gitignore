@@ -37,6 +37,8 @@ Thumbs.db
 
 # Supabase
 .supabase/
+supabase/migrations/
+supabase/schema.sql
 
 # PD Module
 energy-market/config/ec2-db.json
@@ -68,3 +70,4 @@ frontend/public/*.geojson
 temp/
 tmp/
 .gstack/
+ss
