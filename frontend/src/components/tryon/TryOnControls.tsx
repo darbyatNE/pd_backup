@@ -18,6 +18,7 @@ interface TryOnControlsProps {
   activeYear: number;
   setActiveYear: (v: number) => void;
   yearOptions: number[];
+  onCommit?: () => void;
 }
 
 export function TryOnControls({
@@ -37,6 +38,7 @@ export function TryOnControls({
   activeYear,
   setActiveYear,
   yearOptions,
+  onCommit,
 }: TryOnControlsProps) {
   return (
     <>
@@ -142,6 +144,38 @@ export function TryOnControls({
 
       {/* Chart controls */}
       <div className="flex items-center justify-between">
+        {/* Year tabs - now on left to match plan page */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Year</span>
+          <div className="flex rounded-lg overflow-hidden border border-slate-200">
+            {yearOptions.map((yr) => (
+              <button
+                key={yr}
+                onClick={() => setActiveYear(yr)}
+                className="px-3 py-1.5 text-xs font-semibold transition-colors"
+                style={{
+                  background: activeYear === yr ? '#0f172a' : '#fff',
+                  color: activeYear === yr ? '#fff' : '#64748b',
+                }}
+              >
+                {yr}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Commit button - appears in middle when shape has been adjusted */}
+        {(capacityPct !== 100 || !splitValid) && onCommit && (
+          <button
+            type="button"
+            onClick={onCommit}
+            className="text-xs font-semibold px-4 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+          >
+            Commit to Contracting
+          </button>
+        )}
+
+        {/* View tabs - now on right to match plan page */}
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">View</span>
           <div className="flex rounded-lg overflow-hidden border border-slate-200">
@@ -157,24 +191,6 @@ export function TryOnControls({
                 }}
               >
                 {k === 'hours' ? 'Hourly' : 'Monthly'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Year</span>
-          <div className="flex rounded-lg overflow-hidden border border-slate-200">
-            {yearOptions.map((yr) => (
-              <button
-                key={yr}
-                onClick={() => setActiveYear(yr)}
-                className="px-3 py-1.5 text-xs font-semibold transition-colors"
-                style={{
-                  background: activeYear === yr ? '#0f172a' : '#fff',
-                  color: activeYear === yr ? '#fff' : '#64748b',
-                }}
-              >
-                {yr}
               </button>
             ))}
           </div>

@@ -43,7 +43,7 @@ export function EnergyMixChart({ contracts, profile, startYear, endYear }: Energ
   return (
     <div className="flex flex-col h-full">
       <h2 className="pb-4 mb-6" style={{ fontWeight: 700, fontSize: '20px', color: '#000', borderBottom: '1px solid #e5e7eb' }}>
-        Energy Mix (In Scope)
+        Current Energy Mix (In Scope)
       </h2>
       <div className="flex items-center gap-16 flex-1 px-4">
         <svg viewBox="0 0 200 200" style={{ width: 230, height: 230, flexShrink: 0 }}>
@@ -55,21 +55,25 @@ export function EnergyMixChart({ contracts, profile, startYear, endYear }: Energ
           <circle cx={CX} cy={CY} r={IR} fill="white" />
         </svg>
         <div className="flex flex-col gap-5 flex-1 pb-4">
+          {/* Header row */}
+          <div className="flex items-center gap-4 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-200 pb-2">
+            <span style={{ width: 14, flexShrink: 0 }} />
+            <span className="flex-1">Source</span>
+            <span>Rate</span>
+            <span>% of Load</span>
+          </div>
           {slices.map((s, i) => (
             <div
               key={s.name}
-              className="flex items-start gap-4 transition-all"
+              className="flex items-center gap-4 transition-all"
               style={{ opacity: hovered === null || hovered === i ? 1 : 0.45, transform: hovered === i ? 'translateX(4px)' : 'none', cursor: 'default' }}
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
             >
-              <span style={{ width: 14, height: 14, borderRadius: 3, background: s.color, flexShrink: 0, marginTop: 4 }} />
-              <div>
-                <p className="text-sm leading-tight mb-0.5 text-slate-500 font-medium">{s.name}</p>
-                <p className="text-lg font-black leading-snug tracking-tighter text-slate-900">
-                  ${s.cost}/MWh <span className="font-normal text-slate-300 mx-1">|</span> {s.value}%
-                </p>
-              </div>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+              <span className="flex-1 text-sm text-slate-500 font-medium">{s.name}</span>
+              <span className="text-lg font-black text-slate-900">${s.cost}/MWh</span>
+              <span className="text-lg font-black text-slate-900">{s.value}%</span>
             </div>
           ))}
         </div>

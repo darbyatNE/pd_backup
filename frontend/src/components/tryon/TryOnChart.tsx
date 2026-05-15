@@ -1,4 +1,3 @@
-import { Fragment } from 'react';
 import {
   BarChart as ReBarChart,
   Bar,
@@ -11,11 +10,10 @@ import {
   Legend,
 } from 'recharts';
 import { LOAD_COLORS } from '../../data/linkedContracts';
-import type { LinkedContract } from '../../data/linkedContracts';
 import { getSiteCapacityForYear } from '../../data/loadProfile';
 import type { SiteLoadProfile } from '../../data/loadProfile';
 import { OVERHEDGE_PATTERN_ID } from './types';
-import { contractKey, r1 } from './utils';
+import { r1 } from './utils';
 import { TryOnLegendContent } from './TryOnLegendContent';
 import type { XAxisMode } from './types';
 
@@ -25,9 +23,9 @@ interface TryOnChartProps {
   yLabel: string;
   activeYear: number;
   aggregateProfile: SiteLoadProfile | null;
-  existingContracts: LinkedContract[];
   projectName: string;
   chartKey: string;
+  projectTier?: 'base' | 'peak';
 }
 
 interface BarShapeProps {
@@ -59,12 +57,11 @@ interface ChartTooltipProps {
   active?: boolean;
   payload?: TooltipPayloadItem[];
   label?: string | number;
-  existingContracts: LinkedContract[];
   yLabel: string;
   projectName: string;
 }
 
-function ChartTooltip({ active, payload, label, existingContracts, yLabel, projectName }: ChartTooltipProps) {
+function ChartTooltip({ active, payload, label, yLabel, projectName }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
   const get = (key: string) => payload.find((p) => p.dataKey === key)?.value ?? 0;
 
@@ -78,22 +75,20 @@ function ChartTooltip({ active, payload, label, existingContracts, yLabel, proje
     <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs font-sans space-y-0.5">
       <p className="font-bold text-slate-700 mb-1">{label}</p>
 
-      {existingContracts.map((c: LinkedContract) => {
-        const k = contractKey(c.projectName);
-        const inBase = get(`e_${k}_base`);
-        const inPeak = get(`e_${k}_peak`);
+      {(() => {
+        const inBase = get('existing_base');
+        const inPeak = get('existing_peak');
         const total = inBase + inPeak;
         totalExisting += total;
         if (total <= 0) return null;
-        const color = inBase >= inPeak ? LOAD_COLORS.base : LOAD_COLORS.peak;
         return (
-          <p key={`e-${c.projectName}`}>
-            <span style={{ color }}>■</span>{' '}
-            <span className="text-slate-700">{c.projectName}</span>:{' '}
+          <p key="existing">
+            <span style={{ color: '#475569' }}>■</span>{' '}
+            <span className="text-slate-700">Existing Hedge</span>:{' '}
             <strong>{r1(total)} {yLabel}</strong>
           </p>
         );
-      })}
+      })()}
 
       {totalTryOn > 0 && (
         <p>
@@ -137,9 +132,9 @@ export function TryOnChart({
   yLabel,
   activeYear,
   aggregateProfile,
-  existingContracts,
   projectName,
   chartKey,
+  projectTier,
 }: TryOnChartProps) {
   if (!aggregateProfile) {
     return (
@@ -171,7 +166,6 @@ export function TryOnChart({
         <Tooltip
           content={
             <ChartTooltip
-              existingContracts={existingContracts}
               yLabel={yLabel}
               projectName={projectName}
             />
@@ -187,44 +181,37 @@ export function TryOnChart({
         />
         <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
 
-        {existingContracts.map((c) => {
-          const k = contractKey(c.projectName);
-          const patId = `pat-${c.pattern}-base-${k}`;
-          return (
-            <Fragment key={`e-${k}`}>
-              <Bar
-                dataKey={`e_${k}_base`}
-                stackId="load"
-                fill={LOAD_COLORS.base}
-                shape={PatternedBarShape(LOAD_COLORS.base, `url(#${patId})`)}
-                name={c.projectName}
-                isAnimationActive={false}
-              />
-              <Bar
-                dataKey={`e_${k}_peak`}
-                stackId="load"
-                fill={LOAD_COLORS.peak}
-                shape={PatternedBarShape(LOAD_COLORS.peak, `url(#${patId})`)}
-                name={c.projectName}
-                isAnimationActive={false}
-              />
-            </Fragment>
-          );
-        })}
+        {/* Combined existing contracts — all shown as one dense pattern */}
+        <Bar
+          dataKey="existing_base"
+          stackId="load"
+          fill="#94a3b8"
+          shape={PatternedBarShape('#94a3b8', 'url(#existing-combined-pattern)')}
+          name="Existing Hedge"
+          isAnimationActive={false}
+        />
+        <Bar
+          dataKey="existing_peak"
+          stackId="load"
+          fill="#cbd5e1"
+          shape={PatternedBarShape('#cbd5e1', 'url(#existing-combined-pattern)')}
+          name="Existing Hedge"
+          isAnimationActive={false}
+        />
 
         <Bar
           dataKey="tryon_base"
           stackId="load"
-          fill="#818cf8"
-          shape={PatternedBarShape('#0d9488', 'url(#tryon-pattern)')}
+          fill="#2563eb"
+          shape={PatternedBarShape('#2563eb', 'url(#tryon-pattern)')}
           name={projectName}
           isAnimationActive={false}
         />
         <Bar
           dataKey="tryon_peak"
           stackId="load"
-          fill="#818cf8"
-          shape={PatternedBarShape('#f59e0b', 'url(#tryon-pattern)')}
+          fill="#60a5fa"
+          shape={PatternedBarShape('#60a5fa', 'url(#tryon-pattern)')}
           name={projectName}
           isAnimationActive={false}
         />
@@ -260,7 +247,7 @@ export function TryOnChart({
           isAnimationActive={false}
         />
         <Legend
-          content={<TryOnLegendContent existingContracts={existingContracts} projectName={projectName} />}
+          content={<TryOnLegendContent projectName={projectName} projectTier={projectTier} />}
           verticalAlign="bottom"
           height={24}
         />

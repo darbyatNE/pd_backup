@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LOAD_PROFILE_MAP, getSiteCapacityForYear, type SiteLoadProfile } from '../data/loadProfile';
+import { LOAD_PROFILE_MAP, getForecastCapacityForYear, type SiteLoadProfile } from '../data/loadProfile';
 import { getTariffLink, clearTariffLink, type TariffLink } from '../utils/tariffContracts';
 import ModuleHandoffDialog, { type HandoffKind } from './ModuleHandoffDialog';
 
@@ -154,9 +154,6 @@ export const SITE_CAPACITY_META: Record<string, SiteCapacityMeta> = {
   },
 };
 
-// Default load-growth assumption — kept in sync with the Forecast page
-export const PLANNING_GROWTH = 0.05;
-
 // ─── Capacity option model ───────────────────────────────────────────────────
 
 export interface CapacityOption {
@@ -225,12 +222,8 @@ export function SiteCapacityCard({
   endYear: number;
 }) {
   const meta = SITE_CAPACITY_META[profile.siteKey] ?? { projectType: 'greenfield' as const, state: 'VA' };
-  const yearsOfGrowth = Math.max(0, endYear - 2026);
-  // Prefer the documented capacity for end-of-scope year; fall back to default growth ramp.
-  const documented = profile.capacityByYear && Object.keys(profile.capacityByYear).length > 0;
-  const forecastMw = documented
-    ? getSiteCapacityForYear(profile, endYear)
-    : Math.round(profile.capacityMw * Math.pow(1 + PLANNING_GROWTH, yearsOfGrowth));
+  // Use unified forecast calculation (documented capacity or 5% growth from 2026)
+  const forecastMw = getForecastCapacityForYear(profile, endYear);
   const isBrownfield = meta.projectType === 'brownfield';
   const [dialogKind, setDialogKind] = useState<HandoffKind | null>(null);
   const [tariffOpen, setTariffOpen] = useState(false);
@@ -405,10 +398,9 @@ export function CapacityRollup({
   selectedSites: string[];
   endYear: number;
 }) {
-  const yearsOfGrowth = Math.max(0, endYear - 2026);
   const profiles = selectedSites.map((k) => LOAD_PROFILE_MAP[k]).filter(Boolean);
   const totalForecastMw = profiles.reduce(
-    (s, p) => s + Math.round(p.capacityMw * Math.pow(1 + PLANNING_GROWTH, yearsOfGrowth)),
+    (s, p) => s + getForecastCapacityForYear(p, endYear),
     0,
   );
   const settledCount = profiles.filter((p) => SITE_CAPACITY_META[p.siteKey]?.projectType === 'brownfield').length;

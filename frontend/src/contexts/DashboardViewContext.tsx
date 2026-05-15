@@ -2,9 +2,10 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 
 // Internal view ids match the underlying route components; only the user-facing
 // labels were renamed (Forecast → Planning, Planning → Risk).
-export type DashboardView = 'forecast' | 'map' | 'planning';
+export type DashboardView = 'profile' | 'forecast' | 'map' | 'planning';
 
 export const DASHBOARD_VIEWS: { id: DashboardView; label: string }[] = [
+  { id: 'profile',  label: 'Profile'  }, // user profile and site management
   { id: 'forecast', label: 'Plan'     }, // procurement planning (capacity / energy / RECs)
   { id: 'map',      label: 'Map'      },
   { id: 'planning', label: 'Evaluate' }, // risk evaluation (basis / hedge / exposure)

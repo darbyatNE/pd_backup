@@ -57,6 +57,8 @@ export interface Project {
   // VPPA Settlement
   settlement_point?: string;
   connection_point?: string;
+  // Delivery tier: baseload = constant volume profile, peaking = shaped/premium/short schedule
+  delivery_tier?: 'baseload' | 'peaking';
 }
 
 export type TransactionStatus = 'submitted' | 'accepted' | 'rejected';

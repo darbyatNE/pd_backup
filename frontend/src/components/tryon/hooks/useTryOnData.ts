@@ -11,7 +11,7 @@ import {
   contractMwForMonthInYear,
 } from '../../../data/linkedContracts';
 import type { LinkedContract } from '../../../data/linkedContracts';
-import { contractKey, r1 } from '../utils';
+import { r1 } from '../utils';
 import type { XAxisMode } from '../types';
 
 function mapGenType(genType: string): { shape: LinkedContract['shape']; tier: LinkedContract['tier'] } {
@@ -28,15 +28,27 @@ function mapGenType(genType: string): { shape: LinkedContract['shape']; tier: Li
   }
 }
 
-export function useTryOnData(
-  project: Project,
-  previewSites: string[],
-  splits: Record<string, number>,
-  capacityPct: number,
-  activeYear: number,
-  startYear: number,
-  xAxis: XAxisMode
-) {
+export function useTryOnData({
+  project,
+  previewSites,
+  splits,
+  capacityPct,
+  activeYear,
+  startYear,
+  xAxis,
+  startMonth = 1,
+  endMonth = 12,
+}: {
+  project: Project;
+  previewSites: string[];
+  splits: Record<string, number>;
+  capacityPct: number;
+  activeYear: number;
+  startYear: number;
+  xAxis: XAxisMode;
+  startMonth?: number;
+  endMonth?: number;
+}) {
   // Aggregate profile for PREVIEW sites
   const aggregateProfile = useMemo(() => {
     const profiles = previewSites
@@ -68,6 +80,7 @@ export function useTryOnData(
       projectName: project.name,
       generationType: project.generation_type as LinkedContract['generationType'],
       mwCovered: tryOnMw,
+      pricePerMwh: 0, // Placeholder price for try-on (not used in visualization)
       shape,
       tier,
       pattern: 'diagonal',
@@ -96,16 +109,17 @@ export function useTryOnData(
     let cumul = 0;
     let totalOverhedge = 0;
 
-    const eBase: number[] = [];
-    const ePeak: number[] = [];
+    // Combine all existing contracts into one entry
+    let combinedBase = 0;
+    let combinedPeak = 0;
     existingMws.forEach((want) => {
       const start = cumul;
       const end = cumul + want;
       const inBase = Math.max(0, Math.min(end, baseMw) - Math.max(start, 0));
       const inPeak = Math.max(0, Math.min(end, totalLoad) - Math.max(start, baseMw));
       const over = Math.max(0, end - Math.max(start, totalLoad));
-      eBase.push(inBase);
-      ePeak.push(inPeak);
+      combinedBase += inBase;
+      combinedPeak += inPeak;
       totalOverhedge += over;
       cumul = end;
     });
@@ -122,23 +136,17 @@ export function useTryOnData(
     const baseUncovered = Math.max(0, baseMw - Math.min(cumulInLoad, baseMw));
     const peakUncovered = Math.max(0, peakMw - Math.max(0, cumulInLoad - baseMw));
 
-    const row: Record<string, number | string> = {
+    return {
       label,
       capacity: aggregateProfile?.capacityMw ?? 0,
       base_uncovered: r1(baseUncovered),
       peak_uncovered: r1(peakUncovered),
+      existing_base: r1(combinedBase),
+      existing_peak: r1(combinedPeak),
       tryon_base: r1(tryOnBase),
       tryon_peak: r1(tryOnPeak),
       overhedge: -r1(totalOverhedge),
     };
-
-    existingContracts.forEach((c, i) => {
-      const k = contractKey(c.projectName);
-      row[`e_${k}_base`] = r1(eBase[i]);
-      row[`e_${k}_peak`] = r1(ePeak[i]);
-    });
-
-    return row;
   };
 
   const hourlyData = useMemo(() => {
@@ -164,23 +172,30 @@ export function useTryOnData(
   const monthRows = useMemo(() => {
     if (!aggregateProfile) return [];
     const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return monthLabels.map((m, mi) => {
+
+    // Filter months based on selected scope
+    const monthsInScope: number[] = [];
+    for (let m = 1; m <= 12; m++) {
+      if (m >= startMonth && m <= endMonth) monthsInScope.push(m);
+    }
+
+    return monthsInScope.map((m) => {
       let baseSum = 0;
       let peakSum = 0;
       for (let h = 0; h < 24; h++) {
-        const eff = getEffectiveLoadAt(aggregateProfile, h, mi + 1, activeYear);
+        const eff = getEffectiveLoadAt(aggregateProfile, h, m, activeYear);
         baseSum += eff.baseloadMw;
         peakSum += eff.peakMw;
       }
       const baseMw = baseSum / 24;
       const peakMw = peakSum / 24;
       const existingMws = existingContracts.map((c) =>
-        contractMwForMonthInYear(c, activeYear, mi + 1),
+        contractMwForMonthInYear(c, activeYear, m),
       );
-      const tryOnMonth = contractMwForMonthInYear(tryOnContract, activeYear, mi + 1);
-      return buildRow(m, baseMw, peakMw, existingMws, tryOnMonth);
+      const tryOnMonth = contractMwForMonthInYear(tryOnContract, activeYear, m);
+      return buildRow(monthLabels[m - 1], baseMw, peakMw, existingMws, tryOnMonth);
     });
-  }, [aggregateProfile, existingContracts, tryOnContract, activeYear]);
+  }, [aggregateProfile, existingContracts, tryOnContract, activeYear, startMonth, endMonth]);
 
   const data = xAxis === 'hours' ? hourlyData : monthRows;
   const yLabel = xAxis === 'hours' ? 'MW' : 'MW avg';

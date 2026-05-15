@@ -22,7 +22,7 @@ function utilityPriceForHour(hour: number): number {
 
 export interface CostTimeData {
   labels: string[]
-  optimized: number[]
+  contracted: number[]
   unoptimized: number[]
   optAvg: number
   unoptAvg: number
@@ -37,11 +37,11 @@ export function computeCostTimeData(
   granularity: 'hours' | 'months' = 'hours',
 ): CostTimeData {
   if (endYear < startYear) {
-    return { labels: [], optimized: [], unoptimized: [], optAvg: 0, unoptAvg: 0, savingsPct: 0 }
+    return { labels: [], contracted: [], unoptimized: [], optAvg: 0, unoptAvg: 0, savingsPct: 0 }
   }
 
   const yearCount = endYear - startYear + 1
-  const optimized: number[] = []
+  const contracted: number[] = []
   const unoptimized: number[] = []
   const labels: string[] = []
 
@@ -86,7 +86,7 @@ export function computeCostTimeData(
         : utilityPrice
       const unoptCost = utilityPrice
 
-      optimized.push(Math.round(optCost))
+      contracted.push(Math.round(optCost))
       unoptimized.push(Math.round(unoptCost))
     }
   } else {
@@ -132,14 +132,14 @@ export function computeCostTimeData(
         : utilityPrice
       const unoptCost = utilityPrice
 
-      optimized.push(Math.round(optCost))
+      contracted.push(Math.round(optCost))
       unoptimized.push(Math.round(unoptCost))
     }
   }
 
-  const optAvg = Math.round(optimized.reduce((a, b) => a + b, 0) / optimized.length)
+  const optAvg = Math.round(contracted.reduce((a, b) => a + b, 0) / contracted.length)
   const unoptAvg = Math.round(unoptimized.reduce((a, b) => a + b, 0) / unoptimized.length)
   const savingsPct = unoptAvg > 0 ? Math.round(((unoptAvg - optAvg) / unoptAvg) * 100) : 0
 
-  return { labels, optimized, unoptimized, optAvg, unoptAvg, savingsPct }
+  return { labels, contracted, unoptimized, optAvg, unoptAvg, savingsPct }
 }

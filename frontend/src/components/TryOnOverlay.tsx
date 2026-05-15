@@ -8,20 +8,32 @@ import { useSiteSplits } from './tryon/hooks/useSiteSplits';
 import { useTryOnData } from './tryon/hooks/useTryOnData';
 import { useHedgeStats } from './tryon/hooks/useHedgeStats';
 import { r1 } from './tryon/utils';
+import ModuleHandoffDialog from './ModuleHandoffDialog';
 import type { TryOnOverlayProps, XAxisMode } from './tryon/types';
 
 export default function TryOnOverlay({ project, onClose }: TryOnOverlayProps) {
-  const { selectedSites, startYear, endYear } = useScopeContext();
+  const { selectedSites, startYear, endYear, startMonth, endMonth } = useScopeContext();
 
   const [previewSites, setPreviewSites] = useState<string[]>(selectedSites);
   const [xAxis, setXAxis] = useState<XAxisMode>('hours');
   const [activeYear, setActiveYear] = useState(startYear);
   const [capacityPct, setCapacityPct] = useState(100);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const { splits, splitSum, splitValid, updateSplit, normalizeSplits } = useSiteSplits();
 
-  const tryOnData = useTryOnData(project, previewSites, splits, capacityPct, activeYear, startYear, xAxis);
-  const { aggregateProfile, existingContracts, hourlyData, monthRows, data, yLabel } = tryOnData;
+  const tryOnData = useTryOnData({
+    project,
+    previewSites,
+    splits,
+    capacityPct,
+    activeYear,
+    startYear,
+    xAxis,
+    startMonth,
+    endMonth,
+  });
+  const { aggregateProfile, existingContracts, tryOnContract, hourlyData, monthRows, data, yLabel } = tryOnData;
 
   const summaryStats = useHedgeStats(hourlyData, monthRows, xAxis, existingContracts);
 
@@ -34,12 +46,12 @@ export default function TryOnOverlay({ project, onClose }: TryOnOverlayProps) {
   const chartKey = `tryon-${project.id}-${xAxis}-${activeYear}-${previewSites.join(',')}-${Object.values(splits).join(',')}-${capacityPct}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
+    <div className="fixed inset-0 z-50 flex items-start justify-center p-3 pt-[calc(1rem+80px)]">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[85vh] overflow-y-auto flex flex-col">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[calc(100vh-60px)] flex flex-col">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
           <div>
@@ -60,7 +72,7 @@ export default function TryOnOverlay({ project, onClose }: TryOnOverlayProps) {
           </button>
         </div>
 
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-2">
           <TryOnControls
             projectCapacity={project.capacity_mw || 0}
             capacityPct={capacityPct}
@@ -78,6 +90,7 @@ export default function TryOnOverlay({ project, onClose }: TryOnOverlayProps) {
             activeYear={activeYear}
             setActiveYear={setActiveYear}
             yearOptions={yearOptions}
+            onCommit={() => setDialogOpen(true)}
           />
 
           <TryOnSummaryCards stats={summaryStats} />
@@ -88,14 +101,28 @@ export default function TryOnOverlay({ project, onClose }: TryOnOverlayProps) {
             yLabel={yLabel}
             activeYear={activeYear}
             aggregateProfile={aggregateProfile}
-            existingContracts={existingContracts}
             projectName={project.name}
             chartKey={chartKey}
+            projectTier={tryOnContract?.tier}
           />
 
-          <TryOnPatternDefs existingContracts={existingContracts} />
+          <TryOnPatternDefs />
         </div>
       </div>
+
+      {dialogOpen && (
+        <ModuleHandoffDialog
+          kind="try-on-commit"
+          onClose={() => setDialogOpen(false)}
+          payload={
+            <div className="space-y-1">
+              <p><span className="text-slate-500">Project:</span> <span className="font-medium">{project.name}</span></p>
+              <p><span className="text-slate-500">Capacity:</span> <span className="font-medium">{r1((project.capacity_mw || 0) * (capacityPct / 100))} MW</span></p>
+              <p><span className="text-slate-500">Sites:</span> <span className="font-medium">{previewSites.length}</span></p>
+            </div>
+          }
+        />
+      )}
     </div>
   );
 }

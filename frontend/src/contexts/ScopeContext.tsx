@@ -10,6 +10,8 @@ export interface ScopeState {
 
 interface ScopeContextValue extends ScopeState {
   toggleSite: (key: string) => void;
+  addSite: (key: string) => void;
+  removeSite: (key: string) => void;
   setStartDate: (year: number, month: number) => void;
   setEndDate: (year: number, month: number) => void;
 }
@@ -31,6 +33,19 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
         return prev.length > 1 ? prev.filter((k) => k !== key) : prev;
       }
       return [...prev, key];
+    });
+  };
+
+  const addSite = (key: string) => {
+    setSelectedSites((prev) => {
+      if (prev.includes(key)) return prev;
+      return [...prev, key];
+    });
+  };
+
+  const removeSite = (key: string) => {
+    setSelectedSites((prev) => {
+      return prev.length > 1 ? prev.filter((k) => k !== key) : prev;
     });
   };
 
@@ -57,7 +72,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
   return (
     <ScopeContext.Provider value={{
       selectedSites, startYear, startMonth, endYear, endMonth,
-      toggleSite, setStartDate, setEndDate,
+      toggleSite, addSite, removeSite, setStartDate, setEndDate,
     }}>
       {children}
     </ScopeContext.Provider>

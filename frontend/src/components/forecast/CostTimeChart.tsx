@@ -35,7 +35,7 @@ interface CostTimeChartProps {
 }
 
 export function CostTimeChart({ contracts, profile, startYear, endYear, granularity = 'hours' }: CostTimeChartProps) {
-  const { labels, optimized, unoptimized, optAvg, unoptAvg, savingsPct } = useMemo(
+  const { labels, contracted: optimized, unoptimized, optAvg, unoptAvg, savingsPct } = useMemo(
     () => computeCostTimeData(contracts, profile, startYear, endYear, granularity),
     [contracts, profile, startYear, endYear, granularity]
   )
@@ -69,7 +69,7 @@ export function CostTimeChart({ contracts, profile, startYear, endYear, granular
           <span style={{ fontSize: '15px', color: '#000' }}>savings</span>
         </div>
         <div className="flex items-center gap-10">
-          {[{ label: 'Optimized', price: optAvg, color: '#159A4C' }, { label: 'Unoptimized', price: unoptAvg, color: '#DB0000' }].map(({ label, price, color }) => (
+          {[{ label: 'Contracted', price: optAvg, color: '#159A4C' }, { label: 'Unoptimized', price: unoptAvg, color: '#DB0000' }].map(({ label, price, color }) => (
             <div key={label} className="flex items-center gap-2">
               <span style={{ width: 18, height: 18, background: color, borderRadius: 3, flexShrink: 0 }} />
               <div>

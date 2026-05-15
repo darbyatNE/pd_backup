@@ -5,7 +5,9 @@ import {
 } from '../../data/linkedContracts'
 import type { LinkedContract } from '../../data/linkedContracts'
 
-const DEFAULT_UTILITY_PRICE = 65
+// Utility prices from costTimeData.ts - Off-peak: $48/MWh, On-peak: $58/MWh
+// Weighted average: (8h × $48 + 16h × $58) / 24 = $54.67 ≈ $55
+const DEFAULT_UTILITY_PRICE = Math.round((8 * 48 + 16 * 58) / 24)
 
 const GEN_TYPE_COLORS: Record<string, string> = {
   Solar: '#2563eb',

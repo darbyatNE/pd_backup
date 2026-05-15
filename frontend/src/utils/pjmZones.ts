@@ -107,8 +107,8 @@ const ZONE_COORDS: Record<string, [number, number]> = {
   'cincinnati, ohio':[-84.51, 39.10],
 
   // Northern Virginia data-center cities (DOM / Dominion zone)
-  'ashburn, va':       [-77.4875, 39.0438],
-  'ashburn, virginia': [-77.4875, 39.0438],
+  'ashburn, va':       [-77.5200, 39.0438],
+  'ashburn, virginia': [-77.5200, 39.0438],
   'manassas, va':       [-77.4753, 38.7509],
   'manassas, virginia': [-77.4753, 38.7509],
   'sterling, va':       [-77.4286, 39.0062],

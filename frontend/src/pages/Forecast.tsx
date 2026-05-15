@@ -37,6 +37,8 @@ export default function Forecast() {
   const navigate = useNavigate()
   const [recsDialogOpen, setRecsDialogOpen] = useState(false)
   const [loadXAxis, setLoadXAxis] = useState<XAxisMode>('hours')
+  const [chartYearMode, setChartYearMode] = useState<'single' | 'all'>('single')
+  const [chartActiveYear, setChartActiveYear] = useState<number>(startYear)
 
   const profiles = selectedSites
     .map((k) => LOAD_PROFILE_MAP[k])
@@ -93,12 +95,23 @@ export default function Forecast() {
       )}
 
       {activeTab === 'energy' && (<>
-        <CapacityBox profile={profile} startYear={startYear} endYear={endYear} />
+        <CapacityBox
+          profile={profile}
+          startYear={startYear}
+          endYear={endYear}
+          selectedSites={selectedSites}
+          chartYearMode={chartYearMode}
+          chartActiveYear={chartActiveYear}
+        />
         <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
           <LoadForecastChart
             profile={profile}
             xAxis={loadXAxis}
             onXAxisChange={setLoadXAxis}
+            activeYear={chartActiveYear}
+            onYearChange={setChartActiveYear}
+            yearMode={chartYearMode}
+            onYearModeChange={setChartYearMode}
           />
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

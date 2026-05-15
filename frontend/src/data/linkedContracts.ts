@@ -44,8 +44,8 @@ export function isContractActiveAt(c: LinkedContract, year: number, month: numbe
 
 // Standard load-tier colors used by the chart backgrounds.
 export const LOAD_COLORS = {
-  base: '#0d9488', // teal-600
-  peak: '#f59e0b', // amber-500
+  base: '#0d9488', // teal-600 — baseload (uncovered load)
+  peak: '#f59e0b', // amber-500 — peak (uncovered load)
 } as const;
 
 // All contract patterns share the same dark foreground — patterns differentiate
@@ -269,29 +269,31 @@ export function patternId(c: LinkedContract, tier?: ContractTier): string {
 const ON_PEAK_HOURS = new Set([7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]);
 
 /** Effective on/off-peak hedge percentages for a site, derived from
- *  the linked contracts vs. the site's load profile. NOT capped at load —
- *  over-hedged sites surface percentages above 100% so the user can see how
- *  much excess contracting they have. */
+ *  the linked contracts vs. the site's load profile. Capped at 100% per hour —
+ *  over-hedged hours count as fully hedged (100%) for the percentage calculation.
+ *  Formula: average of min(hedge%, 100%) weighted by load. */
 export function getDerivedHedgePcts(siteKey: string): { onPeak: number; offPeak: number } {
   const profile: SiteLoadProfile | undefined = LOAD_PROFILE_MAP[siteKey];
   if (!profile) return { onPeak: 0, offPeak: 0 };
   const contracts = LINKED_CONTRACTS[siteKey] ?? [];
 
   let onLoad = 0, offLoad = 0;
-  let onHedged = 0, offHedged = 0;
+  let onHedgedCapped = 0, offHedgedCapped = 0;
 
   for (let h = 0; h < 24; h++) {
     const isOnPeak = ON_PEAK_HOURS.has(h);
     const pts = profile.loadShape.filter((p) => p.hour === h);
     const avgLoad = pts.reduce((s, p) => s + p.totalMw, 0) / 12;
     const hedgeMw = contracts.reduce((s, c) => s + contractMwForHourAvg(c, h), 0);
-    if (isOnPeak) { onLoad += avgLoad; onHedged += hedgeMw; }
-    else          { offLoad += avgLoad; offHedged += hedgeMw; }
+    // Cap hedge at 100% of load for this hour (no over-hedge counting)
+    const cappedHedge = Math.min(hedgeMw, avgLoad);
+    if (isOnPeak) { onLoad += avgLoad; onHedgedCapped += cappedHedge; }
+    else          { offLoad += avgLoad; offHedgedCapped += cappedHedge; }
   }
 
   return {
-    onPeak:  onLoad  > 0 ? Math.round((onHedged  / onLoad)  * 100) : 0,
-    offPeak: offLoad > 0 ? Math.round((offHedged / offLoad) * 100) : 0,
+    onPeak:  onLoad  > 0 ? Math.round((onHedgedCapped  / onLoad)  * 100) : 0,
+    offPeak: offLoad > 0 ? Math.round((offHedgedCapped / offLoad) * 100) : 0,
   };
 }
 

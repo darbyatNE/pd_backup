@@ -12,13 +12,12 @@ import {
 } from 'recharts'
 import {
   getEffectiveLoadAt,
-  getSiteCapacityForYear,
+  getForecastCapacityForYear,
 } from '../../data/loadProfile'
 import type { SiteLoadProfile } from '../../data/loadProfile'
 import {
   contractMwForHourAvgInYear,
   contractMwForMonthInYear,
-  isContractActiveAt,
   patternId,
   LOAD_COLORS,
   PATTERN_FG,
@@ -195,9 +194,13 @@ interface LoadShape2DProps {
   year: number
   fullScopeYears?: number[]
   contracts: LinkedContract[]
+  startYear?: number
+  startMonth?: number
+  endYear?: number
+  endMonth?: number
 }
 
-export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts }: LoadShape2DProps) {
+export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, startYear, startMonth = 1, endYear, endMonth = 12 }: LoadShape2DProps) {
   const buildRow = (label: string, baseMw: number, peakMw: number, contractMws: number[]) => {
     const r1 = (n: number) => Math.round(n * 10) / 10
     const totalLoad = baseMw + peakMw
@@ -228,6 +231,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts }:
       base_uncovered: r1(baseUncovered),
       peak_uncovered: r1(peakUncovered),
       overhedge: -r1(totalOverhedge),
+      _year: year,
     }
     contracts.forEach((c, i) => {
       const k = contractKey(c.projectName)
@@ -272,12 +276,27 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts }:
       )
     }
     const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+    // Filter months based on selected scope (startMonth to endMonth for the active year)
+    // For boundary years, only include months within the scope range
+    const effectiveStartYear = startYear ?? (fullScopeYears ? fullScopeYears[0] : year)
+    const effectiveEndYear = endYear ?? (fullScopeYears ? fullScopeYears[fullScopeYears.length - 1] : year)
+    
+    const monthsInScope: number[] = []
+    for (let m = 1; m <= 12; m++) {
+      // Check if this month/year combination is within the selected scope
+      let inScope = true
+      if (year === effectiveStartYear && m < startMonth) inScope = false
+      if (year === effectiveEndYear && m > endMonth) inScope = false
+      if (inScope) monthsInScope.push(m)
+    }
+
     if (fullScopeYears && fullScopeYears.length > 1) {
       return fullScopeYears.flatMap((y) =>
-        monthLabels.map((m, mi) => rowFor(mi + 1, y, `${m} ${yy(y)}`)),
+        monthsInScope.map((m) => rowFor(m, y, `${monthLabels[m - 1]} ${yy(y)}`)),
       )
     }
-    return monthLabels.map((m, mi) => rowFor(mi + 1, year, m))
+    return monthsInScope.map((m) => rowFor(m, year, monthLabels[m - 1]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year, fullScopeYears, profile, contracts])
 
@@ -291,135 +310,223 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts }:
     '|x:' + xAxis +
     '|y:' + yearsKey
 
+  // Calculate max capacity to ensure Y-axis includes the capacity line
+  const getCap = (y: number) => {
+    const c = getForecastCapacityForYear(profile, y)
+    return typeof c === 'number' && !isNaN(c) && c > 0 ? c : 0
+  }
+  const maxCapacity = fullScopeYears && fullScopeYears.length > 1
+    ? Math.max(...fullScopeYears.map(y => getCap(y)), 0)
+    : getCap(year)
+
+  const baseContracts = contracts.filter((c) => c.tier === 'base')
+  const peakContracts = contracts.filter((c) => c.tier === 'peak')
+
+  const LegendItem = ({ color, pattern, label, sublabel, isInactive = false, title }: { color: string; pattern?: string; label: string; sublabel?: string; isInactive?: boolean; title?: string }) => (
+    <div className={`flex items-center gap-2 py-1 ${isInactive ? 'opacity-40' : ''}`} title={title}>
+      <svg width="24" height="14" className="flex-shrink-0">
+        <rect width="24" height="14" fill={color} />
+        {pattern && <rect width="24" height="14" fill={pattern} stroke={color} strokeWidth="0.5" />}
+      </svg>
+      <div className="flex flex-col">
+        <span className="font-medium text-slate-700 text-[11px] leading-tight">{label}</span>
+        {sublabel && <span className="text-slate-400 text-[9px] leading-tight">{sublabel}</span>}
+      </div>
+    </div>
+  )
+
+  const LegendGroup = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <div className="flex flex-col min-w-[140px]">
+      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-200 pb-1">{title}</h4>
+      <div className="space-y-0.5">
+        {children}
+      </div>
+    </div>
+  )
+
   return (
-    <div>
+    <div className="flex gap-4">
       <PatternDefsLayer contracts={contracts} />
-      <ResponsiveContainer width="100%" height={300} key={chartKey}>
-        <ReBarChart data={data} stackOffset="sign" margin={{ top: 8, right: 16, left: 8, bottom: 4 }} barCategoryGap="20%">
-          <CartesianGrid vertical={false} stroke="rgba(134,133,133,0.2)" />
-          <XAxis
-            dataKey="label"
-            tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
-            axisLine={false} tickLine={false}
-            interval={xAxis === 'hours' ? 2 : (data.length > 18 ? 2 : 0)}
-          />
-          <YAxis
-            tickFormatter={(v) => `${v}`}
-            tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
-            axisLine={false} tickLine={false} width={40}
-            label={{ value: yLabel, angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }}
-          />
-          <Tooltip content={<ChartTooltip contracts={contracts} yLabel={yLabel} />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-          {(!fullScopeYears || fullScopeYears.length <= 1) && (() => {
-            const cap = getSiteCapacityForYear(profile, year)
-            return (
-              <ReferenceLine y={cap} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1.5}
-                label={{ value: `Capacity ${cap} MW`, position: 'right', fill: '#ef4444', fontSize: 10 }}
-              />
-            )
-          })()}
-          <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
 
-          {contracts.map((c) => {
-            const k = contractKey(c.projectName)
-            return (
-              <Fragment key={`c-${c.projectName}`}>
-                <Bar
-                  dataKey={`c_${k}_base`}
-                  stackId="load"
-                  fill={LOAD_COLORS.base}
-                  shape={makePatternedBarShape(LOAD_COLORS.base, `url(#${patternId(c, 'base')})`)}
-                  name={c.projectName}
-                  isAnimationActive={false}
+      {/* Legend - Left Side with Columns */}
+      <div className="flex-shrink-0 text-xs border-r border-slate-200 pr-4">
+        <div className="flex gap-6">
+          <LegendGroup title="LOAD TYPE">
+            <LegendItem color={LOAD_COLORS.base} label="Baseload" sublabel="Uncovered" />
+            <LegendItem color={LOAD_COLORS.peak} label="Peak" sublabel="Uncovered" />
+            <LegendItem
+              color="#fecaca"
+              pattern={`url(#${OVERHEDGE_PATTERN_ID})`}
+              label="Over-hedge"
+              sublabel="Excess contracted"
+              title="MW contracted in excess of the load — over-hedge"
+            />
+          </LegendGroup>
+
+          {baseContracts.length > 0 && (
+            <LegendGroup title="Baseload Projects">
+              {baseContracts.map((c) => {
+                const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                const startLabel = `${monthShort[c.startMonth - 1]} '${String(c.startYear).slice(-2)}`
+                const endLabel = `${monthShort[c.endMonth - 1]} '${String(c.endYear).slice(-2)}`
+                const visibleYears = fullScopeYears ?? [year]
+                const isAnyYearActive = visibleYears.some((y) => y >= c.startYear && y <= c.endYear)
+                return (
+                  <LegendItem
+                    key={c.projectName}
+                    color={LOAD_COLORS.base}
+                    pattern={`url(#${patternId(c)})`}
+                    label={c.projectName}
+                    sublabel={`${c.mwCovered} MW · ${startLabel}–${endLabel}`}
+                    isInactive={!isAnyYearActive}
+                    title={`${c.generationType} · covers baseload · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
+                  />
+                )
+              })}
+            </LegendGroup>
+          )}
+
+          {peakContracts.length > 0 && (
+            <LegendGroup title="Peaking Projects">
+              {peakContracts.map((c) => {
+                const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+                const startLabel = `${monthShort[c.startMonth - 1]} '${String(c.startYear).slice(-2)}`
+                const endLabel = `${monthShort[c.endMonth - 1]} '${String(c.endYear).slice(-2)}`
+                const visibleYears = fullScopeYears ?? [year]
+                const isAnyYearActive = visibleYears.some((y) => y >= c.startYear && y <= c.endYear)
+                return (
+                  <LegendItem
+                    key={c.projectName}
+                    color={LOAD_COLORS.peak}
+                    pattern={`url(#${patternId(c)})`}
+                    label={c.projectName}
+                    sublabel={`${c.mwCovered} MW · ${startLabel}–${endLabel}`}
+                    isInactive={!isAnyYearActive}
+                    title={`${c.generationType} · covers peak · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
+                  />
+                )
+              })}
+            </LegendGroup>
+          )}
+        </div>
+      </div>
+
+      {/* Chart - Right Side */}
+      <div className="flex-1">
+        <ResponsiveContainer width="100%" height={300} key={chartKey}>
+          <ReBarChart data={data} stackOffset="sign" margin={{ top: 8, right: 16, left: 8, bottom: 4 }} barCategoryGap="20%">
+            <CartesianGrid vertical={false} stroke="rgba(134,133,133,0.2)" />
+            <XAxis
+              dataKey="label"
+              tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
+              axisLine={false} tickLine={false}
+              interval={xAxis === 'hours' ? 2 : (data.length > 18 ? 2 : 0)}
+            />
+            <YAxis
+              tickFormatter={(v) => `${v}`}
+              tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
+              axisLine={false} tickLine={false} width={40}
+              label={{ value: yLabel, angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }}
+              domain={[0, Math.round(Math.max(maxCapacity * 1.1, 10))]}
+            />
+            <Tooltip content={<ChartTooltip contracts={contracts} yLabel={yLabel} />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+            {(() => {
+              // In multi-year view, show capacity line for each year segment
+              // Uses getForecastCapacityForYear to match Capacity tab calculation
+              if (fullScopeYears && fullScopeYears.length > 1) {
+                return fullScopeYears.map((y) => {
+                  const cap = getForecastCapacityForYear(profile, y)
+                  if (!cap || cap <= 0) return null
+                  // Find first and last data points for this year to position the line
+                  const yearIndices = data
+                    .map((row, idx) => ({ idx, rowYear: (row as any)._year }))
+                    .filter(({ rowYear }) => rowYear === y)
+                  if (yearIndices.length === 0) return null
+                  const firstIdx = yearIndices[0].idx
+                  const lastIdx = yearIndices[yearIndices.length - 1].idx
+                  const x1 = `${(firstIdx / Math.max(1, data.length - 1)) * 100}%`
+                  const x2 = `${((lastIdx + 0.5) / Math.max(1, data.length - 1)) * 100}%`
+                  return (
+                    <ReferenceLine
+                      key={`cap-${y}`}
+                      y={cap}
+                      x1={x1}
+                      x2={x2}
+                      stroke="#ef4444"
+                      strokeDasharray="4 3"
+                      strokeWidth={1.5}
+                      label={{ value: `Capacity ${cap} MW (${y})`, position: 'right', fill: '#ef4444', fontSize: 10 }}
+                    />
+                  )
+                })
+              }
+              // Single year view - single capacity line
+              const cap = getForecastCapacityForYear(profile, year)
+              if (!cap || cap <= 0) return null
+              return (
+                <ReferenceLine y={cap} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1.5}
+                  label={{ value: `Capacity ${cap} MW`, position: 'right', fill: '#ef4444', fontSize: 10 }}
                 />
-                <Bar
-                  dataKey={`c_${k}_peak`}
-                  stackId="load"
-                  fill={LOAD_COLORS.peak}
-                  shape={makePatternedBarShape(LOAD_COLORS.peak, `url(#${patternId(c, 'peak')})`)}
-                  name={c.projectName}
-                  isAnimationActive={false}
-                />
-              </Fragment>
-            )
-          })}
+              )
+            })()}
+            <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
 
-          <Bar
-            dataKey="base_uncovered"
-            stackId="load"
-            fill={LOAD_COLORS.base}
-            stroke={LOAD_COLORS.base}
-            strokeWidth={0.4}
-            name="Baseload"
-            isAnimationActive={false}
-          />
+            {contracts.map((c) => {
+              const k = contractKey(c.projectName)
+              return (
+                <Fragment key={`c-${c.projectName}`}>
+                  <Bar
+                    dataKey={`c_${k}_base`}
+                    stackId="load"
+                    fill={LOAD_COLORS.base}
+                    shape={makePatternedBarShape(LOAD_COLORS.base, `url(#${patternId(c, 'base')})`)}
+                    name={c.projectName}
+                    isAnimationActive={false}
+                  />
+                  <Bar
+                    dataKey={`c_${k}_peak`}
+                    stackId="load"
+                    fill={LOAD_COLORS.peak}
+                    shape={makePatternedBarShape(LOAD_COLORS.peak, `url(#${patternId(c, 'peak')})`)}
+                    name={c.projectName}
+                    isAnimationActive={false}
+                  />
+                </Fragment>
+              )
+            })}
 
-          <Bar
-            dataKey="peak_uncovered"
-            stackId="load"
-            fill={LOAD_COLORS.peak}
-            stroke={LOAD_COLORS.peak}
-            strokeWidth={0.4}
-            radius={[3, 3, 0, 0]}
-            name="Peak"
-            isAnimationActive={false}
-          />
+            <Bar
+              dataKey="base_uncovered"
+              stackId="load"
+              fill={LOAD_COLORS.base}
+              stroke={LOAD_COLORS.base}
+              strokeWidth={0.4}
+              name="Baseload"
+              isAnimationActive={false}
+            />
 
-          <Bar
-            dataKey="overhedge"
-            stackId="load"
-            fill={`url(#${OVERHEDGE_PATTERN_ID})`}
-            stroke="#b91c1c"
-            strokeWidth={0.5}
-            name="Over-hedge"
-            isAnimationActive={false}
-          />
-        </ReBarChart>
-      </ResponsiveContainer>
+            <Bar
+              dataKey="peak_uncovered"
+              stackId="load"
+              fill={LOAD_COLORS.peak}
+              stroke={LOAD_COLORS.peak}
+              strokeWidth={0.4}
+              radius={[3, 3, 0, 0]}
+              name="Peak"
+              isAnimationActive={false}
+            />
 
-      <div className="flex flex-wrap gap-3 mt-4 text-xs">
-        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200">
-          <span className="inline-block w-5 h-3" style={{ background: LOAD_COLORS.base }} />
-          <span className="font-medium text-slate-700">Baseload</span>
-        </div>
-        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200">
-          <span className="inline-block w-5 h-3" style={{ background: LOAD_COLORS.peak }} />
-          <span className="font-medium text-slate-700">Peak</span>
-        </div>
-        {contracts.map((c) => {
-          const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-          const startLabel = `${monthShort[c.startMonth - 1]} '${String(c.startYear).slice(-2)}`
-          const endLabel   = `${monthShort[c.endMonth   - 1]} '${String(c.endYear).slice(-2)}`
-          const visibleYears = fullScopeYears ?? [year]
-          const isAnyMonthActive = visibleYears.some((y) => {
-            for (let m = 1; m <= 12; m++) if (isContractActiveAt(c, y, m)) return true
-            return false
-          })
-          return (
-            <div
-              key={c.projectName}
-              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 ${isAnyMonthActive ? '' : 'opacity-40'}`}
-              title={`${c.generationType} · covers ${c.tier === 'base' ? 'baseload' : 'peak'} · term ${startLabel} – ${endLabel}${isAnyMonthActive ? '' : ' · out of view'}`}
-            >
-              <svg width="20" height="12">
-                <rect width="20" height="12" fill={LOAD_COLORS[c.tier]} />
-                <rect width="20" height="12" fill={`url(#${patternId(c)})`} stroke={LOAD_COLORS[c.tier]} strokeWidth="0.5" />
-              </svg>
-              <span className="font-medium text-slate-700">{c.projectName}</span>
-              <span className="text-slate-400">{c.mwCovered} MW</span>
-              <span className="text-slate-400 text-[10px]">· {startLabel}–{endLabel}</span>
-            </div>
-          )
-        })}
-        <div
-          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-rose-50 border border-rose-200"
-          title="MW contracted in excess of the load — over-hedge"
-        >
-          <svg width="20" height="12">
-            <rect width="20" height="12" fill={`url(#${OVERHEDGE_PATTERN_ID})`} stroke="#b91c1c" strokeWidth="0.5" />
-          </svg>
-          <span className="font-medium text-rose-700">Over-hedge</span>
-        </div>
+            <Bar
+              dataKey="overhedge"
+              stackId="load"
+              fill={`url(#${OVERHEDGE_PATTERN_ID})`}
+              stroke="#b91c1c"
+              strokeWidth={0.5}
+              name="Over-hedge"
+              isAnimationActive={false}
+            />
+          </ReBarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   )

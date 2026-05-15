@@ -4,6 +4,7 @@ import { useDashboardView } from '../contexts/DashboardViewContext';
 import Forecast from './Forecast';
 import MapPage from './Map';
 import Planning from './Planning';
+import Profile from './Profile';
 
 export default function Dashboard() {
   const { view } = useDashboardView();
@@ -13,6 +14,8 @@ export default function Dashboard() {
 
   return (
     <div>
+      {view === 'profile' && <Profile />}
+
       {view === 'forecast' && <Forecast />}
 
       {view === 'planning' && <Planning />}

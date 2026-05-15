@@ -138,6 +138,7 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
     () => new Set(ALL_GEN_TYPES)
   );
   const [tryOnProject, setTryOnProject] = useState<MappedProject | null>(null);
+  const [showLabels, setShowLabels] = useState(true);
 
   // Keep refs in sync so renderMarkers always sees latest data
   useEffect(() => { projectsRef.current = projects; }, [projects]);
@@ -146,13 +147,17 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
   useEffect(() => { selectedSitesRef.current = selectedSites; }, [selectedSites]);
   useEffect(() => { setTryOnProjectRef.current = setTryOnProject; }, [setTryOnProject]);
 
+  // Ref for showLabels so renderMarkers can access current value
+  const showLabelsRef = useRef(showLabels);
+  useEffect(() => { showLabelsRef.current = showLabels; }, [showLabels]);
+
   const fetchProjects = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
       const [{ data: genData, error: genErr }, { data: siteData, error: siteErr }] =
         await Promise.all([
-          supabase.from('projects').select('*').eq('status', 'published').order('created_at', { ascending: false }),
+          supabase.from('projects').select('*').in('status', ['published', 'active']).order('created_at', { ascending: false }),
           supabase.from('buyer_projects').select('id,name,location,project_type,target_capacity_mw,settlement_zone').order('created_at', { ascending: false }),
         ]);
 
@@ -315,18 +320,132 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
     const currentBuyerSites = buyerSitesRef.current;
     const currentSelectedSites = selectedSitesRef.current;
 
+    // ─── Collision Avoidance ─────────────────────────────────────────────────────
+    // Collect all visible marker positions and calculate offsets for overlaps
+    type MarkerPos = { id: string; lng: number; lat: number; type: 'project' | 'site' };
+    const allMarkers: MarkerPos[] = [];
+
+    // Add visible projects
+    currentProjects.forEach((p) => {
+      if (p.coords && currentVisible.has(p.generation_type)) {
+        allMarkers.push({ id: p.id, lng: p.coords[0], lat: p.coords[1], type: 'project' });
+      }
+    });
+
+    // Add visible sites
+    currentBuyerSites.forEach((s) => {
+      if (s.coords && siteInScope(s.name, currentSelectedSites)) {
+        // Use site name as unique id
+        allMarkers.push({ id: s.name, lng: s.coords[0], lat: s.coords[1], type: 'site' });
+      }
+    });
+
+    // Calculate pixel distance between two points at current zoom
+    const getPixelDistance = (a: MarkerPos, b: MarkerPos): number => {
+      const pa = map.current!.project([a.lng, a.lat]);
+      const pb = map.current!.project([b.lng, b.lat]);
+      const dx = pa.x - pb.x;
+      const dy = pa.y - pb.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    // Minimum pixel distance to avoid collision
+    const MIN_DISTANCE_PX = 60;
+    // Offset directions in degrees (N, NE, E, SE, S, SW, W, NW)
+    const OFFSET_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
+    // Offset distance in meters (roughly 5km at mid-latitudes)
+    const OFFSET_METERS = 5000;
+
+    // Track assigned offsets
+    const assignedOffsets = new Map<string, [number, number]>();
+    const offsetDirections = new Map<string, number>();
+
+    // Simple collision resolution - assign offsets to overlapping markers
+    for (let i = 0; i < allMarkers.length; i++) {
+      const marker = allMarkers[i];
+      let directionIndex = 0;
+
+      // Check against already-processed markers
+      for (let j = 0; j < i; j++) {
+        const other = allMarkers[j];
+        const dist = getPixelDistance(marker, other);
+
+        if (dist < MIN_DISTANCE_PX) {
+          // Find next available direction
+          while (directionIndex < OFFSET_ANGLES.length) {
+            let conflict = false;
+            const angle = OFFSET_ANGLES[directionIndex];
+            const rad = (angle * Math.PI) / 180;
+            const offsetLng = marker.lng + (OFFSET_METERS / 111320) * Math.cos(rad) / Math.cos(marker.lat * Math.PI / 180);
+            const offsetLat = marker.lat + (OFFSET_METERS / 111320) * Math.sin(rad);
+
+            // Check if this offset conflicts with any assigned offset
+            for (const [otherId, otherOffset] of assignedOffsets) {
+              const otherMarker = allMarkers.find((m) => m.id === otherId);
+              if (!otherMarker) continue;
+              const px = map.current!.project([offsetLng, offsetLat]);
+              const pother = map.current!.project([otherMarker.lng + otherOffset[0], otherMarker.lat + otherOffset[1]]);
+              const d = Math.sqrt(Math.pow(px.x - pother.x, 2) + Math.pow(px.y - pother.y, 2));
+              if (d < MIN_DISTANCE_PX) {
+                conflict = true;
+                break;
+              }
+            }
+
+            if (!conflict) {
+              assignedOffsets.set(marker.id, [offsetLng - marker.lng, offsetLat - marker.lat]);
+              offsetDirections.set(marker.id, directionIndex);
+              break;
+            }
+            directionIndex++;
+          }
+        }
+      }
+    }
+
+    const getOffset = (id: string): [number, number] => {
+      return assignedOffsets.get(id) || [0, 0];
+    };
+
+    const currentShowLabels = showLabelsRef.current;
+
     // Generation markers — filled circles
     currentProjects.forEach((project) => {
       if (!project.coords || !map.current) return;
       if (!currentVisible.has(project.generation_type)) return;
 
+      // Marker container with label (label above marker)
       const el = document.createElement('div');
+      el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;';
+
+      // Label with name and type (APPENDED FIRST so it appears above)
+      if (currentShowLabels) {
+        const label = document.createElement('div');
+        label.textContent = `${project.name} · ${project.generation_type}`;
+        label.style.cssText = `
+          font-size: 10px;
+          font-weight: 600;
+          color: #1e293b;
+          background: rgba(255,255,255,0.95);
+          padding: 2px 6px;
+          border-radius: 4px;
+          border: 1px solid #e2e8f0;
+          white-space: nowrap;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        `;
+        el.appendChild(label);
+      }
+
+      // Marker dot (APPENDED SECOND so it appears below label)
+      const dot = document.createElement('div');
       const color = MARKER_COLORS[project.generation_type] ?? '#64748b';
-      el.style.cssText = `
-        width: 8px; height: 8px; border-radius: 50%;
-        background: ${color}; border: 1.5px solid white;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.35); cursor: pointer;
+      dot.style.cssText = `
+        width: 14px; height: 14px; border-radius: 50%;
+        background: ${color}; border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.4);
       `;
+
+      el.appendChild(dot);
       const priceStr = project.fixed_price_per_mwh ? `$${project.fixed_price_per_mwh}/MWh` : 'Price TBD';
 
       const popupNode = document.createElement('div');
@@ -406,21 +525,68 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
       popupNode.appendChild(priceDiv);
 
       const popup = new maplibregl.Popup({ offset: 12, closeButton: true }).setDOMContent(popupNode);
+      const projOffset = getOffset(project.id);
       markers.current.set(project.id,
-        new maplibregl.Marker({ element: el }).setLngLat(project.coords).setPopup(popup).addTo(map.current!)
+        new maplibregl.Marker({ element: el }).setLngLat([project.coords[0] + projOffset[0], project.coords[1] + projOffset[1]]).setPopup(popup).addTo(map.current!)
       );
     });
 
-    // Load site markers — diamonds. Only render sites in the active scope.
+    // Load site markers — with label above. Only render sites in the active scope.
     currentBuyerSites.forEach((site) => {
       if (!site.coords || !map.current) return;
       if (!siteInScope(site.name, currentSelectedSites)) return;
 
+      // Container with label above marker
       const el = document.createElement('div');
-      el.style.cssText = 'width:14px;height:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+      el.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;';
+
+      // Label with site name and "Load Site"
+      if (currentShowLabels) {
+        const label = document.createElement('div');
+        label.textContent = `${site.name} · Load Site`;
+        label.style.cssText = `
+          font-size: 10px;
+          font-weight: 600;
+          color: #1e293b;
+          background: rgba(255,255,255,0.95);
+          padding: 2px 6px;
+          border-radius: 4px;
+          border: 1px solid #e2e8f0;
+          white-space: nowrap;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        `;
+        el.appendChild(label);
+      }
+
+      // Marker container
+      const markerContainer = document.createElement('div');
+      markerContainer.style.cssText = 'width:20px;height:20px;display:flex;align-items:center;justify-content:center;';
+
       const inner = document.createElement('div');
-      inner.style.cssText = 'width:8px;height:8px;background:#6366f1;border:1.5px solid white;transform:rotate(45deg);box-shadow:0 1px 3px rgba(0,0,0,0.35);flex-shrink:0;';
-      el.appendChild(inner);
+      // Tiny data center icon - building shape with server lines
+      inner.style.cssText = `
+        width:10px;
+        height:12px;
+        background:#475569;
+        border:1.5px solid white;
+        border-radius:1px;
+        box-shadow:0 2px 4px rgba(0,0,0,0.4);
+        position:relative;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:center;
+        gap:1.5px;
+      `;
+      // Add server rack lines
+      for (let i = 0; i < 3; i++) {
+        const line = document.createElement('div');
+        line.style.cssText = 'width:6px;height:1px;background:#94a3b8;border-radius:0.5px;';
+        inner.appendChild(line);
+      }
+      markerContainer.appendChild(inner);
+
+      el.appendChild(markerContainer);
       const capacityStr = site.target_capacity_mw ? `${site.target_capacity_mw} MW target` : '';
       const popup = new maplibregl.Popup({ offset: 12, closeButton: true })
         .setHTML(`
@@ -432,19 +598,22 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
             ${site.settlement_zone ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${site.settlement_zone}</div>` : ''}
           </div>
         `);
+      const siteOffset = getOffset(site.name);
       markers.current.set(site.id,
-        new maplibregl.Marker({ element: el }).setLngLat(site.coords).setPopup(popup).addTo(map.current!)
+        new maplibregl.Marker({ element: el }).setLngLat([site.coords[0] + siteOffset[0], site.coords[1] + siteOffset[1]]).setPopup(popup).addTo(map.current!)
       );
     });
   }, []);
 
-  // Trigger re-render when reactive data changes (map init load handler also calls this)
+  // Trigger re-render whenever data / filters change.
+  // We no longer gate on isStyleLoaded() — that caused a race where the
+  // effect sometimes fired before the style finished loading and then never
+  // retried. MapLibre markers are DOM overlays; adding them before the style
+  // loads is safe — they simply snap into position once the map loads.
   useEffect(() => {
     if (!map.current) return;
-    if (map.current.isStyleLoaded()) {
-      renderMarkers();
-    }
-  }, [projects, buyerSites, visibleGenTypes, selectedSites, renderMarkers]);
+    renderMarkers();
+  }, [projects, buyerSites, visibleGenTypes, selectedSites, showLabels, renderMarkers]);
 
   const flyToProject = (project: MappedProject) => {
     if (!project.coords || !map.current) return;
@@ -475,6 +644,7 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
   };
   const showAllGenTypes = () => setVisibleGenTypes(new Set(ALL_GEN_TYPES));
   const hideAllGenTypes = () => setVisibleGenTypes(new Set());
+  const toggleLabels = () => setShowLabels((prev) => !prev);
 
   return (
     // standalone: header = 64px nav + 40px ScopeBar = 104px; -my-6 removes layout padding
@@ -600,6 +770,10 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
               <button onClick={showAllGenTypes} className="text-teal-600 hover:text-teal-700">All</button>
               <span className="text-slate-300">·</span>
               <button onClick={hideAllGenTypes} className="text-slate-500 hover:text-slate-700">None</button>
+              <span className="text-slate-300">·</span>
+              <button onClick={toggleLabels} className={showLabels ? 'text-teal-600 hover:text-teal-700' : 'text-slate-500 hover:text-slate-700'}>
+                Labels {showLabels ? '✓' : '✗'}
+              </button>
             </div>
           </div>
           {(Object.entries(MARKER_COLORS) as [GenerationType, string][]).map(([type, color]) => {
@@ -623,8 +797,16 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
             );
           })}
           <div className="flex items-center gap-2 pt-1 border-t border-slate-100 mt-1 px-1">
-            <span className="inline-flex items-center justify-center w-3.5 h-3.5 flex-shrink-0">
-              <span className="inline-block w-2.5 h-2.5 bg-indigo-500 flex-shrink-0" style={{ transform: 'rotate(45deg)', border: '1.5px solid white', boxShadow: '0 1px 2px rgba(0,0,0,0.25)' }} />
+            <span className="inline-flex items-center justify-center w-4 h-4 flex-shrink-0">
+              <span
+                className="inline-block w-2.5 h-3 flex-shrink-0"
+                style={{
+                  background: '#475569',
+                  border: '1.5px solid white',
+                  borderRadius: '1px',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+                }}
+              />
             </span>
             <span className="text-slate-600">Load Site (in scope)</span>
           </div>

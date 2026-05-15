@@ -53,6 +53,9 @@ export interface LoadAdjustment {
   reason?: string;
 }
 
+// Default annual growth assumption for capacity forecasting (5%)
+export const PLANNING_GROWTH = 0.05;
+
 /** Resolve a site's capacity for a given calendar year. Returns the exact
  *  documented value when present; otherwise the largest documented value at
  *  or below `year`; otherwise the static `capacityMw`. */
@@ -67,6 +70,18 @@ export function getSiteCapacityForYear(profile: SiteLoadProfile, year: number): 
     else break;
   }
   return val;
+}
+
+/** Get forecast capacity for a year, matching the Capacity tab calculation.
+ *  Uses documented capacity if available, otherwise applies growth rate from base year 2026. */
+export function getForecastCapacityForYear(profile: SiteLoadProfile, year: number, growthRate: number = PLANNING_GROWTH): number {
+  const hasDocumentedCapacity = profile.capacityByYear && Object.keys(profile.capacityByYear).length > 0;
+  if (hasDocumentedCapacity) {
+    return getSiteCapacityForYear(profile, year);
+  }
+  // Fall back to growth calculation from base year 2026
+  const yearsOfGrowth = Math.max(0, year - 2026);
+  return Math.round(profile.capacityMw * Math.pow(1 + growthRate, yearsOfGrowth));
 }
 
 /** Resolve the cumulative load multiplier in effect at a (year, month) for a

@@ -81,18 +81,23 @@ export default function Layout({ children, fullWidth = false }: LayoutProps) {
             {/* Dashboard view toggle — only on /dashboard */}
             {onDashboard ? (
               <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
-                {DASHBOARD_VIEWS.map((v) => (
-                  <button
-                    key={v.id}
-                    onClick={() => setView(v.id)}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      view === v.id
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    {v.label}
-                  </button>
+                {DASHBOARD_VIEWS.map((v, index) => (
+                  <>
+                    <button
+                      key={v.id}
+                      onClick={() => setView(v.id)}
+                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                        view === v.id
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                    {index < DASHBOARD_VIEWS.length - 1 && (
+                      <span className="w-px h-4 bg-slate-300 mx-0.5" />
+                    )}
+                  </>
                 ))}
               </div>
             ) : (

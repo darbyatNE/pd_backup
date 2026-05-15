@@ -33,19 +33,19 @@ BEGIN
 
   -- Solar Projects (Seller 1) — all located in PJM territory
   INSERT INTO projects (seller_id, name, generation_type, capacity_mw, location, iso, zone, price_range_min, price_range_max, status) VALUES
-  (seller1_id, 'Desert Sun Solar Farm', 'Solar', 50.00, 'York, Pennsylvania', 'PJM', 'PPL', 45.00, 55.00, 'active'),
-  (seller1_id, 'Coastal Solar Array', 'Solar', 25.50, 'Atlantic County, New Jersey', 'PJM', 'AECO', 50.00, 60.00, 'active'),
-  (seller1_id, 'Mountain Valley Solar', 'Solar', 35.00, 'Frederick County, Maryland', 'PJM', 'BGE', 42.00, 52.00, 'active'),
-  (seller1_id, 'Prairie Solar Park', 'Solar', 40.00, 'Franklin County, Ohio', 'PJM', 'AEP', 40.00, 50.00, 'active'),
-  (seller1_id, 'Sunrise Solar Station', 'Solar', 60.00, 'Loudoun County, Virginia', 'PJM', 'DOM', 38.00, 48.00, 'active');
+  (seller1_id, 'Desert Sun Solar Farm', 'Solar', 50.00, 'York, Pennsylvania', 'PJM', 'PPL', 45.00, 55.00, 'published'),
+  (seller1_id, 'Coastal Solar Array', 'Solar', 25.50, 'Atlantic County, New Jersey', 'PJM', 'AECO', 50.00, 60.00, 'published'),
+  (seller1_id, 'Mountain Valley Solar', 'Solar', 35.00, 'Frederick County, Maryland', 'PJM', 'BGE', 42.00, 52.00, 'published'),
+  (seller1_id, 'Prairie Solar Park', 'Solar', 40.00, 'Franklin County, Ohio', 'PJM', 'AEP', 40.00, 50.00, 'published'),
+  (seller1_id, 'Sunrise Solar Station', 'Solar', 60.00, 'Loudoun County, Virginia', 'PJM', 'DOM', 38.00, 48.00, 'published');
 
   -- Wind Projects (Seller 2) — all located in PJM territory
   INSERT INTO projects (seller_id, name, generation_type, capacity_mw, location, iso, zone, price_range_min, price_range_max, status) VALUES
-  (seller2_id, 'Highland Wind Farm', 'Wind', 75.00, 'Harrison County, West Virginia', 'PJM', 'AEP', 55.00, 65.00, 'active'),
-  (seller2_id, 'Offshore Atlantic Wind', 'Wind', 100.00, 'Ocean County, New Jersey', 'PJM', 'JCPL', 60.00, 70.00, 'active'),
-  (seller2_id, 'Great Plains Wind Park', 'Wind', 80.00, 'Cook County, Illinois', 'PJM', 'COMED', 50.00, 60.00, 'active'),
-  (seller2_id, 'Coastal Breeze Wind', 'Wind', 45.00, 'New Castle County, Delaware', 'PJM', 'DPL', 52.00, 62.00, 'active'),
-  (seller2_id, 'Mountain Ridge Wind', 'Wind', 90.00, 'Allegheny County, Pennsylvania', 'PJM', 'DUQ', 48.00, 58.00, 'active');
+  (seller2_id, 'Highland Wind Farm', 'Wind', 75.00, 'Harrison County, West Virginia', 'PJM', 'AEP', 55.00, 65.00, 'published'),
+  (seller2_id, 'Offshore Atlantic Wind', 'Wind', 100.00, 'Ocean County, New Jersey', 'PJM', 'JCPL', 60.00, 70.00, 'published'),
+  (seller2_id, 'Great Plains Wind Park', 'Wind', 80.00, 'Cook County, Illinois', 'PJM', 'COMED', 50.00, 60.00, 'published'),
+  (seller2_id, 'Coastal Breeze Wind', 'Wind', 45.00, 'New Castle County, Delaware', 'PJM', 'DPL', 52.00, 62.00, 'published'),
+  (seller2_id, 'Mountain Ridge Wind', 'Wind', 90.00, 'Allegheny County, Pennsylvania', 'PJM', 'DUQ', 48.00, 58.00, 'published');
 
   RAISE NOTICE '==============================================';
   RAISE NOTICE 'Projects created successfully!';
@@ -90,19 +90,19 @@ BEGIN
 
   -- Solar Projects (Seller 1) — all located in PJM territory
   INSERT INTO projects (seller_id, name, generation_type, capacity_mw, location, iso, zone, price_range_min, price_range_max, status) VALUES
-  (seller1_id, 'Desert Sun Solar Farm', 'Solar', 50.00, 'York, Pennsylvania', 'PJM', 'PPL', 45.00, 55.00, 'active'),
-  (seller1_id, 'Coastal Solar Array', 'Solar', 25.50, 'Atlantic County, New Jersey', 'PJM', 'AECO', 50.00, 60.00, 'active'),
-  (seller1_id, 'Mountain Valley Solar', 'Solar', 35.00, 'Frederick County, Maryland', 'PJM', 'BGE', 42.00, 52.00, 'active'),
-  (seller1_id, 'Prairie Solar Park', 'Solar', 40.00, 'Franklin County, Ohio', 'PJM', 'AEP', 40.00, 50.00, 'active'),
-  (seller1_id, 'Sunrise Solar Station', 'Solar', 60.00, 'Loudoun County, Virginia', 'PJM', 'DOM', 38.00, 48.00, 'active');
+  (seller1_id, 'Desert Sun Solar Farm', 'Solar', 50.00, 'York, Pennsylvania', 'PJM', 'PPL', 45.00, 55.00, 'published'),
+  (seller1_id, 'Coastal Solar Array', 'Solar', 25.50, 'Atlantic County, New Jersey', 'PJM', 'AECO', 50.00, 60.00, 'published'),
+  (seller1_id, 'Mountain Valley Solar', 'Solar', 35.00, 'Frederick County, Maryland', 'PJM', 'BGE', 42.00, 52.00, 'published'),
+  (seller1_id, 'Prairie Solar Park', 'Solar', 40.00, 'Franklin County, Ohio', 'PJM', 'AEP', 40.00, 50.00, 'published'),
+  (seller1_id, 'Sunrise Solar Station', 'Solar', 60.00, 'Loudoun County, Virginia', 'PJM', 'DOM', 38.00, 48.00, 'published');
 
   -- Wind Projects (Seller 2) — all located in PJM territory
   INSERT INTO projects (seller_id, name, generation_type, capacity_mw, location, iso, zone, price_range_min, price_range_max, status) VALUES
-  (seller2_id, 'Highland Wind Farm', 'Wind', 75.00, 'Harrison County, West Virginia', 'PJM', 'AEP', 55.00, 65.00, 'active'),
-  (seller2_id, 'Offshore Atlantic Wind', 'Wind', 100.00, 'Ocean County, New Jersey', 'PJM', 'JCPL', 60.00, 70.00, 'active'),
-  (seller2_id, 'Great Plains Wind Park', 'Wind', 80.00, 'Cook County, Illinois', 'PJM', 'COMED', 50.00, 60.00, 'active'),
-  (seller2_id, 'Coastal Breeze Wind', 'Wind', 45.00, 'New Castle County, Delaware', 'PJM', 'DPL', 52.00, 62.00, 'active'),
-  (seller2_id, 'Mountain Ridge Wind', 'Wind', 90.00, 'Allegheny County, Pennsylvania', 'PJM', 'DUQ', 48.00, 58.00, 'active');
+  (seller2_id, 'Highland Wind Farm', 'Wind', 75.00, 'Harrison County, West Virginia', 'PJM', 'AEP', 55.00, 65.00, 'published'),
+  (seller2_id, 'Offshore Atlantic Wind', 'Wind', 100.00, 'Ocean County, New Jersey', 'PJM', 'JCPL', 60.00, 70.00, 'published'),
+  (seller2_id, 'Great Plains Wind Park', 'Wind', 80.00, 'Cook County, Illinois', 'PJM', 'COMED', 50.00, 60.00, 'published'),
+  (seller2_id, 'Coastal Breeze Wind', 'Wind', 45.00, 'New Castle County, Delaware', 'PJM', 'DPL', 52.00, 62.00, 'published'),
+  (seller2_id, 'Mountain Ridge Wind', 'Wind', 90.00, 'Allegheny County, Pennsylvania', 'PJM', 'DUQ', 48.00, 58.00, 'published');
 
   RAISE NOTICE '==============================================';
   RAISE NOTICE 'Projects created successfully!';

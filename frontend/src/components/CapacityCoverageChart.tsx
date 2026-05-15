@@ -18,7 +18,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { type SiteLoadProfile, getSiteCapacityForYear } from '../data/loadProfile'
+import { type SiteLoadProfile, getForecastCapacityForYear } from '../data/loadProfile'
 import {
   getCapacitySourcesForSites,
   capacityPatternId,
@@ -152,7 +152,7 @@ function CapacityShape2D({
   // so multi-year views show the bar growing as the build-out lands.
   const buildRow = (label: string, yearForRow: number) => {
     const r1 = (n: number) => Math.round(n * 10) / 10
-    const capacityMw = getSiteCapacityForYear(profile, yearForRow)
+    const capacityMw = getForecastCapacityForYear(profile, yearForRow)
     let cumul = 0
     let totalOverhedge = 0
     const cMW: number[] = []
@@ -171,6 +171,7 @@ function CapacityShape2D({
       label,
       cap_uncovered: r1(uncovered),
       overhedge: -r1(totalOverhedge),
+      _year: yearForRow,
     }
     sources.forEach((s, i) => {
       const k = capacitySourceKey(s.sourceName)
@@ -199,11 +200,7 @@ function CapacityShape2D({
   const data = xAxis === 'hours' ? hourlyData : monthRows
   const yLabel = 'MW'
 
-  // Capacity for the active year — drives the static reference line in
-  // single-year views. In all-years mode the bar tops step year-over-year, so
-  // we hide the static line and let the bar heights speak for themselves.
-  const activeYearCapacity = getSiteCapacityForYear(profile, year)
-  const showCapRefLine = !fullScopeYears || fullScopeYears.length <= 1
+  // Capacity calculation now uses getForecastCapacityForYear for consistency
 
   function ChartTooltip({ active, payload, label }: any) {
     if (!active || !payload?.length) return null
@@ -258,6 +255,15 @@ function CapacityShape2D({
     '|x:' + xAxis +
     '|y:' + yearsKey
 
+  // Calculate max capacity to ensure Y-axis includes the capacity line
+  const getCap = (y: number) => {
+    const c = getForecastCapacityForYear(profile, y)
+    return typeof c === 'number' && !isNaN(c) && c > 0 ? c : 0
+  }
+  const maxCapacity = fullScopeYears && fullScopeYears.length > 1
+    ? Math.max(...fullScopeYears.map(y => getCap(y)), 0)
+    : getCap(year)
+
   return (
     <div>
       <CapacityPatternDefsLayer sources={sources} />
@@ -275,13 +281,46 @@ function CapacityShape2D({
             tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
             axisLine={false} tickLine={false} width={40}
             label={{ value: yLabel, angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }}
+            domain={[0, Math.max(maxCapacity * 1.1, 10)]}
           />
           <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
-          {showCapRefLine && (
-            <ReferenceLine y={activeYearCapacity} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1.5}
-              label={{ value: `Capacity ${activeYearCapacity} MW`, position: 'right', fill: '#ef4444', fontSize: 10 }}
-            />
-          )}
+          {(() => {
+            // In multi-year view, show capacity line for each year segment
+            // Uses getForecastCapacityForYear to match Capacity tab calculation
+            if (fullScopeYears && fullScopeYears.length > 1) {
+              return fullScopeYears.map((y) => {
+                const cap = getForecastCapacityForYear(profile, y)
+                // Find first and last data points for this year to position the line
+                const yearIndices = data
+                  .map((row, idx) => ({ idx, rowYear: (row as any)._year }))
+                  .filter(({ rowYear }) => rowYear === y)
+                if (yearIndices.length === 0) return null
+                const firstIdx = yearIndices[0].idx
+                const lastIdx = yearIndices[yearIndices.length - 1].idx
+                const x1 = `${(firstIdx / Math.max(1, data.length - 1)) * 100}%`
+                const x2 = `${((lastIdx + 0.5) / Math.max(1, data.length - 1)) * 100}%`
+                return (
+                  <ReferenceLine
+                    key={`cap-${y}`}
+                    y={cap}
+                    x1={x1}
+                    x2={x2}
+                    stroke="#ef4444"
+                    strokeDasharray="4 3"
+                    strokeWidth={1.5}
+                    label={{ value: `Capacity ${cap} MW (${y})`, position: 'right', fill: '#ef4444', fontSize: 10 }}
+                  />
+                )
+              })
+            }
+            // Single year view - single capacity line
+            const cap = getForecastCapacityForYear(profile, year)
+            return (
+              <ReferenceLine y={cap} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1.5}
+                label={{ value: `Capacity ${cap} MW`, position: 'right', fill: '#ef4444', fontSize: 10 }}
+              />
+            )
+          })()}
           <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
 
           {sources.map((s) => {
@@ -372,7 +411,7 @@ export default function CapacityCoverageChart({ profile }: { profile: SiteLoadPr
   const [selectedYear, setSelectedYear] = useState<number>(startYear)
   const activeYear = yearOptions.includes(selectedYear) ? selectedYear : (yearOptions[0] ?? startYear)
   const showFullScope = xAxis === 'months' && yearMode === 'all' && yearOptions.length > 1
-  const activeYearCapacity = getSiteCapacityForYear(profile, activeYear)
+  // Uses getForecastCapacityForYear directly in chart rendering for consistency
   const hasDocumentedExpansion =
     !!profile.capacityByYear && Object.keys(profile.capacityByYear).length > 1
 
@@ -435,11 +474,6 @@ export default function CapacityCoverageChart({ profile }: { profile: SiteLoadPr
               </button>
             )}
           </div>
-          <span className="text-[11px] text-slate-400">
-            {showFullScope
-              ? `${yearOptions.length}-year view · ${yearOptions.length * 12} months`
-              : `Showing ${activeYear} (${yearOptions[0]}–${yearOptions[yearOptions.length - 1]} in scope)`}
-          </span>
         </div>
       )}
 
@@ -448,15 +482,15 @@ export default function CapacityCoverageChart({ profile }: { profile: SiteLoadPr
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-6 h-0 border-t-2 border-dashed border-red-400" />
           <span className="font-medium">
-            Capacity {activeYearCapacity} MW
-            {hasDocumentedExpansion && !showFullScope && (
-              <span className="text-slate-400 font-normal"> · for {activeYear}</span>
-            )}
+            {showFullScope && hasDocumentedExpansion
+              ? `Capacity varies by year (scope: ${yearOptions.join(', ')})`
+              : `Capacity ${getForecastCapacityForYear(profile, activeYear)} MW${hasDocumentedExpansion ? ` · for ${activeYear}` : ''}`
+            }
           </span>
         </div>
         {hasDocumentedExpansion && showFullScope && (
           <div className="text-[11px] text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-0.5 font-medium">
-            Bar height steps year-over-year per documented expansion
+            Red line shows capacity per year — steps up as build-out lands
           </div>
         )}
         <span className="text-slate-400">

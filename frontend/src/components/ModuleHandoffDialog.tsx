@@ -8,7 +8,8 @@ export type HandoffKind =
   | 'recs'
   | 'examine-fit'
   | 'capacity-risk'
-  | 'contracting';
+  | 'contracting'
+  | 'try-on-commit';
 
 interface HandoffCopy {
   icon: string;
@@ -65,6 +66,14 @@ const DEFAULT_COPY: Record<HandoffKind, HandoffCopy> = {
     sub: 'Counterparty workflow + execution tracking not yet wired.',
     body:
       "You'll be able to manage counterparty negotiations, execute contracts, and track obligations directly from this page.",
+    eta: 'August 2026',
+  },
+  'try-on-commit': {
+    icon: '📝',
+    title: 'Deal Shape Commit — coming soon',
+    sub: 'Contract configuration and commitment workflow not yet wired.',
+    body:
+      "You'll be able to save this deal shape configuration and proceed to contract execution. This will include generating a term sheet preview and hand-off to the contracting module.",
     eta: 'August 2026',
   },
 };

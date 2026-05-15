@@ -1,15 +1,16 @@
 import { useState } from 'react';
 import { useScopeContext } from '../contexts/ScopeContext';
+import { useDashboardView } from '../contexts/DashboardViewContext';
 import { LOAD_PROFILES } from '../data/loadProfile';
-
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const YEARS = [2026, 2027, 2028, 2029, 2030];
 
 const SHORT_NAMES: Record<string, string> = {
   'ashburn-dc':          'Ashburn DC',
   'manassas-industrial': 'Manassas Ind.',
   'sterling-hyperscale': 'Sterling HC',
 };
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const YEARS = [2026, 2027, 2028, 2029, 2030];
 
 interface ScopeBarProps {
   fullWidth?: boolean;
@@ -18,12 +19,16 @@ interface ScopeBarProps {
 export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
   const {
     selectedSites, startYear, startMonth, endYear, endMonth,
-    toggleSite, setStartDate, setEndDate,
+    toggleSite, addSite, setStartDate, setEndDate,
   } = useScopeContext();
+
+  const { view } = useDashboardView();
+  const isProfileView = view === 'profile';
 
   // Filter elements (checkboxes + date dropdowns) collapse to a tag-style
   // summary by default; click "Edit scope" to reveal the editor.
   const [editing, setEditing] = useState(false);
+  const [newSiteName, setNewSiteName] = useState('');
 
   const dateRangeLabel = `${MONTH_NAMES[startMonth - 1]} ${startYear} – ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
 
@@ -32,7 +37,7 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
       <div className={`mx-auto flex min-h-10 items-center gap-3 px-4 sm:px-6 lg:px-8 py-1.5 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
 
         {!editing ? (
-          /* ── Compact summary: site tags with check status + date range ── */
+          /* ── Compact summary: site tags + date range (non-profile) / add site (profile) ── */
           <>
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
               Scope
@@ -58,11 +63,16 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
                 );
               })}
             </div>
-            <span className="w-px h-4 bg-slate-200 flex-shrink-0" />
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
-              <span aria-hidden className="text-slate-400">📅</span>
-              {dateRangeLabel}
-            </span>
+
+            {!isProfileView && (
+              <>
+                <span className="w-px h-4 bg-slate-200 flex-shrink-0" />
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
+                  <span aria-hidden className="text-slate-400">📅</span>
+                  {dateRangeLabel}
+                </span>
+              </>
+            )}
 
             <button
               type="button"
@@ -73,7 +83,7 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
             </button>
           </>
         ) : (
-          /* ── Editor: site checkboxes + date dropdowns (the prior UI) ── */
+          /* ── Editor: site checkboxes + date range OR add site ── */
           <>
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
               Sites
@@ -99,46 +109,80 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
 
             <span className="w-px h-4 bg-slate-200 flex-shrink-0" />
 
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
-              Range
-            </span>
-            <div className="flex items-center gap-2 text-xs flex-wrap">
-              <select
-                value={startMonth}
-                onChange={(e) => setStartDate(startYear, Number(e.target.value))}
-                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
-              >
-                {MONTH_NAMES.map((m, i) => (
-                  <option key={m} value={i + 1}>{m}</option>
-                ))}
-              </select>
-              <select
-                value={startYear}
-                onChange={(e) => setStartDate(Number(e.target.value), startMonth)}
-                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
-              >
-                {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-              </select>
+            {isProfileView ? (
+              /* Profile: Add Site functionality */
+              <>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
+                  Add Site
+                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newSiteName}
+                    onChange={(e) => setNewSiteName(e.target.value)}
+                    placeholder="Site name..."
+                    className="border border-slate-200 rounded px-2 py-1 bg-white text-slate-700 text-xs outline-none w-32"
+                  />
+                  <button
+                    onClick={() => {
+                      if (newSiteName.trim()) {
+                        const siteKey = newSiteName.toLowerCase().replace(/\s+/g, '-');
+                        addSite(siteKey);
+                        setNewSiteName('');
+                      }
+                    }}
+                    disabled={!newSiteName.trim()}
+                    className="inline-flex items-center gap-1 rounded-md bg-teal-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-teal-700 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+                  >
+                    <span>+</span> Add
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Non-Profile: Date range selectors */
+              <>
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest flex-shrink-0">
+                  Range
+                </span>
+                <div className="flex items-center gap-2 text-xs flex-wrap">
+                  <select
+                    value={startMonth}
+                    onChange={(e) => setStartDate(startYear, Number(e.target.value))}
+                    className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {MONTH_NAMES.map((m, i) => (
+                      <option key={m} value={i + 1}>{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={startYear}
+                    onChange={(e) => setStartDate(Number(e.target.value), startMonth)}
+                    className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
 
-              <span className="text-slate-400 font-medium">→</span>
+                  <span className="text-slate-400 font-medium">→</span>
 
-              <select
-                value={endMonth}
-                onChange={(e) => setEndDate(endYear, Number(e.target.value))}
-                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
-              >
-                {MONTH_NAMES.map((m, i) => (
-                  <option key={m} value={i + 1}>{m}</option>
-                ))}
-              </select>
-              <select
-                value={endYear}
-                onChange={(e) => setEndDate(Number(e.target.value), endMonth)}
-                className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
-              >
-                {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
-              </select>
-            </div>
+                  <select
+                    value={endMonth}
+                    onChange={(e) => setEndDate(endYear, Number(e.target.value))}
+                    className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {MONTH_NAMES.map((m, i) => (
+                      <option key={m} value={i + 1}>{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={endYear}
+                    onChange={(e) => setEndDate(Number(e.target.value), endMonth)}
+                    className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300"
+                  >
+                    {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
 
             <button
               type="button"
