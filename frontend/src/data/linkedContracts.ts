@@ -130,7 +130,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   return [
     // Core baseload - runs through 2027 at ~80% level
     {
-      projectName: site.siteKey,
+      projectName: `${site.siteKey} (1)`,
       generationType: 'Nuclear',
       mwCovered: Math.round(contract1MW * 0.70 * 10) / 10,
       pricePerMwh: 35 + Math.random() * 5,
@@ -144,7 +144,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Peak solar - runs through 2028 at reduced level
     {
-      projectName: site.siteKey,
+      projectName: `${site.siteKey} (2)`,
       generationType: 'Solar',
       mwCovered: Math.round(contract2MW * 10) / 10,
       pricePerMwh: 28 + Math.random() * 4,
@@ -158,7 +158,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Front-loaded baseload - fills gap for 2026 full coverage, ends 2026
     {
-      projectName: site.siteKey,
+      projectName: `${site.siteKey} (3)`,
       generationType: 'Combined Cycle',
       mwCovered: Math.round(contract3MW * 0.70 * 10) / 10,
       pricePerMwh: 32 + Math.random() * 4,
@@ -172,7 +172,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Peak extension for 2026-2027 (staggered end creates 2028 drop)
     {
-      projectName: site.siteKey,
+      projectName: `${site.siteKey} (4)`,
       generationType: 'Wind',
       mwCovered: Math.round((contract1MW * 0.30 - contract2MW) * 10) / 10, // Remaining peak after solar
       pricePerMwh: 30 + Math.random() * 4,
@@ -202,7 +202,7 @@ function generateGreenfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   
   if (numDeals >= 1) {
     hedges.push({
-      projectName: site.siteKey,
+      projectName: `${site.siteKey} (1)`,
       generationType: 'Solar',
       mwCovered: Math.round(totalHedgeMW * 0.60 * 10) / 10,
       pricePerMwh: 32 + Math.random() * 6,
@@ -218,7 +218,7 @@ function generateGreenfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   
   if (numDeals >= 2) {
     hedges.push({
-      projectName: site.siteKey,
+      projectName: `${site.siteKey} (2)`,
       generationType: 'Wind',
       mwCovered: Math.round(totalHedgeMW * 0.40 * 10) / 10,
       pricePerMwh: 30 + Math.random() * 5,
