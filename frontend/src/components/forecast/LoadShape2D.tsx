@@ -171,19 +171,25 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs font-sans space-y-0.5">
       <p className="font-bold text-slate-700 mb-1">{label}</p>
-      {Array.from(consolidated.entries()).map(([baseName, data]) => {
-        const avgTotal = data.total / data.count
-        const tierColor = data.tier === 'base' ? LOAD_COLORS.base : LOAD_COLORS.peak
-        const siteInfo = data.count > 1 ? ` (${r1(avgTotal)} avg per site × ${data.count})` : ''
-        return (
-          <p key={`c-${baseName}`}>
-            <span style={{ color: tierColor }}>■</span>{' '}
-            <span className="text-slate-700">{baseName}</span>:{' '}
-            <strong>{r1(data.total)} {yLabel}</strong>
-            <span className="text-slate-500">{siteInfo}</span>
-          </p>
-        )
-      })}
+      {Array.from(consolidated.entries())
+        .sort((a, b) => {
+          // Sort baseload first, then by volume descending
+          if (a[1].tier !== b[1].tier) return a[1].tier === 'base' ? -1 : 1
+          return b[1].total - a[1].total
+        })
+        .map(([baseName, data]) => {
+          const avgTotal = data.total / data.count
+          const tierColor = data.tier === 'base' ? LOAD_COLORS.base : LOAD_COLORS.peak
+          const siteInfo = data.count > 1 ? ` (${r1(avgTotal)} avg per site × ${data.count})` : ''
+          return (
+            <p key={`c-${baseName}`}>
+              <span style={{ color: tierColor }}>■</span>{' '}
+              <span className="text-slate-700">{baseName}</span>:{' '}
+              <strong>{r1(data.total)} {yLabel}</strong>
+              <span className="text-slate-500">{siteInfo}</span>
+            </p>
+          )
+        })}
       <p className="text-slate-400 pt-1 border-t border-slate-100 mt-1">
         Total: <strong>{r1(totalContracted)} {yLabel}</strong>
       </p>
