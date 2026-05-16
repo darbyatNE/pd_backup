@@ -342,7 +342,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       </svg>
       <div className="flex flex-col leading-tight">
         <span className="text-slate-700 font-medium">{name}</span>
-        <span className="text-slate-500 text-[10px]">Sites: {sites}</span>
+        <span className="text-slate-500 text-[10px]">Serving: {sites}</span>
         <span className="text-slate-500 text-[10px]">{mw} MW · {term}</span>
       </div>
     </div>
@@ -365,8 +365,8 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       <div className="flex-shrink-0 text-xs border-r border-slate-200 pr-4">
         <div className="flex gap-6">
           <LegendGroup title="LOAD TYPE">
-            <LegendItem color={LOAD_COLORS.base} label="Baseload" sublabel="Uncovered" />
-            <LegendItem color={LOAD_COLORS.peak} label="Peak" sublabel="Uncovered" />
+            <LegendItem color={LOAD_COLORS.base} label="Baseload" />
+            <LegendItem color={LOAD_COLORS.peak} label="Peak" />
             <LegendItem
               color="#fecaca"
               pattern={`url(#${OVERHEDGE_PATTERN_ID})`}

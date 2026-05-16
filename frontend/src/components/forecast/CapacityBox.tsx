@@ -194,19 +194,6 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
           </p>
         </div>
 
-        <div className="flex flex-col gap-0.5 min-w-[130px]">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">
-            Avg Contracted Price
-          </p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-indigo-600 leading-none">${avgContractPrice.toFixed(2)}</span>
-            <span className="text-sm font-semibold text-indigo-500">/MWh</span>
-          </div>
-          <p className="text-xs text-slate-400">
-            volume-weighted · {effectiveYear}
-          </p>
-        </div>
-
         <div className="flex flex-col gap-0.5 min-w-[100px]">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">Baseload</p>
           <div className="flex items-baseline gap-1">
@@ -228,6 +215,21 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
             {isSingleYear && chartActiveYear ? `avg for ${chartActiveYear}` : 'above baseload'}
           </p>
         </div>
+
+        <div className="flex flex-col gap-0.5 min-w-[130px]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">
+            Avg Contracted Price
+          </p>
+          <div className="flex items-baseline gap-1">
+            <span className="text-3xl font-extrabold text-indigo-600 leading-none">${avgContractPrice.toFixed(2)}</span>
+            <span className="text-sm font-semibold text-indigo-500">/MWh</span>
+          </div>
+          <p className="text-xs text-slate-400">
+            volume-weighted · {effectiveYear}
+          </p>
+        </div>
+
+        <span className="w-px h-10 bg-slate-100 flex-shrink-0 hidden sm:block" />
 
         <div className="flex flex-col gap-0.5 min-w-[90px]">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">% Hedged</p>
