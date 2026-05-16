@@ -172,11 +172,12 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
       <p className="font-bold text-slate-700 mb-1">{label}</p>
       {Array.from(consolidated.entries()).map(([baseName, data]) => {
         const avgTotal = data.total / data.count
-        const dominantColor = data.inBase >= data.inPeak ? LOAD_COLORS.base : LOAD_COLORS.peak
+        const isBase = data.inBase >= data.inPeak
+        const bgColor = isBase ? 'bg-teal-50' : 'bg-amber-50'
+        const borderColor = isBase ? 'border-teal-200' : 'border-amber-200'
         const siteInfo = data.count > 1 ? ` (${r1(avgTotal)} avg per site × ${data.count})` : ''
         return (
-          <p key={`c-${baseName}`}>
-            <span style={{ color: dominantColor }}>■</span>{' '}
+          <p key={`c-${baseName}`} className={`${bgColor} border ${borderColor} rounded px-2 py-1`}>
             <span className="text-slate-700">{baseName}</span>:{' '}
             <strong>{r1(data.total)} {yLabel}</strong>
             <span className="text-slate-500">{siteInfo}</span>
