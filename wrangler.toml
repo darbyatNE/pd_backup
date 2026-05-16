@@ -1,0 +1,6 @@
+# Cloudflare Pages configuration
+name = "powerdime"
+
+[build]
+command = "npm run build"
+output_directory = "frontend/dist"
