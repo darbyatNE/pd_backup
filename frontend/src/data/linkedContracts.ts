@@ -410,17 +410,18 @@ export function getContractsForSites(siteKeys: string[]): LinkedContract[] {
         const endLater = earlier(existing.endYear, existing.endMonth, c.endYear, c.endMonth);
         merged.set(c.projectName, {
           ...existing,
-          mwCovered: existing.mwCovered + c.mwCovered,
+          mwCovered: Math.round((existing.mwCovered + c.mwCovered) * 10) / 10,
           startYear:  startEarlier ? c.startYear  : existing.startYear,
           startMonth: startEarlier ? c.startMonth : existing.startMonth,
           endYear:    endLater     ? c.endYear    : existing.endYear,
           endMonth:   endLater     ? c.endMonth   : existing.endMonth,
-          perSiteMw: [...(existing.perSiteMw ?? []), { siteKey: key, mwCovered: c.mwCovered }],
+          perSiteMw: [...(existing.perSiteMw ?? []), { siteKey: key, mwCovered: Math.round(c.mwCovered * 10) / 10 }],
         });
       } else {
         merged.set(c.projectName, {
           ...c,
-          perSiteMw: [{ siteKey: key, mwCovered: c.mwCovered }],
+          mwCovered: Math.round(c.mwCovered * 10) / 10,
+          perSiteMw: [{ siteKey: key, mwCovered: Math.round(c.mwCovered * 10) / 10 }],
         });
       }
     }
