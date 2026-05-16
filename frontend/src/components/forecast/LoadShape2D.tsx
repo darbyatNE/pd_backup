@@ -250,6 +250,29 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     return row
   }
 
+  // Consolidate contracts by base PPA name so patterns are continuous in chart
+  const consolidatedContracts = useMemo(() => {
+    const consolidated = new Map<string, LinkedContract & { perSiteMw: Array<{ siteKey: string; mwCovered: number }> }>()
+    contracts.forEach((c) => {
+      const baseName = c.projectName.replace(/\s+-\s+\S+$/, '')
+      const existing = consolidated.get(baseName)
+      if (existing) {
+        consolidated.set(baseName, {
+          ...existing,
+          mwCovered: existing.mwCovered + c.mwCovered,
+          perSiteMw: [...existing.perSiteMw, ...(c.perSiteMw ?? [])],
+        })
+      } else {
+        consolidated.set(baseName, { ...c, projectName: baseName, perSiteMw: c.perSiteMw ?? [] })
+      }
+    })
+    // Sort: baseload first, then by volume descending
+    return Array.from(consolidated.values()).sort((a, b) => {
+      if (a.tier !== b.tier) return a.tier === 'base' ? -1 : 1
+      return b.mwCovered - a.mwCovered
+    })
+  }, [contracts])
+
   const hourlyData = useMemo(() => {
     return Array.from({ length: 24 }, (_, h) => {
       let baseSum = 0
@@ -262,11 +285,11 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       const avgBase = baseSum / 12
       const avgPeak = peakSum / 12
       return buildRow(`${h}h`, avgBase, avgPeak,
-        contracts.map((c) => contractMwForHourAvgInYear(c, h, year)),
+        consolidatedContracts.map((c) => contractMwForHourAvgInYear(c, h, year)),
       )
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, contracts, year])
+  }, [profile, consolidatedContracts, year])
 
   const monthRows = useMemo(() => {
     const yy = (y: number) => `'${String(y).slice(-2)}`
@@ -281,7 +304,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       const baseMw = baseSum / 24
       const peakMw = peakSum / 24
       return buildRow(label, baseMw, peakMw,
-        contracts.map((c) => contractMwForMonthInYear(c, y, month)),
+        consolidatedContracts.map((c) => contractMwForMonthInYear(c, y, month)),
       )
     }
     const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -480,7 +503,29 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
             })()}
             <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
 
-            {contracts.map((c) => {
+            {(() => {
+              // Consolidate contracts by base PPA name for continuous stacking
+              const consolidated = new Map<string, LinkedContract & { perSiteMw: Array<{ siteKey: string; mwCovered: number }> }>()
+              contracts.forEach((c) => {
+                const baseName = c.projectName.replace(/\s+-\s+\S+$/, '')
+                const existing = consolidated.get(baseName)
+                if (existing) {
+                  consolidated.set(baseName, {
+                    ...existing,
+                    mwCovered: existing.mwCovered + c.mwCovered,
+                    perSiteMw: [...existing.perSiteMw, ...(c.perSiteMw ?? [])],
+                  })
+                } else {
+                  consolidated.set(baseName, { ...c, projectName: baseName, perSiteMw: c.perSiteMw ?? [] })
+                }
+              })
+              // Sort: baseload first, then by volume descending (matching tooltip order)
+              const sorted = Array.from(consolidated.values()).sort((a, b) => {
+                if (a.tier !== b.tier) return a.tier === 'base' ? -1 : 1
+                return b.mwCovered - a.mwCovered
+              })
+              const consolidatedContracts = sorted
+              return consolidatedContracts.map((c) => {
               const k = contractKey(c.projectName)
               return (
                 <Fragment key={`c-${c.projectName}`}>
@@ -503,6 +548,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                 </Fragment>
               )
             })}
+            })()}
 
             <Bar
               dataKey="base_uncovered"
