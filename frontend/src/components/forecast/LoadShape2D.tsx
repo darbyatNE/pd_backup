@@ -141,22 +141,45 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
   const baseUnc = get('base_uncovered')
   const peakUnc = get('peak_uncovered')
   let totalContracted = 0
+
+  // Consolidate contracts by base name (removing site suffix)
+  const consolidated = new Map<string, { total: number; inBase: number; inPeak: number; count: number }>()
+  contracts.forEach((c) => {
+    const k = contractKey(c.projectName)
+    const inBase = get(`c_${k}_base`)
+    const inPeak = get(`c_${k}_peak`)
+    const total = inBase + inPeak
+    if (total <= 0) return
+    totalContracted += total
+
+    // Extract base name (remove " - siteKey" suffix)
+    const baseName = c.projectName.replace(/\s+-\s+\S+$/, '')
+    const existing = consolidated.get(baseName)
+    if (existing) {
+      consolidated.set(baseName, {
+        total: existing.total + total,
+        inBase: existing.inBase + inBase,
+        inPeak: existing.inPeak + inPeak,
+        count: existing.count + 1,
+      })
+    } else {
+      consolidated.set(baseName, { total, inBase, inPeak, count: 1 })
+    }
+  })
+
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs font-sans space-y-0.5">
       <p className="font-bold text-slate-700 mb-1">{label}</p>
-      {contracts.map((c) => {
-        const k = contractKey(c.projectName)
-        const inBase = get(`c_${k}_base`)
-        const inPeak = get(`c_${k}_peak`)
-        const total = inBase + inPeak
-        totalContracted += total
-        if (total <= 0) return null
-        const dominantColor = inBase >= inPeak ? LOAD_COLORS.base : LOAD_COLORS.peak
+      {Array.from(consolidated.entries()).map(([baseName, data]) => {
+        const avgTotal = data.total / data.count
+        const dominantColor = data.inBase >= data.inPeak ? LOAD_COLORS.base : LOAD_COLORS.peak
+        const siteInfo = data.count > 1 ? ` (${r1(avgTotal)} avg per site × ${data.count})` : ''
         return (
-          <p key={`c-${c.projectName}`}>
+          <p key={`c-${baseName}`}>
             <span style={{ color: dominantColor }}>■</span>{' '}
-            <span className="text-slate-700">{c.projectName}</span>:{' '}
-            <strong>{r1(total)} {yLabel}</strong>
+            <span className="text-slate-700">{baseName}</span>:{' '}
+            <strong>{r1(data.total)} {yLabel}</strong>
+            <span className="text-slate-500">{siteInfo}</span>
           </p>
         )
       })}
