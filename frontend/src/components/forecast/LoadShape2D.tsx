@@ -143,7 +143,7 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
   let totalContracted = 0
 
   // Consolidate contracts by base name (removing site suffix)
-  const consolidated = new Map<string, { total: number; inBase: number; inPeak: number; count: number }>()
+  const consolidated = new Map<string, { total: number; inBase: number; inPeak: number; count: number; tier: 'base' | 'peak' }>()
   contracts.forEach((c) => {
     const k = contractKey(c.projectName)
     const inBase = get(`c_${k}_base`)
@@ -161,9 +161,10 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
         inBase: existing.inBase + inBase,
         inPeak: existing.inPeak + inPeak,
         count: existing.count + 1,
+        tier: existing.tier,
       })
     } else {
-      consolidated.set(baseName, { total, inBase, inPeak, count: 1 })
+      consolidated.set(baseName, { total, inBase, inPeak, count: 1, tier: c.tier })
     }
   })
 
@@ -172,12 +173,11 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
       <p className="font-bold text-slate-700 mb-1">{label}</p>
       {Array.from(consolidated.entries()).map(([baseName, data]) => {
         const avgTotal = data.total / data.count
-        const isBase = data.inBase >= data.inPeak
-        const bgColor = isBase ? 'bg-teal-50' : 'bg-amber-50'
-        const borderColor = isBase ? 'border-teal-200' : 'border-amber-200'
+        const tierColor = data.tier === 'base' ? LOAD_COLORS.base : LOAD_COLORS.peak
         const siteInfo = data.count > 1 ? ` (${r1(avgTotal)} avg per site × ${data.count})` : ''
         return (
-          <p key={`c-${baseName}`} className={`${bgColor} border ${borderColor} rounded px-2 py-1`}>
+          <p key={`c-${baseName}`}>
+            <span style={{ color: tierColor }}>■</span>{' '}
             <span className="text-slate-700">{baseName}</span>:{' '}
             <strong>{r1(data.total)} {yLabel}</strong>
             <span className="text-slate-500">{siteInfo}</span>
