@@ -108,62 +108,82 @@ function monthsUntilCOD(codString: string | null): number {
   return Math.max(0, (cod.getFullYear() - now.getFullYear()) * 12 + (cod.getMonth() - now.getMonth()));
 }
 
-// Generate brownfield hedges (almost fully hedged, may over-hedge off-peak)
+// Generate brownfield hedges with year-based degradation
+// 2026: ~100%, 2027: ~80%, 2028: 50-60% with staggered contracts
 function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
-  const monthsToCOD = monthsUntilCOD(site.targetCOD);
+  const baseMW = site.annualMWh / 8760;
   
-  // Brownfields: near full hedge, may over-hedge off-peak
-  // Total hedge volume should cover ~95-110% of annual consumption
-  const totalHedgeMW = (site.annualMWh / 8760) * (0.95 + Math.random() * 0.15); // 95-110% hedge
+  // Year-based hedge targets
+  const hedge2026 = baseMW * (0.95 + Math.random() * 0.05); // 95-100%
+  const hedge2027 = baseMW * (0.75 + Math.random() * 0.05); // 75-80%
+  const hedge2028 = baseMW * (0.50 + Math.random() * 0.10); // 50-60%
   
-  // Split: 70% baseload (flat/nuclear), 30% peak-following (solar/wind)
-  const baseloadMW = totalHedgeMW * 0.70;
-  const peakMW = totalHedgeMW * 0.30;
+  // Contract 1: Full coverage through 2027 (staggered end dates)
+  const contract1MW = hedge2027;
   
-  // Off-peak may be over-hedged (up to 120% of off-peak consumption)
-  const offPeakHedgeRatio = 1.0 + Math.random() * 0.20; // 100-120%
+  // Contract 2: Peak coverage for 2026-2028 (solar following peak)
+  const contract2MW = hedge2028 * 0.60; // 60% of 2028 level for solar
+  
+  // Contract 3: Baseload that steps down (ends earlier to create degradation)
+  const contract3MW = hedge2026 - hedge2027; // Gap between 2026 and 2027 levels
   
   return [
+    // Core baseload - runs through 2027 at ~80% level
     {
-      projectName: `${site.siteKey} - Baseload Allocation`,
+      projectName: `${site.siteKey} - Baseload PPA (2026-2027)`,
       generationType: 'Nuclear',
-      mwCovered: baseloadMW,
+      mwCovered: contract1MW * 0.70,
       pricePerMwh: 35 + Math.random() * 5,
       shape: 'flat',
       tier: 'base',
       pattern: 'wave',
       startYear: 2026,
       startMonth: 1,
-      endYear: 2033,
+      endYear: 2027,
       endMonth: 12,
     },
+    // Peak solar - runs through 2028 at reduced level
     {
-      projectName: `${site.siteKey} - Peak Solar PPA`,
+      projectName: `${site.siteKey} - Peak Solar PPA (2026-2028)`,
       generationType: 'Solar',
-      mwCovered: peakMW,
+      mwCovered: contract2MW,
       pricePerMwh: 28 + Math.random() * 4,
       shape: 'solar',
       tier: 'peak',
       pattern: 'dots',
       startYear: 2026,
       startMonth: 1,
-      endYear: 2032,
+      endYear: 2028,
       endMonth: 12,
     },
-    // Optional off-peak over-hedge for some brownfields
-    ...(offPeakHedgeRatio > 1.1 ? [{
-      projectName: `${site.siteKey} - Off-Peak Wind (Over-hedge)`,
+    // Front-loaded baseload - fills gap for 2026 full coverage, ends 2026
+    {
+      projectName: `${site.siteKey} - Baseload Front (2026 Only)`,
+      generationType: 'Combined Cycle',
+      mwCovered: contract3MW * 0.70,
+      pricePerMwh: 32 + Math.random() * 4,
+      shape: 'flat',
+      tier: 'base',
+      pattern: 'grid',
+      startYear: 2026,
+      startMonth: 1,
+      endYear: 2026,
+      endMonth: 12,
+    },
+    // Peak extension for 2026-2027 (staggered end creates 2028 drop)
+    {
+      projectName: `${site.siteKey} - Peak Wind (2026-2027)`,
       generationType: 'Wind',
-      mwCovered: (site.offPeakMWh / 8760) * (offPeakHedgeRatio - 1.0),
-      pricePerMwh: 31 + Math.random() * 3,
-      shape: 'wind' as ContractShape,
-      tier: 'peak' as ContractTier,
-      pattern: 'diagonal' as const,
-      startYear: 2024,
+      mwCovered: contract1MW * 0.30 - contract2MW, // Remaining peak after solar
+      pricePerMwh: 30 + Math.random() * 4,
+      shape: 'wind',
+      tier: 'peak',
+      pattern: 'diagonal',
+      startYear: 2026,
       startMonth: 1,
       endYear: 2027,
       endMonth: 12,
-    }] : []),
+    },
   ];
 }
 
