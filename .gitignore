@@ -1,1 +1,6 @@
+# Large geojson files (exceed Cloudflare 25MB limit)
 PJM_subs.geojson
+frontend/public/CAISO_zones.geojson
+frontend/public/ERCOT_zones.geojson
+frontend/public/MISO_zones.geojson
+frontend/public/PJM_subs_backup.geojson
