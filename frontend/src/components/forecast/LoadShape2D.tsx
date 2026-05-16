@@ -184,7 +184,7 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
         )
       })}
       <p className="text-slate-400 pt-1 border-t border-slate-100 mt-1">
-        Total: <strong>{r1(totalContracted + baseUnc + peakUnc)} {yLabel}</strong>
+        Total: <strong>{r1(totalContracted)} {yLabel}</strong>
       </p>
     </div>
   )
