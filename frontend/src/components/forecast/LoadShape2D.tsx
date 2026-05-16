@@ -138,61 +138,40 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
   if (!active || !payload?.length) return null
   const r1 = (n: number) => Math.round(n * 10) / 10
   const get = (key: string) => payload.find((p) => p.dataKey === key)?.value ?? 0
-  const baseUnc = get('base_uncovered')
-  const peakUnc = get('peak_uncovered')
-  let totalContracted = 0
 
-  // Consolidate contracts by base name (removing site suffix)
-  const consolidated = new Map<string, { total: number; inBase: number; inPeak: number; count: number; tier: 'base' | 'peak' }>()
-  contracts.forEach((c) => {
-    // Extract base name (remove " - siteKey" suffix)
-    const baseName = c.projectName.replace(/\s+-\s+\S+$/, '')
-    const existing = consolidated.get(baseName)
-    if (existing) {
-      consolidated.set(baseName, {
-        ...existing,
-        count: existing.count + 1,
-      })
-    } else {
-      consolidated.set(baseName, { total: 0, inBase: 0, inPeak: 0, count: 1, tier: c.tier })
-    }
-  })
+  // Build contract display rows using project names from contracts
+  const rows: Array<{ name: string; total: number; tier: 'base' | 'peak' }> = []
+  let totalContracted = 0
   
-  // Look up data using consolidated keys
-  consolidated.forEach((data, baseName) => {
-    const k = contractKey(baseName)
+  contracts.forEach((c) => {
+    const k = contractKey(c.projectName)
     const inBase = get(`c_${k}_base`)
     const inPeak = get(`c_${k}_peak`)
     const total = inBase + inPeak
     if (total <= 0) return
     totalContracted += total
-    data.total = total
-    data.inBase = inBase
-    data.inPeak = inPeak
+    rows.push({ name: c.projectName, total, tier: c.tier })
+  })
+
+  // Sort: baseload first, then by volume descending
+  rows.sort((a, b) => {
+    if (a.tier !== b.tier) return a.tier === 'base' ? -1 : 1
+    return b.total - a.total
   })
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs font-sans space-y-0.5">
       <p className="font-bold text-slate-700 mb-1">{label}</p>
-      {Array.from(consolidated.entries())
-        .sort((a, b) => {
-          // Sort baseload first, then by volume descending
-          if (a[1].tier !== b[1].tier) return a[1].tier === 'base' ? -1 : 1
-          return b[1].total - a[1].total
-        })
-        .map(([baseName, data]) => {
-          const avgTotal = data.total / data.count
-          const tierColor = data.tier === 'base' ? LOAD_COLORS.base : LOAD_COLORS.peak
-          const siteInfo = data.count > 1 ? ` (${r1(avgTotal)} avg per site × ${data.count})` : ''
-          return (
-            <p key={`c-${baseName}`}>
-              <span style={{ color: tierColor }}>■</span>{' '}
-              <span className="text-slate-700">{baseName}</span>:{' '}
-              <strong>{r1(data.total)} {yLabel}</strong>
-              <span className="text-slate-500">{siteInfo}</span>
-            </p>
-          )
-        })}
+      {rows.map((row) => {
+        const tierColor = row.tier === 'base' ? LOAD_COLORS.base : LOAD_COLORS.peak
+        return (
+          <p key={`c-${row.name}`}>
+            <span style={{ color: tierColor }}>■</span>{' '}
+            <span className="text-slate-700">{row.name}</span>:{' '}
+            <strong>{r1(row.total)} {yLabel}</strong>
+          </p>
+        )
+      })}
       <p className="text-slate-400 pt-1 border-t border-slate-100 mt-1">
         Total: <strong>{r1(totalContracted)} {yLabel}</strong>
       </p>
@@ -253,24 +232,9 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     return row
   }
 
-  // Consolidate contracts by base PPA name so patterns are continuous in chart
-  const consolidatedContracts = useMemo(() => {
-    const consolidated = new Map<string, LinkedContract & { perSiteMw: Array<{ siteKey: string; mwCovered: number }> }>()
-    contracts.forEach((c) => {
-      const baseName = c.projectName.replace(/\s+-\s+\S+$/, '')
-      const existing = consolidated.get(baseName)
-      if (existing) {
-        consolidated.set(baseName, {
-          ...existing,
-          mwCovered: existing.mwCovered + c.mwCovered,
-          perSiteMw: [...existing.perSiteMw, ...(c.perSiteMw ?? [])],
-        })
-      } else {
-        consolidated.set(baseName, { ...c, projectName: baseName, perSiteMw: c.perSiteMw ?? [] })
-      }
-    })
-    // Sort: baseload first, then by volume descending
-    return Array.from(consolidated.values()).sort((a, b) => {
+  // Sort contracts: baseload first, then by volume descending
+  const sortedContracts = useMemo(() => {
+    return [...contracts].sort((a, b) => {
       if (a.tier !== b.tier) return a.tier === 'base' ? -1 : 1
       return b.mwCovered - a.mwCovered
     })
@@ -288,11 +252,11 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       const avgBase = baseSum / 12
       const avgPeak = peakSum / 12
       return buildRow(`${h}h`, avgBase, avgPeak,
-        consolidatedContracts.map((c) => contractMwForHourAvgInYear(c, h, year)),
+        sortedContracts.map((c) => contractMwForHourAvgInYear(c, h, year)),
       )
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, consolidatedContracts, year])
+  }, [profile, sortedContracts, year])
 
   const monthRows = useMemo(() => {
     const yy = (y: number) => `'${String(y).slice(-2)}`
@@ -307,7 +271,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       const baseMw = baseSum / 24
       const peakMw = peakSum / 24
       return buildRow(label, baseMw, peakMw,
-        consolidatedContracts.map((c) => contractMwForMonthInYear(c, y, month)),
+        sortedContracts.map((c) => contractMwForMonthInYear(c, y, month)),
       )
     }
     const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -506,7 +470,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
             })()}
             <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
 
-            {consolidatedContracts.map((c) => {
+            {sortedContracts.map((c) => {
               const k = contractKey(c.projectName)
               return (
                 <Fragment key={`c-${c.projectName}`}>

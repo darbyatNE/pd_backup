@@ -490,7 +490,9 @@ export function contractMwForHourAvgInYear(
  *
  *  Sets `perSiteMw` on every returned contract so downstream code can
  *  apply per-site load multipliers (mid-year volume bumps, etc.) without
- *  losing the per-source MW shares the merge collapsed. */
+ *  losing the per-source MW shares the merge collapsed.
+ *
+ *  Project name includes sites using the contract as hedge in parentheses. */
 export function getContractsForSites(siteKeys: string[]): LinkedContract[] {
   const merged = new Map<string, LinkedContract>();
   const earlier = (ay: number, am: number, by: number, bm: number) =>
@@ -522,7 +524,21 @@ export function getContractsForSites(siteKeys: string[]): LinkedContract[] {
       }
     }
   }
-  return Array.from(merged.values());
+
+  // Post-process: append site list to project name (e.g., "North Anna Nuclear (ashburn-dc, manassas-industrial)")
+  const result: LinkedContract[] = [];
+  for (const contract of merged.values()) {
+    const sites = contract.perSiteMw?.map(s => s.siteKey) ?? [];
+    const uniqueSites = [...new Set(sites)];
+    const siteSuffix = uniqueSites.length > 0
+      ? ` (${uniqueSites.join(', ')})`
+      : '';
+    result.push({
+      ...contract,
+      projectName: `${contract.projectName}${siteSuffix}`,
+    });
+  }
+  return result;
 }
 
 /** MW-weighted average load multiplier across the sites this contract hedges,
