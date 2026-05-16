@@ -183,30 +183,9 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
           </p>
         )
       })}
-      {baseUnc > 0 && (
-        <p>
-          <span style={{ color: LOAD_COLORS.base }}>■</span>{' '}
-          <span className="text-slate-500">Baseload (uncovered)</span>: <strong>{r1(baseUnc)} {yLabel}</strong>
-        </p>
-      )}
-      {peakUnc > 0 && (
-        <p>
-          <span style={{ color: LOAD_COLORS.peak }}>■</span>{' '}
-          <span className="text-slate-500">Peak (uncovered)</span>: <strong>{r1(peakUnc)} {yLabel}</strong>
-        </p>
-      )}
       <p className="text-slate-400 pt-1 border-t border-slate-100 mt-1">
-        Load: <strong>{r1(totalContracted + baseUnc + peakUnc)} {yLabel}</strong>
+        Total: <strong>{r1(totalContracted + baseUnc + peakUnc)} {yLabel}</strong>
       </p>
-      {(() => {
-        const v = -get('overhedge')
-        if (v <= 0) return null
-        return (
-          <div className="pt-1 mt-1 border-t border-rose-100">
-            <p className="text-rose-700 font-semibold">Over-hedge: −{r1(v)} {yLabel}</p>
-          </div>
-        )
-      })()}
     </div>
   )
 }
