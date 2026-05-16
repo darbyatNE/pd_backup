@@ -111,28 +111,38 @@ function monthsUntilCOD(codString: string | null): number {
 // Generate brownfield hedges with year-based degradation
 // 2026: ~100%, 2027: ~80%, 2028: 50-60% with staggered contracts
 function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
-  const baseMW = site.annualMWh / 8760;
+  // Brownfield: High hedge % with year-based degradation
+  // Baseload = flat load, Peak = variable load above baseload
+  const baseloadMw = site.annualMWh / 8760 * 0.80; // ~80% baseload (typical data center)
+  const peakMw = (site.annualMWh / 8760) - baseloadMw; // Remaining is peak
   
-  // Year-based hedge targets
-  const hedge2026 = baseMW * (0.95 + Math.random() * 0.05); // 95-100%
-  const hedge2027 = baseMW * (0.75 + Math.random() * 0.05); // 75-80%
-  const hedge2028 = baseMW * (0.50 + Math.random() * 0.10); // 50-60%
+  // Target hedge coverage by year (baseload focus with over-hedge for demo)
+  const baseload2026 = baseloadMw * 1.05; // 105% - slight over-hedge for demo
+  const baseload2027 = baseloadMw * 0.85; // 85% - near full coverage
+  const baseload2028 = baseloadMw * 0.55; // 55% - partial coverage
   
-  // Contract 1: Full coverage through 2027 (staggered end dates)
-  const contract1MW = hedge2027;
+  const peak2026 = peakMw * 0.90; // 90% peak coverage
+  const peak2027 = peakMw * 0.70; // 70% peak coverage  
+  const peak2028 = peakMw * 0.50; // 50% peak coverage
   
-  // Contract 2: Peak coverage for 2026-2028 (solar following peak)
-  const contract2MW = hedge2028 * 0.60; // 60% of 2028 level for solar
+  // Contract 1: Core baseload nuclear - runs through 2027
+  const baseloadCore = baseload2027;
   
-  // Contract 3: Baseload that steps down (ends earlier to create degradation)
-  const contract3MW = hedge2026 - hedge2027; // Gap between 2026 and 2027 levels
+  // Contract 2: Peak solar - runs through 2028 (solar follows peak pattern)
+  const solarPeak = peak2028 * 0.70;
+  
+  // Contract 3: Front-loaded baseload gas - fills 2026 over-hedge gap, ends 2026
+  const baseloadFront = baseload2026 - baseloadCore;
+  
+  // Contract 4: Peak wind - covers remaining peak hours 2026-2027
+  const windPeak = peak2027 * 0.60;
   
   return [
-    // Core baseload - runs through 2027 at ~80% level
+    // Core baseload nuclear - flat 24/7, runs 2026-2027
     {
       projectName: `${site.siteKey} (1)`,
       generationType: 'Nuclear',
-      mwCovered: Math.round(contract1MW * 0.70 * 10) / 10,
+      mwCovered: Math.round(baseloadCore * 10) / 10,
       pricePerMwh: 35 + Math.random() * 5,
       shape: 'flat',
       tier: 'base',
@@ -142,11 +152,11 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
       endYear: 2027,
       endMonth: 12,
     },
-    // Peak solar - runs through 2028 at reduced level
+    // Solar PPA - follows peak pattern (midday), runs 2026-2028
     {
       projectName: `${site.siteKey} (2)`,
       generationType: 'Solar',
-      mwCovered: Math.round(contract2MW * 10) / 10,
+      mwCovered: Math.round(solarPeak * 10) / 10,
       pricePerMwh: 28 + Math.random() * 4,
       shape: 'solar',
       tier: 'peak',
@@ -156,11 +166,11 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
       endYear: 2028,
       endMonth: 12,
     },
-    // Front-loaded baseload - fills gap for 2026 full coverage, ends 2026
+    // Gas baseload - fills 2026 over-hedge, ends 2026 (creates 2027 step down)
     {
       projectName: `${site.siteKey} (3)`,
       generationType: 'Combined Cycle',
-      mwCovered: Math.round(contract3MW * 0.70 * 10) / 10,
+      mwCovered: Math.round(baseloadFront * 10) / 10,
       pricePerMwh: 32 + Math.random() * 4,
       shape: 'flat',
       tier: 'base',
@@ -170,11 +180,11 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
       endYear: 2026,
       endMonth: 12,
     },
-    // Peak extension for 2026-2027 (staggered end creates 2028 drop)
+    // Wind - covers morning/evening peak, runs 2026-2027 then drops
     {
       projectName: `${site.siteKey} (4)`,
       generationType: 'Wind',
-      mwCovered: Math.round((contract1MW * 0.30 - contract2MW) * 10) / 10, // Remaining peak after solar
+      mwCovered: Math.round(windPeak * 10) / 10,
       pricePerMwh: 30 + Math.random() * 4,
       shape: 'wind',
       tier: 'peak',
