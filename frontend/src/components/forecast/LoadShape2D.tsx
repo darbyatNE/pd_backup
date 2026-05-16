@@ -325,11 +325,25 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     <div className={`flex items-center gap-2 py-1 ${isInactive ? 'opacity-40' : ''}`} title={title}>
       <svg width="24" height="14" className="flex-shrink-0">
         <rect width="24" height="14" fill={color} />
-        {pattern && <rect width="24" height="14" fill={pattern} stroke={color} strokeWidth="0.5" />}
+        {pattern && <rect width="24" height="14" fill={pattern} />}
       </svg>
-      <div className="flex flex-col">
-        <span className="font-medium text-slate-700 text-[11px] leading-tight">{label}</span>
-        {sublabel && <span className="text-slate-400 text-[9px] leading-tight">{sublabel}</span>}
+      <div className="flex flex-col leading-tight">
+        <span className="text-slate-700 font-medium">{label}</span>
+        {sublabel && <span className="text-slate-500 text-[10px]">{sublabel}</span>}
+      </div>
+    </div>
+  )
+
+  const ContractLegendItem = ({ color, pattern, name, sites, mw, term, isInactive = false, title }: { color: string; pattern?: string; name: string; sites: string; mw: number; term: string; isInactive?: boolean; title?: string }) => (
+    <div className={`flex items-start gap-2 py-1 ${isInactive ? 'opacity-40' : ''}`} title={title}>
+      <svg width="24" height="14" className="flex-shrink-0 mt-0.5">
+        <rect width="24" height="14" fill={color} />
+        {pattern && <rect width="24" height="14" fill={pattern} />}
+      </svg>
+      <div className="flex flex-col leading-tight">
+        <span className="text-slate-700 font-medium">{name}</span>
+        <span className="text-slate-500 text-[10px]">Sites: {sites}</span>
+        <span className="text-slate-500 text-[10px]">{mw} MW · {term}</span>
       </div>
     </div>
   )
@@ -370,13 +384,19 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                 const endLabel = `${monthShort[c.endMonth - 1]} '${String(c.endYear).slice(-2)}`
                 const visibleYears = fullScopeYears ?? [year]
                 const isAnyYearActive = visibleYears.some((y) => y >= c.startYear && y <= c.endYear)
+                // Extract base name and sites from projectName
+                const match = c.projectName.match(/^(.*?)\s*\(([^)]+)\)$/)
+                const baseName = match ? match[1] : c.projectName
+                const sites = match ? match[2] : (c.perSiteMw?.map(s => s.siteKey).join(', ') ?? '')
                 return (
-                  <LegendItem
+                  <ContractLegendItem
                     key={c.projectName}
                     color={LOAD_COLORS.base}
                     pattern={`url(#${patternId(c)})`}
-                    label={c.projectName}
-                    sublabel={`${c.mwCovered} MW · ${startLabel}–${endLabel}`}
+                    name={baseName}
+                    sites={sites}
+                    mw={c.mwCovered}
+                    term={`${startLabel}–${endLabel}`}
                     isInactive={!isAnyYearActive}
                     title={`${c.generationType} · covers baseload · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
                   />
@@ -393,13 +413,19 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                 const endLabel = `${monthShort[c.endMonth - 1]} '${String(c.endYear).slice(-2)}`
                 const visibleYears = fullScopeYears ?? [year]
                 const isAnyYearActive = visibleYears.some((y) => y >= c.startYear && y <= c.endYear)
+                // Extract base name and sites from projectName
+                const match = c.projectName.match(/^(.*?)\s*\(([^)]+)\)$/)
+                const baseName = match ? match[1] : c.projectName
+                const sites = match ? match[2] : (c.perSiteMw?.map(s => s.siteKey).join(', ') ?? '')
                 return (
-                  <LegendItem
+                  <ContractLegendItem
                     key={c.projectName}
                     color={LOAD_COLORS.peak}
                     pattern={`url(#${patternId(c)})`}
-                    label={c.projectName}
-                    sublabel={`${c.mwCovered} MW · ${startLabel}–${endLabel}`}
+                    name={baseName}
+                    sites={sites}
+                    mw={c.mwCovered}
+                    term={`${startLabel}–${endLabel}`}
                     isInactive={!isAnyYearActive}
                     title={`${c.generationType} · covers peak · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
                   />
