@@ -140,7 +140,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   return [
     // Core baseload nuclear - flat 24/7, runs 2026-2027
     {
-      projectName: `${site.siteKey} (1)`,
+      projectName: `North Anna Nuclear - ${site.siteKey}`,
       generationType: 'Nuclear',
       mwCovered: Math.round(baseloadCore * 10) / 10,
       pricePerMwh: 35 + Math.random() * 5,
@@ -154,7 +154,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Solar PPA - follows peak pattern (midday), runs 2026-2028
     {
-      projectName: `${site.siteKey} (2)`,
+      projectName: `Dominion Solar PPA - ${site.siteKey}`,
       generationType: 'Solar',
       mwCovered: Math.round(solarPeak * 10) / 10,
       pricePerMwh: 28 + Math.random() * 4,
@@ -168,7 +168,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Gas baseload - fills 2026 over-hedge, ends 2026 (creates 2027 step down)
     {
-      projectName: `${site.siteKey} (3)`,
+      projectName: `Calpine Gas Front - ${site.siteKey}`,
       generationType: 'Combined Cycle',
       mwCovered: Math.round(baseloadFront * 10) / 10,
       pricePerMwh: 32 + Math.random() * 4,
@@ -182,7 +182,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Wind - covers morning/evening peak, runs 2026-2027 then drops
     {
-      projectName: `${site.siteKey} (4)`,
+      projectName: `Highlands Wind - ${site.siteKey}`,
       generationType: 'Wind',
       mwCovered: Math.round(windPeak * 10) / 10,
       pricePerMwh: 30 + Math.random() * 4,
@@ -212,7 +212,7 @@ function generateGreenfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   
   if (numDeals >= 1) {
     hedges.push({
-      projectName: `${site.siteKey} (1)`,
+      projectName: `Conditional Solar - ${site.siteKey}`,
       generationType: 'Solar',
       mwCovered: Math.round(totalHedgeMW * 0.60 * 10) / 10,
       pricePerMwh: 32 + Math.random() * 6,
@@ -228,7 +228,7 @@ function generateGreenfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   
   if (numDeals >= 2) {
     hedges.push({
-      projectName: `${site.siteKey} (2)`,
+      projectName: `Wind Option - ${site.siteKey}`,
       generationType: 'Wind',
       mwCovered: Math.round(totalHedgeMW * 0.40 * 10) / 10,
       pricePerMwh: 30 + Math.random() * 5,
