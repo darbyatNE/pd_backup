@@ -145,11 +145,8 @@ import { supabase } from '../../services/supabase';
 
 const inputCls =
   'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-teal-500';
-const inputErrCls =
-  'w-full border border-red-400 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500 bg-red-50';
 const labelCls =
   'text-[10px] font-semibold text-slate-700 uppercase tracking-widest';
-const symbolCls = 'ml-2 text-[10px] font-mono text-slate-300';
 const sectionCls =
   'bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6';
 
@@ -325,7 +322,7 @@ export default function FacilityProfile() {
     key: keyof Contract,
     value: string,
   ) => {
-    setForm((prev) => {
+    setFormRaw((prev) => {
       const next = [...prev.contracts];
       next[idx] = { ...next[idx], [key]: value };
       return { ...prev, contracts: next };
@@ -333,14 +330,14 @@ export default function FacilityProfile() {
   };
 
   const addContract = () => {
-    setForm((prev) => ({
+    setFormRaw((prev) => ({
       ...prev,
       contracts: [...prev.contracts, { ...EMPTY_CONTRACT }],
     }));
   };
 
   const removeContract = (idx: number) => {
-    setForm((prev) => ({
+    setFormRaw((prev) => ({
       ...prev,
       contracts: prev.contracts.filter((_, i) => i !== idx),
     }));

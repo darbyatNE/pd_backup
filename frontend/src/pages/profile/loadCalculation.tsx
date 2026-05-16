@@ -230,8 +230,7 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
             // Step 11 & 12: LDC & Thresholds
             // Without pure hourly resolution generation here, we estimate Baseload and Superpeak via LF proxies.
             // E.g., Baseload = 90th percentile, Super-peak = 5th percentile.
-            const p_base_thresh = p_net_peak_proj_y * 0.60; // Mock 90th pct
-            const p_superpeak_thresh = p_net_peak_proj_y * 0.95; // Mock 5th pct
+            // (Thresholds are used dynamically in the Load Shape calculations instead)
 
             // ---------------------------------------------------------
             // Phase 4: Capacity & Contract Gap Analysis
