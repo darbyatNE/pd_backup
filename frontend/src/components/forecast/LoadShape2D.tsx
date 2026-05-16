@@ -503,29 +503,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
             })()}
             <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
 
-            {(() => {
-              // Consolidate contracts by base PPA name for continuous stacking
-              const consolidated = new Map<string, LinkedContract & { perSiteMw: Array<{ siteKey: string; mwCovered: number }> }>()
-              contracts.forEach((c) => {
-                const baseName = c.projectName.replace(/\s+-\s+\S+$/, '')
-                const existing = consolidated.get(baseName)
-                if (existing) {
-                  consolidated.set(baseName, {
-                    ...existing,
-                    mwCovered: existing.mwCovered + c.mwCovered,
-                    perSiteMw: [...existing.perSiteMw, ...(c.perSiteMw ?? [])],
-                  })
-                } else {
-                  consolidated.set(baseName, { ...c, projectName: baseName, perSiteMw: c.perSiteMw ?? [] })
-                }
-              })
-              // Sort: baseload first, then by volume descending (matching tooltip order)
-              const sorted = Array.from(consolidated.values()).sort((a, b) => {
-                if (a.tier !== b.tier) return a.tier === 'base' ? -1 : 1
-                return b.mwCovered - a.mwCovered
-              })
-              const consolidatedContracts = sorted
-              return consolidatedContracts.map((c) => {
+            {consolidatedContracts.map((c) => {
               const k = contractKey(c.projectName)
               return (
                 <Fragment key={`c-${c.projectName}`}>
@@ -548,7 +526,6 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                 </Fragment>
               )
             })}
-            })()}
 
             <Bar
               dataKey="base_uncovered"
