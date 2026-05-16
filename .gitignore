@@ -1,3 +1,46 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+build/
+**/build/
+*.tsbuildinfo
+
+# Vite cache
+.vite/
+**/.vite/
+
+# Environment files (contains secrets — never commit)
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test/coverage
+coverage/
+
+# Project-specific
 # Large geojson files (exceed Cloudflare 25MB limit)
 PJM_subs.geojson
 frontend/public/CAISO_zones.geojson
