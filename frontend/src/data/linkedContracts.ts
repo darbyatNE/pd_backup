@@ -69,15 +69,15 @@ export const SITE_FACILITIES: Record<string, SiteFacilityInfo> = {
   'ashburn-dc': {
     siteKey: 'ashburn-dc',
     facilityType: 'brownfield', // Operational data center
-    annualMWh: 52560, // 6 MW * 8760 hours
-    peakMWh: 39420,   // 75% of annual
-    offPeakMWh: 13140, // 25% of annual
+    annualMWh: 175200, // 20 MW * 8760 hours
+    peakMWh: 39420,   // ~22.5% peak
+    offPeakMWh: 13140, // ~7.5% off-peak
     targetCOD: '2024-01-01', // Already operational
   },
   'manassas-industrial': {
     siteKey: 'manassas-industrial',
     facilityType: 'brownfield', // Operational industrial
-    annualMWh: 35040, // 4 MW * 8760 hours
+    annualMWh: 262800, // 30 MW * 8760 hours
     peakMWh: 26280,
     offPeakMWh: 8760,
     targetCOD: '2023-06-01', // Already operational
@@ -85,7 +85,7 @@ export const SITE_FACILITIES: Record<string, SiteFacilityInfo> = {
   'sterling-hyperscale': {
     siteKey: 'sterling-hyperscale',
     facilityType: 'greenfield', // Under construction
-    annualMWh: 87600, // 10 MW * 8760 hours
+    annualMWh: 131400, // 15 MW * 8760 hours
     peakMWh: 65700,
     offPeakMWh: 21900,
     targetCOD: '2027-03-01', // Future COD
