@@ -12,6 +12,18 @@ export type ContractShape = 'flat' | 'solar' | 'wind' | 'evening';
 // shape-following resources cover peak.
 export type ContractTier = 'base' | 'peak';
 
+// Facility types for hedge logic
+export type FacilityType = 'brownfield' | 'greenfield';
+
+export interface SiteFacilityInfo {
+  siteKey: string;
+  facilityType: FacilityType;
+  annualMWh: number;
+  peakMWh: number;
+  offPeakMWh: number;
+  targetCOD: string | null; // ISO date string
+}
+
 export interface LinkedContract {
   projectName: string;
   generationType: 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hybrid' | 'Combined Cycle' | 'Peaker';
@@ -51,6 +63,166 @@ export const LOAD_COLORS = {
 // All contract patterns share the same dark foreground — patterns differentiate
 // contracts, not color.
 export const PATTERN_FG = '#1e293b'; // slate-800
+
+// Site facility definitions with type, volume, and target COD
+export const SITE_FACILITIES: Record<string, SiteFacilityInfo> = {
+  'ashburn-dc': {
+    siteKey: 'ashburn-dc',
+    facilityType: 'brownfield', // Operational data center
+    annualMWh: 52560, // 6 MW * 8760 hours
+    peakMWh: 39420,   // 75% of annual
+    offPeakMWh: 13140, // 25% of annual
+    targetCOD: '2024-01-01', // Already operational
+  },
+  'manassas-industrial': {
+    siteKey: 'manassas-industrial',
+    facilityType: 'brownfield', // Operational industrial
+    annualMWh: 35040, // 4 MW * 8760 hours
+    peakMWh: 26280,
+    offPeakMWh: 8760,
+    targetCOD: '2023-06-01', // Already operational
+  },
+  'sterling-hyperscale': {
+    siteKey: 'sterling-hyperscale',
+    facilityType: 'greenfield', // Under construction
+    annualMWh: 87600, // 10 MW * 8760 hours
+    peakMWh: 65700,
+    offPeakMWh: 21900,
+    targetCOD: '2027-03-01', // Future COD
+  },
+  'richmond-edge': {
+    siteKey: 'richmond-edge',
+    facilityType: 'greenfield', // Planned
+    annualMWh: 17520, // 2 MW * 8760 hours
+    peakMWh: 13140,
+    offPeakMWh: 4380,
+    targetCOD: '2028-01-01', // Future COD
+  },
+};
+
+// Helper to calculate months until COD
+function monthsUntilCOD(codString: string | null): number {
+  if (!codString) return 0;
+  const cod = new Date(codString);
+  const now = new Date();
+  return Math.max(0, (cod.getFullYear() - now.getFullYear()) * 12 + (cod.getMonth() - now.getMonth()));
+}
+
+// Generate brownfield hedges (almost fully hedged, may over-hedge off-peak)
+function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
+  const monthsToCOD = monthsUntilCOD(site.targetCOD);
+  
+  // Brownfields: near full hedge, may over-hedge off-peak
+  // Total hedge volume should cover ~95-110% of annual consumption
+  const totalHedgeMW = (site.annualMWh / 8760) * (0.95 + Math.random() * 0.15); // 95-110% hedge
+  
+  // Split: 70% baseload (flat/nuclear), 30% peak-following (solar/wind)
+  const baseloadMW = totalHedgeMW * 0.70;
+  const peakMW = totalHedgeMW * 0.30;
+  
+  // Off-peak may be over-hedged (up to 120% of off-peak consumption)
+  const offPeakHedgeRatio = 1.0 + Math.random() * 0.20; // 100-120%
+  
+  return [
+    {
+      projectName: `${site.siteKey} - Baseload Allocation`,
+      generationType: 'Nuclear',
+      mwCovered: baseloadMW,
+      pricePerMwh: 35 + Math.random() * 5,
+      shape: 'flat',
+      tier: 'base',
+      pattern: 'wave',
+      startYear: 2026,
+      startMonth: 1,
+      endYear: 2033,
+      endMonth: 12,
+    },
+    {
+      projectName: `${site.siteKey} - Peak Solar PPA`,
+      generationType: 'Solar',
+      mwCovered: peakMW,
+      pricePerMwh: 28 + Math.random() * 4,
+      shape: 'solar',
+      tier: 'peak',
+      pattern: 'dots',
+      startYear: 2026,
+      startMonth: 1,
+      endYear: 2032,
+      endMonth: 12,
+    },
+    // Optional off-peak over-hedge for some brownfields
+    ...(offPeakHedgeRatio > 1.1 ? [{
+      projectName: `${site.siteKey} - Off-Peak Wind (Over-hedge)`,
+      generationType: 'Wind',
+      mwCovered: (site.offPeakMWh / 8760) * (offPeakHedgeRatio - 1.0),
+      pricePerMwh: 31 + Math.random() * 3,
+      shape: 'wind' as ContractShape,
+      tier: 'peak' as ContractTier,
+      pattern: 'diagonal' as const,
+      startYear: 2024,
+      startMonth: 1,
+      endYear: 2027,
+      endMonth: 12,
+    }] : []),
+  ];
+}
+
+// Generate greenfield hedges (1-2 deals, high cancellation risk, mostly unhedged)
+function generateGreenfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
+  const monthsToCOD = monthsUntilCOD(site.targetCOD);
+  
+  // Greenfields: only 20-40% hedged, 1-2 deals with cancellation risk
+  const hedgeRatio = 0.20 + Math.random() * 0.20; // 20-40%
+  const totalHedgeMW = (site.annualMWh / 8760) * hedgeRatio;
+  
+  // Usually just 1 deal (sometimes 2 if near COD)
+  const numDeals = monthsToCOD < 12 ? Math.floor(Math.random() * 2) + 1 : 1;
+  
+  const hedges: LinkedContract[] = [];
+  
+  if (numDeals >= 1) {
+    hedges.push({
+      projectName: `${site.siteKey} - Conditional Solar (At Risk)`,
+      generationType: 'Solar',
+      mwCovered: totalHedgeMW * 0.60,
+      pricePerMwh: 32 + Math.random() * 6,
+      shape: 'solar',
+      tier: 'peak',
+      pattern: 'dots',
+      startYear: new Date().getFullYear(),
+      startMonth: 1,
+      endYear: 2030,
+      endMonth: 12,
+    });
+  }
+  
+  if (numDeals >= 2) {
+    hedges.push({
+      projectName: `${site.siteKey} - Wind Option (Cancellation Risk)`,
+      generationType: 'Wind',
+      mwCovered: totalHedgeMW * 0.40,
+      pricePerMwh: 30 + Math.random() * 5,
+      shape: 'wind',
+      tier: 'peak',
+      pattern: 'diagonal',
+      startYear: new Date().getFullYear(),
+      startMonth: 6,
+      endYear: 2029,
+      endMonth: 12,
+    });
+  }
+  
+  return hedges;
+}
+
+// Generate hedges based on facility type and COD timing
+export function generateHedgesForSite(site: SiteFacilityInfo): LinkedContract[] {
+  if (site.facilityType === 'brownfield') {
+    return generateBrownfieldHedges(site);
+  } else {
+    return generateGreenfieldHedges(site);
+  }
+}
 
 // Per-site contract assignments. Terms are staggered intentionally so the
 // chart reveals month/year hedge variation:
@@ -401,4 +573,14 @@ export function capacityPatternId(s: CapacitySource): string {
 /** Stable dataKey suffix per source — same trick as `contractKey`. */
 export function capacitySourceKey(name: string): string {
   return name.replace(/[^a-zA-Z0-9]+/g, '_');
+}
+
+// Helper to get hedge contracts for any site using the new logic
+export function getHedgesForSite(siteKey: string): LinkedContract[] {
+  const facility = SITE_FACILITIES[siteKey];
+  if (!facility) {
+    // Fallback to legacy LINKED_CONTRACTS if site not in new system
+    return LINKED_CONTRACTS[siteKey] ?? [];
+  }
+  return generateHedgesForSite(facility);
 }

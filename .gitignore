@@ -14,12 +14,12 @@ build/
 **/.vite/
 
 # Environment files (contains secrets — never commit)
-.env
-.env.local
-.env.*.local
-**/.env
-**/.env.local
-**/.env.*.local
+# .env
+# .env.local
+# .env.*.local
+# **/.env
+# **/.env.local
+# **/.env.*.local
 
 # Logs
 *.log
