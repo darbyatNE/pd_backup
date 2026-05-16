@@ -4,6 +4,20 @@
 // "filled-in by contract" stack visualization.
 
 import { LOAD_PROFILE_MAP, getLoadMultiplierForYearMonth, type SiteLoadProfile } from './loadProfile';
+import { supabase } from '../services/supabase';
+
+// Buyer project from database
+interface BuyerProject {
+  id: string;
+  name: string;
+  project_type: 'brownfield' | 'greenfield';
+  target_capacity_mw?: number;
+  target_annual_quantity_mwh?: number;
+  target_cod?: string;
+  preferred_term_years?: number;
+  preferred_generation_types?: string[];
+  location?: string;
+}
 
 export type ContractShape = 'flat' | 'solar' | 'wind' | 'evening';
 
@@ -251,6 +265,78 @@ export function generateHedgesForSite(site: SiteFacilityInfo): LinkedContract[] 
     return generateBrownfieldHedges(site);
   } else {
     return generateGreenfieldHedges(site);
+  }
+}
+
+// Map real buyer projects from database to LinkedContract format
+function mapBuyerProjectToContract(project: BuyerProject, siteKey: string): LinkedContract | null {
+  const mw = project.target_capacity_mw ?? (project.target_annual_quantity_mwh ? project.target_annual_quantity_mwh / 8760 : 0);
+  if (mw <= 0) return null;
+  
+  const isBrownfield = project.project_type === 'brownfield';
+  const genTypes = project.preferred_generation_types ?? [];
+  const hasSolar = genTypes.some(g => g.toLowerCase().includes('solar'));
+  const hasWind = genTypes.some(g => g.toLowerCase().includes('wind'));
+  const hasNuclear = genTypes.some(g => g.toLowerCase().includes('nuclear'));
+  const hasGas = genTypes.some(g => g.toLowerCase().includes('gas') || g.toLowerCase().includes('combined'));
+  
+  // Default to solar if no type specified
+  const generationType: LinkedContract['generationType'] = hasNuclear ? 'Nuclear' : hasSolar ? 'Solar' : hasWind ? 'Wind' : hasGas ? 'Combined Cycle' : 'Solar';
+  
+  // Shape based on generation type
+  const shape: ContractShape = generationType === 'Solar' ? 'solar' : generationType === 'Wind' ? 'wind' : 'flat';
+  
+  // Tier: baseload for nuclear/gas, peak for solar/wind
+  const tier: ContractTier = (generationType === 'Nuclear' || generationType === 'Combined Cycle') ? 'base' : 'peak';
+  
+  // Pattern based on type
+  const pattern = generationType === 'Nuclear' ? 'wave' : generationType === 'Solar' ? 'dots' : generationType === 'Wind' ? 'diagonal' : 'grid';
+  
+  // Term: brownfield gets longer terms, greenfield shorter
+  const termYears = isBrownfield ? (5 + Math.floor(Math.random() * 3)) : (2 + Math.floor(Math.random() * 3));
+  const startYear = project.target_cod ? new Date(project.target_cod).getFullYear() : 2026;
+  const endYear = startYear + termYears;
+  
+  // Price based on generation type
+  const pricePerMwh = generationType === 'Nuclear' ? 35 + Math.random() * 5 : generationType === 'Solar' ? 28 + Math.random() * 4 : 30 + Math.random() * 4;
+  
+  return {
+    projectName: `${project.name} (${siteKey})`,
+    generationType,
+    mwCovered: Math.round(mw * 10) / 10,
+    pricePerMwh,
+    shape,
+    tier,
+    pattern,
+    startYear,
+    startMonth: 1,
+    endYear,
+    endMonth: 12,
+  };
+}
+
+// Fetch real buyer projects from database and convert to hedges
+export async function getRealProjectsAsHedges(siteKey: string): Promise<LinkedContract[]> {
+  try {
+    const { data: projects, error } = await supabase
+      .from('buyer_projects')
+      .select('*')
+      .eq('project_type', SITE_FACILITIES[siteKey]?.facilityType ?? 'brownfield')
+      .limit(4);
+    
+    if (error || !projects || projects.length === 0) {
+      // Fallback to generated hedges if no real projects
+      const facility = SITE_FACILITIES[siteKey];
+      return facility ? generateHedgesForSite(facility) : [];
+    }
+    
+    return projects
+      .map(p => mapBuyerProjectToContract(p, siteKey))
+      .filter((c): c is LinkedContract => c !== null);
+  } catch {
+    // Fallback on error
+    const facility = SITE_FACILITIES[siteKey];
+    return facility ? generateHedgesForSite(facility) : [];
   }
 }
 
