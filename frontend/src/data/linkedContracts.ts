@@ -400,7 +400,9 @@ export function getContractsForSites(siteKeys: string[]): LinkedContract[] {
   const earlier = (ay: number, am: number, by: number, bm: number) =>
     ay < by || (ay === by && am < bm);
   for (const key of siteKeys) {
-    const list = LINKED_CONTRACTS[key] ?? [];
+    // Use facility-aware hedge generation if site is defined in SITE_FACILITIES
+    const facility = SITE_FACILITIES[key];
+    const list = facility ? generateHedgesForSite(facility) : (LINKED_CONTRACTS[key] ?? []);
     for (const c of list) {
       const existing = merged.get(c.projectName);
       if (existing) {
