@@ -145,27 +145,30 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
   // Consolidate contracts by base name (removing site suffix)
   const consolidated = new Map<string, { total: number; inBase: number; inPeak: number; count: number; tier: 'base' | 'peak' }>()
   contracts.forEach((c) => {
-    const k = contractKey(c.projectName)
-    const inBase = get(`c_${k}_base`)
-    const inPeak = get(`c_${k}_peak`)
-    const total = inBase + inPeak
-    if (total <= 0) return
-    totalContracted += total
-
     // Extract base name (remove " - siteKey" suffix)
     const baseName = c.projectName.replace(/\s+-\s+\S+$/, '')
     const existing = consolidated.get(baseName)
     if (existing) {
       consolidated.set(baseName, {
-        total: existing.total + total,
-        inBase: existing.inBase + inBase,
-        inPeak: existing.inPeak + inPeak,
+        ...existing,
         count: existing.count + 1,
-        tier: existing.tier,
       })
     } else {
-      consolidated.set(baseName, { total, inBase, inPeak, count: 1, tier: c.tier })
+      consolidated.set(baseName, { total: 0, inBase: 0, inPeak: 0, count: 1, tier: c.tier })
     }
+  })
+  
+  // Look up data using consolidated keys
+  consolidated.forEach((data, baseName) => {
+    const k = contractKey(baseName)
+    const inBase = get(`c_${k}_base`)
+    const inPeak = get(`c_${k}_peak`)
+    const total = inBase + inPeak
+    if (total <= 0) return
+    totalContracted += total
+    data.total = total
+    data.inBase = inBase
+    data.inPeak = inPeak
   })
 
   return (
