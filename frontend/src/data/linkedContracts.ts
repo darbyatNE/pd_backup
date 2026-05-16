@@ -130,9 +130,9 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   return [
     // Core baseload - runs through 2027 at ~80% level
     {
-      projectName: `${site.siteKey} - Baseload PPA (2026-2027)`,
+      projectName: site.siteKey,
       generationType: 'Nuclear',
-      mwCovered: contract1MW * 0.70,
+      mwCovered: Math.round(contract1MW * 0.70 * 10) / 10,
       pricePerMwh: 35 + Math.random() * 5,
       shape: 'flat',
       tier: 'base',
@@ -144,9 +144,9 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Peak solar - runs through 2028 at reduced level
     {
-      projectName: `${site.siteKey} - Peak Solar PPA (2026-2028)`,
+      projectName: site.siteKey,
       generationType: 'Solar',
-      mwCovered: contract2MW,
+      mwCovered: Math.round(contract2MW * 10) / 10,
       pricePerMwh: 28 + Math.random() * 4,
       shape: 'solar',
       tier: 'peak',
@@ -158,9 +158,9 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Front-loaded baseload - fills gap for 2026 full coverage, ends 2026
     {
-      projectName: `${site.siteKey} - Baseload Front (2026 Only)`,
+      projectName: site.siteKey,
       generationType: 'Combined Cycle',
-      mwCovered: contract3MW * 0.70,
+      mwCovered: Math.round(contract3MW * 0.70 * 10) / 10,
       pricePerMwh: 32 + Math.random() * 4,
       shape: 'flat',
       tier: 'base',
@@ -172,9 +172,9 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
     },
     // Peak extension for 2026-2027 (staggered end creates 2028 drop)
     {
-      projectName: `${site.siteKey} - Peak Wind (2026-2027)`,
+      projectName: site.siteKey,
       generationType: 'Wind',
-      mwCovered: contract1MW * 0.30 - contract2MW, // Remaining peak after solar
+      mwCovered: Math.round((contract1MW * 0.30 - contract2MW) * 10) / 10, // Remaining peak after solar
       pricePerMwh: 30 + Math.random() * 4,
       shape: 'wind',
       tier: 'peak',
@@ -202,9 +202,9 @@ function generateGreenfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   
   if (numDeals >= 1) {
     hedges.push({
-      projectName: `${site.siteKey} - Conditional Solar (At Risk)`,
+      projectName: site.siteKey,
       generationType: 'Solar',
-      mwCovered: totalHedgeMW * 0.60,
+      mwCovered: Math.round(totalHedgeMW * 0.60 * 10) / 10,
       pricePerMwh: 32 + Math.random() * 6,
       shape: 'solar',
       tier: 'peak',
@@ -218,9 +218,9 @@ function generateGreenfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   
   if (numDeals >= 2) {
     hedges.push({
-      projectName: `${site.siteKey} - Wind Option (Cancellation Risk)`,
+      projectName: site.siteKey,
       generationType: 'Wind',
-      mwCovered: totalHedgeMW * 0.40,
+      mwCovered: Math.round(totalHedgeMW * 0.40 * 10) / 10,
       pricePerMwh: 30 + Math.random() * 5,
       shape: 'wind',
       tier: 'peak',
