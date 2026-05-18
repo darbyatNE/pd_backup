@@ -12,17 +12,6 @@ export default function Login() {
   const { signIn, user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!authLoading && user) {
-      console.log('[Login] user.onboarding_completed:', user.onboarding_completed, '| role:', user.role);
-      if (user.role === 'buyer' && !user.onboarding_completed) {
-        navigate('/onboarding', { replace: true });
-      } else {
-        navigate('/dashboard', { replace: true });
-      }
-    }
-  }, [authLoading, user, navigate]);
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
@@ -30,7 +19,7 @@ export default function Login() {
 
     try {
       await signIn(email, password);
-      // Navigation handled by useEffect above once user state updates
+      navigate('/dashboard', { replace: true });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to sign in';
       setError(message);

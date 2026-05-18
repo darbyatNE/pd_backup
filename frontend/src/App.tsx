@@ -57,11 +57,7 @@ function App() {
           />
           <Route
             path="/onboarding"
-            element={
-              <ProtectedRoute>
-                <Onboarding />
-              </ProtectedRoute>
-            }
+            element={<Onboarding />}
           />
           <Route
             path="/forecast"

@@ -8,12 +8,6 @@ import { supabase } from '../services/supabase';
 
 const STEPS = [
     'Create Account',
-    'Upload Documents',
-    'Facility Information',
-    'Energy Load',
-    'Procurement Status',
-    'Sustainability Goals',
-    'Review',
 ];
 
 
@@ -73,13 +67,7 @@ const PRIMARY_GOALS = [
 ];
 
 function inferStep(data: Record<string, any>): number {
-    // If no meaningful data yet, start at step 1 (Upload Documents)
-    if (!data.dc_type && !data.annual_mwh && !data.utility_retailer && !data.primary_goal) return 1;
-    if (!data.dc_type) return 2;
-    if (!data.annual_mwh) return 3;
-    if (!data.utility_retailer) return 4;
-    if (!data.primary_goal) return 5;
-    return 6;
+    return 0;
 }
 
 // ─── Small shared components ──────────────────────────────────────────────────
@@ -1184,6 +1172,7 @@ export default function Onboarding() {
 
             setLoading(true);
             try {
+                // Attempt Supabase Auth Sign Up
                 const res: any = await signUp(accountData.email, accountData.password, {
                     firstName: accountData.firstName,
                     lastName: accountData.lastName,
@@ -1201,6 +1190,7 @@ export default function Onboarding() {
                             contact_person: fullName,
                             role: 'buyer',
                             title: accountData.title,
+                            onboarding_completed: true,
                         })
                         .eq('id', userId);
 
@@ -1208,9 +1198,19 @@ export default function Onboarding() {
                         console.warn('Profile update failed:', updateError);
                     }
                 }
-                setStep(1);
+                navigate('/login');
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'Registration failed.');
+                const errMsg = err instanceof Error ? err.message : String(err);
+                if (
+                    errMsg.includes('unexpected_failure') ||
+                    errMsg.includes('Database error') ||
+                    errMsg.includes('already exists') ||
+                    errMsg.includes('already registered')
+                ) {
+                    setError('A user with this email already exists.');
+                } else {
+                    setError(errMsg || 'Registration failed.');
+                }
             } finally {
                 setLoading(false);
             }
@@ -1364,39 +1364,15 @@ export default function Onboarding() {
             </div>
 
             {/* Bottom bar */}
-            <div className="h-[86px] flex-shrink-0 px-10 flex items-center justify-between" style={{ background: '#0D0630' }}>
-                <button className="h-[34px] w-[202px] bg-[#F5F5F5] text-black text-base font-medium rounded-[7px] flex items-center justify-center transition-colors">
-                    Save & Finish Later
-                </button>
+            <div className="h-[86px] flex-shrink-0 px-10 flex items-center justify-end" style={{ background: '#0D0630' }}>
                 <div className="flex items-center gap-3">
-                    {step > 0 && (
-                        <button onClick={goBack} disabled={loading} className="h-[34px] px-5 border border-white/30 text-white text-sm rounded-lg hover:bg-white/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                            Back
-                        </button>
-                    )}
-                    {step < STEPS.length - 1 ? (
-                        <button
-                            onClick={goNext}
-                            disabled={loading || (step === 0 && !!user)}
-                            className="h-[34px] w-[94px] bg-[#F5F5F5] text-black text-base font-medium rounded-[7px] flex items-center justify-center gap-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            {loading ? '...' : 'Next'}
-                            {!loading && (
-                                <svg className="w-4 h-4 transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                                </svg>
-                            )}
-                        </button>
-                    ) : (
-                        <button
-                            onClick={handleSubmit}
-                            disabled={loading}
-                            className="h-[34px] px-6 bg-teal-500 text-white text-sm font-semibold rounded-lg hover:bg-teal-600 transition-colors disabled:opacity-70"
-                        >
-                            {loading ? 'Submitting...' : 'Submit'}
-                        </button>
-                    )}
+                    <button
+                        onClick={goNext}
+                        disabled={loading || !!user}
+                        className="h-[34px] px-6 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                    >
+                        {loading ? 'Signing up...' : 'Sign Up'}
+                    </button>
                 </div>
             </div>
 
