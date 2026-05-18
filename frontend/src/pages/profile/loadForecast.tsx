@@ -4,6 +4,7 @@ import {
   fetchAllFacilities,
   calculateMultiYearForecast,
   calculateHourlyLoad,
+  currentLoadDemand,
   type FacilityData,
   type ForecastResult,
   type Scenario,
@@ -259,12 +260,27 @@ export default function LoadForcast() {
     for (let i = 0; i < 11; i++) {
       monthStarts.push(monthStarts[i] + HOURS_PER_MONTH[i]);
     }
+
+    // Use currentLoadDemand().p_net_avg as the baseload for the load shape plot
+    const lf = facilityData.LF_ASSUMED ? facilityData.LF_ASSUMED / 100 : 0.82;
+    const currentDemand = currentLoadDemand(
+      facilityData.IT_LOAD || 0,
+      facilityData.PUE || 1,
+      facilityData.GEN_CAP || 0,
+      lf
+    );
+    const baseloadFromCurrentDemand = currentDemand.p_net_avg_current;
+    const peakFromCurrentDemand     = currentDemand.p_net_peak_current;  // ← peak MW for the 2D plot
+
     profile = {
       ...profile,
       loadShape: profile.loadShape.map(pt => {
-        const flatIndex = monthStarts[pt.month - 1] + pt.hour;
-        const hp = hourlyLoad[flatIndex] || { baseloadMw: 0, peakMw: 0, superPeakMw: 0, totalMw: 0 };
-        return { ...pt, baseloadMw: hp.baseloadMw, peakMw: hp.peakMw, totalMw: hp.totalMw };
+        return {
+          ...pt,
+          baseloadMw: baseloadFromCurrentDemand,                               // flat net avg
+          totalMw:    peakFromCurrentDemand,                                   // ← p_net_peak
+          peakMw:     Math.max(0, peakFromCurrentDemand - baseloadFromCurrentDemand), // swing above baseload
+        };
       }),
     };
   }
@@ -371,6 +387,8 @@ export default function LoadForcast() {
         {forecast && (() => {
           const peakData = forecast.P_NET_PEAK_PROJ[scenario] || [];
           const avgData = forecast.P_NET_AVG_MONTH[scenario] || [];
+          const itData = forecast.P_IT_PROJ[scenario] || [];
+          const pueData = forecast.PUE_PROJ[scenario] || [];
           const colors = SCENARIO_COLORS[scenario];
           const hIdx = Math.min(horizon, 10);
           const peakAtHorizon = (peakData[hIdx] || 0).toFixed(2);
@@ -378,22 +396,64 @@ export default function LoadForcast() {
           const avgAtHorizon = (monthlyAvg.reduce((s: number, v: number) => s + v, 0) / 12).toFixed(2);
           const peakNow = (peakData[0] || 0).toFixed(2);
 
+          // Detailed metrics for the horizon year
+          const itMonthly = itData[hIdx] || Array(12).fill(0);
+          const avgIT = (itMonthly.reduce((s: number, v: number) => s + v, 0) / 12).toFixed(2);
+          const pueMonthly = pueData[hIdx] || Array(12).fill(0);
+          const avgPUE = (pueMonthly.reduce((s: number, v: number) => s + v, 0) / 12).toFixed(3);
+          const lf = facilityData?.LF_ASSUMED ? facilityData.LF_ASSUMED / 100 : 0.82;
+          const HOURS_PER_YEAR = 8760;
+          const annualEnergyGWh = (monthlyAvg.reduce((s: number, v: number, i: number) => s + v * HOURS_PER_MONTH[i], 0) / 1000).toFixed(1);
+          const totalContractVol = (facilityData?.contracts || []).reduce((acc: number, c: { CV_i?: number | string }) => acc + (Number(c.CV_i) || 0), 0);
+          const peakHorizonNum = peakData[hIdx] || 0;
+          const uncontPeak = Math.max(0, peakHorizonNum - totalContractVol).toFixed(2);
+          const uncontEnergy = ((Math.max(0, peakHorizonNum - totalContractVol) * lf * HOURS_PER_YEAR) / 1000).toFixed(1);
+          const baseloadThresh = (peakHorizonNum * 0.76).toFixed(2);
+          const superPeakThresh = (peakHorizonNum * 1.05).toFixed(2);
+
+          const detailMetrics = [
+            { label: 'Forecast IT Load', value: `${avgIT} MW`, color: '#6366f1' },
+            { label: 'Forecast PUE', value: avgPUE, color: '#8b5cf6' },
+            { label: 'Annual Energy', value: `${annualEnergyGWh} GWh`, color: '#0ea5e9' },
+            { label: 'Contracted Capacity', value: `${totalContractVol} MW`, color: '#10b981' },
+            { label: 'Peak Uncontracted', value: `${uncontPeak} MW`, color: '#f59e0b' },
+            { label: 'Uncontracted Energy', value: `${uncontEnergy} GWh`, color: '#f59e0b' },
+            { label: 'Baseload Threshold', value: `${baseloadThresh} MW`, color: '#64748b' },
+            { label: 'Super-Peak Threshold', value: `${superPeakThresh} MW`, color: '#ef4444' },
+          ];
+
           return (
-            <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
-              {[
-                { label: `Avg Load ${startYear + horizon}`, value: `${avgAtHorizon} MW`, color: colors.avg },
-                { label: `Peak Load ${startYear + horizon}`, value: `${peakAtHorizon} MW`, color: colors.peak },
-                { label: 'Peak Load Now', value: `${peakNow} MW`, color: '#94a3b8' },
-              ].map(({ label, value, color }) => (
-                <div key={label} style={{
-                  flex: 1, background: '#f8fafc', borderRadius: 10, padding: '12px 16px',
-                  borderLeft: `3px solid ${color}`,
-                }}>
-                  <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
-                </div>
-              ))}
-            </div>
+            <>
+              <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
+                {[
+                  { label: `Avg Load ${startYear + horizon}`, value: `${avgAtHorizon} MW`, color: colors.avg },
+                  { label: `Peak Load ${startYear + horizon}`, value: `${peakAtHorizon} MW`, color: colors.peak },
+                  { label: 'Peak Load Now', value: `${peakNow} MW`, color: '#94a3b8' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{
+                    flex: 1, background: '#f8fafc', borderRadius: 10, padding: '12px 16px',
+                    borderLeft: `3px solid ${color}`,
+                  }}>
+                    <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
+                    <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Detailed forecast breakdown row */}
+              <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                {detailMetrics.map(({ label, value, color }) => (
+                  <div key={label} style={{
+                    flex: '1 1 calc(25% - 10px)', minWidth: 140,
+                    background: '#f8fafc', borderRadius: 8, padding: '10px 14px',
+                    borderLeft: `3px solid ${color}`,
+                  }}>
+                    <p style={{ margin: 0, fontSize: 9, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+                    <p style={{ margin: '3px 0 0', fontSize: 14, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
+                  </div>
+                ))}
+              </div>
+            </>
           );
         })()}
       </div>

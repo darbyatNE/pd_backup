@@ -736,23 +736,42 @@ export default function FacilityProfile() {
           Section C — Capacity Expansion Plans
         </h2>
         <p className="text-xs text-slate-400 mb-5">
-          Operator-entered. Enter per-year series as comma-separated values
-          (oldest first).
+          Enter values per year (Y1 – Y10) for each field below.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field
-            label="Planned IT capacity additions by year (MW)"
-            symbol="ΔCAP[y]"
-          >
-            <input
-              type="text"
-              placeholder="e.g. 5, 10, 12"
-              value={form.DELTA_CAP_y}
-              onChange={(e) => setField('DELTA_CAP_y', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
+          <div className="md:col-span-2">
+            <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
+              Planned IT capacity additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>ΔCAP[y]</span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+              {Array.from({ length: 10 }, (_, i) => {
+                const vals = form.DELTA_CAP_y ? form.DELTA_CAP_y.split(',') : [];
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="0"
+                      value={vals[i]?.trim() || ''}
+                      onChange={(e) => {
+                        const arr = form.DELTA_CAP_y ? form.DELTA_CAP_y.split(',').map(s => s.trim()) : [];
+                        while (arr.length < 10) arr.push('');
+                        arr[i] = e.target.value;
+                        setField('DELTA_CAP_y', arr.join(', '));
+                      }}
+                      style={{
+                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
+                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
+                        fontFamily: 'Inter, sans-serif', outline: 'none',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           <Field label="Utilisation rate of new capacity at ramp (%)" symbol="UTIL_RAMP" error={errors.UTIL_RAMP}>
             <input
               type="number"
@@ -763,39 +782,102 @@ export default function FacilityProfile() {
               className={inputCls}
             />
           </Field>
-          <Field label="Planned PUE improvement by year" symbol="PUE[y]">
-            <input
-              type="text"
-              placeholder="e.g. 1.40, 1.35, 1.30"
-              value={form.PUE_y}
-              onChange={(e) => setField('PUE_y', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          <Field
-            label="Planned on-site renewable additions by year (MW)"
-            symbol="RE_GEN[y]"
-          >
-            <input
-              type="text"
-              placeholder="e.g. 0, 2, 5"
-              value={form.RE_GEN_y}
-              onChange={(e) => setField('RE_GEN_y', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          <Field
-            label="Planned battery storage additions by year (MWh)"
-            symbol="BATT_ADD[y]"
-          >
-            <input
-              type="text"
-              placeholder="e.g. 0, 4, 8"
-              value={form.BATT_ADD_y}
-              onChange={(e) => setField('BATT_ADD_y', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
+          <div className="md:col-span-2">
+            <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
+              Planned PUE improvement by year (fractional, e.g. 0.05 = 5%) <span style={{ color: '#94a3b8', fontWeight: 400 }}>PUE[y]</span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+              {Array.from({ length: 10 }, (_, i) => {
+                const vals = form.PUE_y ? form.PUE_y.split(',') : [];
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0"
+                      value={vals[i]?.trim() || ''}
+                      onChange={(e) => {
+                        const arr = form.PUE_y ? form.PUE_y.split(',').map(s => s.trim()) : [];
+                        while (arr.length < 10) arr.push('');
+                        arr[i] = e.target.value;
+                        setField('PUE_y', arr.join(', '));
+                      }}
+                      style={{
+                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
+                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
+                        fontFamily: 'Inter, sans-serif', outline: 'none',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="md:col-span-2">
+            <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
+              Planned on-site renewable additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>RE_GEN[y]</span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+              {Array.from({ length: 10 }, (_, i) => {
+                const vals = form.RE_GEN_y ? form.RE_GEN_y.split(',') : [];
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="0"
+                      value={vals[i]?.trim() || ''}
+                      onChange={(e) => {
+                        const arr = form.RE_GEN_y ? form.RE_GEN_y.split(',').map(s => s.trim()) : [];
+                        while (arr.length < 10) arr.push('');
+                        arr[i] = e.target.value;
+                        setField('RE_GEN_y', arr.join(', '));
+                      }}
+                      style={{
+                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
+                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
+                        fontFamily: 'Inter, sans-serif', outline: 'none',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="md:col-span-2">
+            <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
+              Planned battery storage additions by year (MWh) <span style={{ color: '#94a3b8', fontWeight: 400 }}>BATT_ADD[y]</span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+              {Array.from({ length: 10 }, (_, i) => {
+                const vals = form.BATT_ADD_y ? form.BATT_ADD_y.split(',') : [];
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="0"
+                      value={vals[i]?.trim() || ''}
+                      onChange={(e) => {
+                        const arr = form.BATT_ADD_y ? form.BATT_ADD_y.split(',').map(s => s.trim()) : [];
+                        while (arr.length < 10) arr.push('');
+                        arr[i] = e.target.value;
+                        setField('BATT_ADD_y', arr.join(', '));
+                      }}
+                      style={{
+                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
+                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
+                        fontFamily: 'Inter, sans-serif', outline: 'none',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           <Field label="Organic IT load growth rate (%)" symbol="g_IT" error={errors.g_IT}>
             <input
               type="number"

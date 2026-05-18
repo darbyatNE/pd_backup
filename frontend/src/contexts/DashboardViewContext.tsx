@@ -5,7 +5,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 export type DashboardView = 'profile' | 'forecast' | 'map' | 'planning';
 
 export const DASHBOARD_VIEWS: { id: DashboardView; label: string }[] = [
-  { id: 'profile',  label: 'Profile'  }, // user profile and site management
+  { id: 'profile',  label: 'Load Profile'  }, // user profile and site management
   { id: 'forecast', label: 'Plan'     }, // procurement planning (capacity / energy / RECs)
   { id: 'map',      label: 'Map'      },
   { id: 'planning', label: 'Evaluate' }, // risk evaluation (basis / hedge / exposure)

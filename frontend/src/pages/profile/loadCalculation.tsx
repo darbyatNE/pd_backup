@@ -58,12 +58,44 @@ export interface HourlyLoadPoint {
     superPeakMw: number;
 }
 
+/**
+ * currentLoadDemand()
+ * Computes the current (Year 0) load demand snapshot from user-entered IT_LOAD and PUE.
+ *
+ * @param it_load  - IT load in MW (from form field IT_LOAD)
+ * @param pue      - Power Usage Effectiveness (from form field PUE, e.g. 1.4)
+ * @param gen_cap  - On-site generation capacity in MW (optional, defaults to 0)
+ * @param lf       - Load factor as decimal (optional, defaults to 0.82)
+ * @returns        - Object with current gross, net, cooling, and peak demand values
+ */
+export function currentLoadDemand(
+    it_load: number,
+    pue: number,
+    gen_cap: number = 0,
+    lf: number = 0.82
+): {
+    p_it: number;
+    p_cooling: number;
+    p_gross: number;
+    p_net_avg_current: number;
+    p_net_peak_current: number;
+} {
+    const p_it = it_load;                                     // IT load as-entered
+    const p_cooling = it_load * (pue - 1);                    // Cooling overhead = IT × (PUE − 1)
+    const p_gross = it_load * pue;                            // Total facility draw = IT × PUE
+    const p_net_avg_current = Math.max(0, p_gross - gen_cap); // Net grid import after on-site gen
+    const p_net_peak_current = p_net_avg_current / lf;        // Peak demand from load factor
+
+    return { p_it, p_cooling, p_gross, p_net_avg_current, p_net_peak_current };
+}
+
 export function calculateHourlyLoad(monthlyNetLoad: number[], lf_assumed: number = 0.85): HourlyLoadPoint[] {
     const hourlyLoad: HourlyLoadPoint[] = [];
     for (let m = 0; m < 12; m++) {
         const hoursInMonth = HOURS_PER_MONTH[m];
         const avgNetLoad = monthlyNetLoad[m] || 0;
 
+        console.log(`avgNetLoad current:`, avgNetLoad.toFixed(2));
 
         // Step 2: Peak Demand (P_NET_PEAK)
         const peakDemand = avgNetLoad / lf_assumed;
@@ -102,6 +134,7 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         // Step 2: IT Load Calculation (P_IT)
         let eta_ups = data.ETA_UPS ? data.ETA_UPS / 100 : 0.97; // Default 0.97
         let eta_pdu = data.ETA_PDU ? data.ETA_PDU / 100 : 0.98; // Default 0.98
+
 
         let pit_val = data.IT_LOAD || 0;
         if (data.MEASUREMENT_POINT === 'UPS Input') {
@@ -179,29 +212,21 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 
             for (let m = 0; m < 12; m++) {
                 // Step 5: Forecast IT Load
-                let sum_delta = 0;
-                for (let j = 0; j < y; j++) {
-                    const cap_add = delta_cap_s[j] || 0;
-                    const util = (data.UTIL_RAMP || 100) / 100;
-                    sum_delta += cap_add * util;
-                }
-
-                let p_it_proj_m = (P_IT[m] * Math.pow(1 + g_IT_s, y)) + (IT_SHAPE[m] * sum_delta);
+                const util = (data.UTIL_RAMP || 100) / 100;
+                const delta_cap_y = delta_cap_s[y] || 0;
+                let p_it_proj_m = (P_IT[m] * Math.pow(1 + g_IT_s, y)) + (delta_cap_y * util);
                 if (data.IT_CAP && p_it_proj_m > data.IT_CAP) {
                     p_it_proj_m = data.IT_CAP;
                 }
                 results.P_IT_PROJ[s][y][m] = p_it_proj_m;
-
                 // Step 6: Forecast PUE
                 // Formula: 1 + (PUE_CALC[0,m] - 1) * (1 - PUE_EFF_IMPROVE_s[y])
                 const pue_eff_improve = data.PUE_y?.[y] || 0;
                 const pue_proj_m = 1 + (PUE_CALC[m] - 1) * (1 - pue_eff_improve);
                 results.PUE_PROJ[s][y][m] = pue_proj_m;
-
                 // Step 7: Forecast Gross Facility Demand
                 const p_gross_proj_m = p_it_proj_m * pue_proj_m;
                 results.P_GROSS_PROJ[s][y][m] = p_gross_proj_m;
-
                 // Step 8: Forecast Net Grid Import
                 const p_gen_avg = data.GEN_CAP || 0;
                 // BESS logic placeholder (assuming 0 for now unless hourly dispatch model is active)
@@ -214,16 +239,18 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 
                 // Step 9: Forecast Annual Energy
                 e_annual_y += p_net_avg * HOURS_PER_MONTH[m];
+                console.log(`e_annual_y [${s}] Y${y} M${m}:`, e_annual_y.toFixed(2));
             }
 
             results.E_ANNUAL_PROJ[s][y] = e_annual_y;
 
             // Step 10: Forecast Peak Demand
-            const lf = data.LF_ASSUMED ? data.LF_ASSUMED / 100 : 0.85; // Using 85% LF as default
+            const lf = data.LF_ASSUMED ? data.LF_ASSUMED / 100 : 0.82; // Using 85% LF as default
             const p_net_avg_proj_y = p_net_avg_sum / 12;
             const p_net_peak_proj_y = p_net_avg_proj_y / lf;
             results.P_NET_PEAK_PROJ[s][y] = p_net_peak_proj_y;
 
+            // Tracking log to debug P_NET_PEAK_PROJ
             // ---------------------------------------------------------
             // Phase 3: Load Tiering & Procurement Decomposition
             // ---------------------------------------------------------
@@ -250,6 +277,27 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
             // Coverage Ratio
             const ccr = p_net_peak_proj_y > 0 ? totalContractVol / p_net_peak_proj_y : 1;
             results.CCR_ANNUAL_PROJ[s][y] = ccr * 100;
+
+            // --- REQUESTED SUMMARY CONSOLE LOG ---
+            const avg_it_load = results.P_IT_PROJ[s][y].reduce((a, b) => a + b, 0) / 12;
+            const avg_pue = results.PUE_PROJ[s][y].reduce((a, b) => a + b, 0) / 12;
+            const e_annual_gwh = e_annual_y / 1000;
+            const uncont_energy_gwh = (uncont_exp * lf * 8760) / 1000; // approximation
+            const baseload_thresh = p_net_peak_proj_y * 0.76;
+            const superpeak_thresh = p_net_peak_proj_y * 1.05;
+
+            console.log(`--- YEAR ${y} [${s}] SUMMARY ---
+Forecast IT load: ${avg_it_load.toFixed(2)} MW
+Forecast PUE: ${avg_pue.toFixed(3)}
+Forecast average net demand: ${p_net_avg_proj_y.toFixed(2)} MW
+Forecast peak demand: ${p_net_peak_proj_y.toFixed(2)} MW
+Forecast annual energy: ${e_annual_gwh.toFixed(1)} GWh
+Contracted capacity: ${totalContractVol} MW
+Peak uncontracted demand: ${uncont_exp.toFixed(2)} MW
+Approx. uncontracted energy: ${uncont_energy_gwh.toFixed(1)} GWh
+Baseload threshold: ${baseload_thresh.toFixed(2)} MW
+Super-peak threshold: ${superpeak_thresh.toFixed(2)} MW
+--------------------------------`);
 
             const cov_min = data.COV_MIN || 70;
             if ((ccr * 100) < cov_min) {
