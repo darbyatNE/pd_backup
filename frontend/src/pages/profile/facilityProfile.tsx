@@ -582,7 +582,8 @@ export default function FacilityProfile() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {form.FACILITY_STATUS === 'Running' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Total IT load (MW)" symbol="IT_LOAD" error={errors.IT_LOAD}>
             <input
               type="number"
@@ -677,7 +678,6 @@ export default function FacilityProfile() {
               className={inputCls}
             />
           </Field>
-          {form.FACILITY_STATUS === 'Running' && (
             <Field
               label="Historical interval meter data (CSV)"
               symbol="HIST_MW[]"
@@ -688,7 +688,8 @@ export default function FacilityProfile() {
                 onChange={(f) => setField('HIST_MW', f)}
               />
             </Field>
-          )}
+          </div>
+        )}
 
           {form.FACILITY_STATUS === 'New' && (
             <div className="col-span-1 md:col-span-2 mt-4 p-4 bg-teal-50 rounded-lg border border-teal-100">
@@ -727,7 +728,6 @@ export default function FacilityProfile() {
               </div>
             </div>
           )}
-        </div>
       </section>
 
       {/* Section C */}

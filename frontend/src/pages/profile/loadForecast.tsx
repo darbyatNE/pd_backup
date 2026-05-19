@@ -225,6 +225,7 @@ export default function LoadForcast() {
       if (list.length > 0) {
         setActiveFacilityId(list[0].id);
         setFacilityData(list[0].data);
+        console.log(list[0].data, 'list[0].data');
         setForecast(calculateMultiYearForecast(list[0].data));
       }
       setLoading(false);
@@ -270,7 +271,7 @@ export default function LoadForcast() {
       lf
     );
     const baseloadFromCurrentDemand = currentDemand.p_net_avg_current;
-    const peakFromCurrentDemand     = currentDemand.p_net_peak_current;  // ← peak MW for the 2D plot
+    const peakFromCurrentDemand = currentDemand.p_net_peak_current;  // ← peak MW for the 2D plot
 
     profile = {
       ...profile,
@@ -278,8 +279,8 @@ export default function LoadForcast() {
         return {
           ...pt,
           baseloadMw: baseloadFromCurrentDemand,                               // flat net avg
-          totalMw:    peakFromCurrentDemand,                                   // ← p_net_peak
-          peakMw:     Math.max(0, peakFromCurrentDemand - baseloadFromCurrentDemand), // swing above baseload
+          totalMw: peakFromCurrentDemand,                                   // ← p_net_peak
+          peakMw: Math.max(0, peakFromCurrentDemand - baseloadFromCurrentDemand), // swing above baseload
         };
       }),
     };
@@ -412,29 +413,30 @@ export default function LoadForcast() {
           const superPeakThresh = (peakHorizonNum * 1.05).toFixed(2);
 
           const detailMetrics = [
-            { label: 'Forecast IT Load', value: `${avgIT} MW`, color: '#6366f1' },
-            { label: 'Forecast PUE', value: avgPUE, color: '#8b5cf6' },
-            { label: 'Annual Energy', value: `${annualEnergyGWh} GWh`, color: '#0ea5e9' },
-            { label: 'Contracted Capacity', value: `${totalContractVol} MW`, color: '#10b981' },
-            { label: 'Peak Uncontracted', value: `${uncontPeak} MW`, color: '#f59e0b' },
-            { label: 'Uncontracted Energy', value: `${uncontEnergy} GWh`, color: '#f59e0b' },
-            { label: 'Baseload Threshold', value: `${baseloadThresh} MW`, color: '#64748b' },
-            { label: 'Super-Peak Threshold', value: `${superPeakThresh} MW`, color: '#ef4444' },
+            { label: 'Forecast IT Load', value: `${avgIT} MW`, color: '#6366f1', formula: 'P_IT_0 * (1 + g)^y + Delta_CAP * util' },
+            { label: 'Forecast PUE', value: avgPUE, color: '#8b5cf6', formula: 'SUM(P_FAC[h]*dt) / SUM(P_IT[h]*dt)' },
+            { label: 'Annual Energy', value: `${annualEnergyGWh} GWh`, color: '#0ea5e9', formula: 'SUM(P_NET_AVG_MONTH * Hours) / 1000' },
+            { label: 'Contracted Capacity', value: `${totalContractVol} MW`, color: '#10b981', formula: 'SUM(CV_i)' },
+            { label: 'Peak Uncontracted', value: `${uncontPeak} MW`, color: '#f59e0b', formula: 'Peak Load - CV_i' },
+            { label: 'Uncontracted Energy', value: `${uncontEnergy} GWh`, color: '#f59e0b', formula: 'UncontPeak * LF * 8760 / 1000' },
+            { label: 'Baseload Threshold', value: `${baseloadThresh} MW`, color: '#64748b', formula: 'Peak Load * 0.76' },
+            { label: 'Super-Peak Threshold', value: `${superPeakThresh} MW`, color: '#ef4444', formula: 'Peak Load * 1.05' },
           ];
 
           return (
             <>
               <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
                 {[
-                  { label: `Avg Load ${startYear + horizon}`, value: `${avgAtHorizon} MW`, color: colors.avg },
-                  { label: `Peak Load ${startYear + horizon}`, value: `${peakAtHorizon} MW`, color: colors.peak },
-                  { label: 'Peak Load Now', value: `${peakNow} MW`, color: '#94a3b8' },
-                ].map(({ label, value, color }) => (
+                  { label: `Avg Load ${startYear + horizon}`, value: `${avgAtHorizon} MW`, color: colors.avg, formula: 'P_NET_AVG_MONTH' },
+                  { label: `Peak Load ${startYear + horizon}`, value: `${peakAtHorizon} MW`, color: colors.peak, formula: 'Avg Load / LF' },
+                  { label: 'Peak Load Now', value: `${peakNow} MW`, color: '#94a3b8', formula: 'Avg Load (Y0) / LF' },
+                ].map(({ label, value, color, formula }) => (
                   <div key={label} style={{
                     flex: 1, background: '#f8fafc', borderRadius: 10, padding: '12px 16px',
                     borderLeft: `3px solid ${color}`,
                   }}>
                     <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic' }}>{formula}</p>
                     <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
                   </div>
                 ))}
@@ -442,13 +444,14 @@ export default function LoadForcast() {
 
               {/* Detailed forecast breakdown row */}
               <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-                {detailMetrics.map(({ label, value, color }) => (
+                {detailMetrics.map(({ label, value, color, formula }) => (
                   <div key={label} style={{
                     flex: '1 1 calc(25% - 10px)', minWidth: 140,
                     background: '#f8fafc', borderRadius: 8, padding: '10px 14px',
                     borderLeft: `3px solid ${color}`,
                   }}>
                     <p style={{ margin: 0, fontSize: 9, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
+                    <p style={{ margin: '1px 0 0', fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={formula}>{formula}</p>
                     <p style={{ margin: '3px 0 0', fontSize: 14, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
                   </div>
                 ))}
