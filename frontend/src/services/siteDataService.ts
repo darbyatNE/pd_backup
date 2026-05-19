@@ -19,11 +19,14 @@ import { supabase } from './supabase';
 export interface DataCenterSite {
   siteKey: string;           // FAC_ID from data_centers
   name: string;              // Display name
-  location: string;          // Location string
+  location: string;          // Location string (e.g., "Ashburn, VA")
   buyerId: string;           // Owner buyer_id
   capacityByYear: Record<string, number>;  // Year -> Capacity MW
   baseloadMwhByMonth: Record<string, number>;  // Month (1-12) -> Baseload MWh
   isoZone: string;           // ISO zone code
+  // PostGIS geography coordinates (X=Longitude, Y=Latitude)
+  longitude?: number;        // X coordinate from facility_location POINT
+  latitude?: number;         // Y coordinate from facility_location POINT
 }
 
 /**
@@ -51,15 +54,55 @@ export async function fetchDataCenterSites(buyerId: string): Promise<DataCenterS
   }
 
   // Transform Supabase data to DataCenterSite format
-  return data.map((row: any) => ({
-    siteKey: row.FAC_ID,
-    name: row.name || row.FAC_ID,
-    location: row.location || '',
-    buyerId: row.buyer_id,
-    capacityByYear: row.capacity_by_year || {},
-    baseloadMwhByMonth: row.baseload_mwh_by_month || {},
-    isoZone: row.iso_zone || 'DOM',
-  }));
+  // Maps actual data_centers table columns to the interface
+  return data.map((row: any) => {
+    // Parse facility_location if it contains coordinates
+    // Supabase PostGIS returns as { type: 'Point', coordinates: [lng, lat] } in GeoJSON mode
+    let longitude: number | undefined;
+    let latitude: number | undefined;
+    
+    if (row.facility_location) {
+      if (typeof row.facility_location === 'object' && 
+          row.facility_location.type === 'Point' && 
+          Array.isArray(row.facility_location.coordinates)) {
+        // GeoJSON format: coordinates[0] = lng, coordinates[1] = lat
+        longitude = row.facility_location.coordinates[0];
+        latitude = row.facility_location.coordinates[1];
+      }
+    }
+    
+    // Parse JSON from text columns (HIST_MW = capacity_by_year, DELTA_CAP_y = baseload_mwh_by_month)
+    let capacityByYear: Record<string, number> = {};
+    let baseloadMwhByMonth: Record<string, number> = {};
+    
+    try {
+      if (row.HIST_MW) {
+        capacityByYear = typeof row.HIST_MW === 'string' ? JSON.parse(row.HIST_MW) : row.HIST_MW;
+      }
+    } catch (e) {
+      console.warn('Failed to parse HIST_MW for', row.FAC_ID, e);
+    }
+    
+    try {
+      if (row.DELTA_CAP_y) {
+        baseloadMwhByMonth = typeof row.DELTA_CAP_y === 'string' ? JSON.parse(row.DELTA_CAP_y) : row.DELTA_CAP_y;
+      }
+    } catch (e) {
+      console.warn('Failed to parse DELTA_CAP_y for', row.FAC_ID, e);
+    }
+    
+    return {
+      siteKey: row.FAC_ID,
+      name: row.FAC_ID,  // Use FAC_ID as name (no separate name column exists)
+      location: row.STATE || '',  // Use STATE as location
+      buyerId: row.buyer_id,
+      capacityByYear,
+      baseloadMwhByMonth,
+      isoZone: row.ISO || 'DOM',
+      longitude,
+      latitude,
+    };
+  });
 }
 
 /**
@@ -99,6 +142,9 @@ export function convertToLoadProfile(site: DataCenterSite) {
     capacityMw: defaultCapacity,
     annualMWh: annualMWh,
     capacityByYear: site.capacityByYear,
+    // Map coordinates from PostGIS geography POINT
+    longitude: site.longitude,
+    latitude: site.latitude,
     // Additional metadata for your hedge calculations
     baseloadMwhByMonth: site.baseloadMwhByMonth,
   };

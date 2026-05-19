@@ -14,12 +14,12 @@ build/
 **/.vite/
 
 # Environment files (contains secrets — never commit)
-# .env
-# .env.local
-# .env.*.local
-# **/.env
-# **/.env.local
-# **/.env.*.local
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
 
 # Logs
 *.log
@@ -41,8 +41,13 @@ Thumbs.db
 coverage/
 
 # Project-specific
+# SQL scripts and Supabase config (contain credentials/migrations — keep local)
+scripts/
+supabase/
+
 # Large geojson files (exceed Cloudflare 25MB limit)
 PJM_subs.geojson
+frontend/public/PJM_zones.geojson
 frontend/public/CAISO_zones.geojson
 frontend/public/ERCOT_zones.geojson
 frontend/public/MISO_zones.geojson
