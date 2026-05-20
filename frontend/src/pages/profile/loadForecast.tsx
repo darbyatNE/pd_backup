@@ -38,7 +38,7 @@ const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const HOURS_PER_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 744];
 
 type XAxisMode = 'hours' | 'months';
-type Horizon = 3 | 5;
+type Horizon = 3 | 5 | 10;
 
 // ─── Pill Toggle ──────────────────────────────────────────────────────────────
 
@@ -262,25 +262,20 @@ export default function LoadForcast() {
       monthStarts.push(monthStarts[i] + HOURS_PER_MONTH[i]);
     }
 
-    // Use currentLoadDemand().p_net_avg as the baseload for the load shape plot
+    // Use the monthly dynamic load for the load shape plot
     const lf = facilityData.LF_ASSUMED ? facilityData.LF_ASSUMED / 100 : 0.82;
-    const currentDemand = currentLoadDemand(
-      facilityData.IT_LOAD || 0,
-      facilityData.PUE || 1,
-      facilityData.GEN_CAP || 0,
-      lf
-    );
-    const baseloadFromCurrentDemand = currentDemand.p_net_avg_current;
-    const peakFromCurrentDemand = currentDemand.p_net_peak_current;  // ← peak MW for the 2D plot
 
     profile = {
       ...profile,
       loadShape: profile.loadShape.map(pt => {
+        const m = pt.month - 1;
+        const baseloadMw = monthlyNetLoad[m] || 0;
+        const totalMw = baseloadMw / lf;
         return {
           ...pt,
-          baseloadMw: baseloadFromCurrentDemand,                               // flat net avg
-          totalMw: peakFromCurrentDemand,                                   // ← p_net_peak
-          peakMw: Math.max(0, peakFromCurrentDemand - baseloadFromCurrentDemand), // swing above baseload
+          baseloadMw: baseloadMw,
+          totalMw: totalMw,
+          peakMw: Math.max(0, totalMw - baseloadMw),
         };
       }),
     };
@@ -367,7 +362,7 @@ export default function LoadForcast() {
               idPrefix="scenario-toggle"
             />
             <PillToggle<Horizon>
-              options={[3, 5]}
+              options={[3, 5, 10]}
               value={horizon}
               onChange={setHorizon}
               labelFn={(v) => `+${v}`}
@@ -437,7 +432,7 @@ export default function LoadForcast() {
                   }}>
                     <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
                     <p style={{ margin: '2px 0 0', fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic' }}>{formula}</p>
-                    <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
+                    <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 700, color: '#51565eff', fontFamily: 'Inter' }}>{value}</p>
                   </div>
                 ))}
               </div>

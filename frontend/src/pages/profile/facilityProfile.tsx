@@ -38,10 +38,12 @@ type FacilityFormData = {
   GEN_CAP: string;
   BATT_CAP: string;
   HIST_MW: File | null;
+  TEMP_AMB_monthly: string;
 
   // Section C — Capacity Expansion Plans
   DELTA_CAP_y: string;
   UTIL_RAMP: string;
+  UTIL_y: string;
   PUE_y: string;
   RE_GEN_y: string;
   BATT_ADD_y: string;
@@ -112,11 +114,14 @@ const INITIAL_FORM: FacilityFormData = {
 
   DELTA_CAP_y: '',
   UTIL_RAMP: '',
+  UTIL_y: '',
   PUE_y: '',
   RE_GEN_y: '',
   BATT_ADD_y: '',
   g_IT: '',
   SCENARIO: 'Base',
+  TEMP_AMB_monthly: '',
+
 
   contracts: [{ ...EMPTY_CONTRACT }],
 
@@ -153,32 +158,32 @@ const sectionCls =
 // ── Validation Rules ──────────────────────────────────────────────────────────
 type FieldRule = { min?: number; max?: number; msg: string };
 const FIELD_RULES: Partial<Record<keyof FacilityFormData, FieldRule>> = {
-  V_CONN:       { min: 0.1,  max: 765,   msg: 'Voltage: 0.1 – 765 kV' },
-  C_MAX:        { min: 0.1,  max: 5000,  msg: 'Capacity: 0.1 – 5,000 MW' },
-  IT_LOAD:      { min: 0,    max: 1000,  msg: 'IT load: 0 – 1,000 MW' },
-  IT_CAP:       { min: 0,    max: 1000,  msg: 'IT capacity: 0 – 1,000 MW' },
-  PUE:          { min: 1.0,  max: 4.0,   msg: 'PUE: 1.0 – 4.0' },
-  ETA_UPS:      { min: 50,   max: 100,   msg: 'UPS efficiency: 50 – 100 %' },
-  ETA_PDU:      { min: 50,   max: 100,   msg: 'PDU efficiency: 50 – 100 %' },
-  P_COOL:       { min: 0,    max: 1000,  msg: 'Cooling: 0 – 1,000 MW' },
-  P_FAC:        { min: 0,    max: 500,   msg: 'Facilities power: 0 – 500 MW' },
-  GEN_CAP:      { min: 0,    max: 5000,  msg: 'Generation: 0 – 5,000 MW' },
-  BATT_CAP:     { min: 0,    max: 10000, msg: 'Battery: 0 – 10,000 MWh' },
-  P_IT_START:   { min: 0.01, max: 1000,  msg: 'IT load at commissioning: 0.01 – 1,000 MW' },
-  LF_ASSUMED:   { min: 1,    max: 100,   msg: 'Load factor: 1 – 100 %' },
-  PUE_EXPECTED: { min: 1.0,  max: 4.0,   msg: 'Expected PUE: 1.0 – 4.0' },
-  UTIL_RAMP:    { min: 0,    max: 100,   msg: 'Utilisation ramp: 0 – 100 %' },
-  g_IT:         { min: -50,  max: 200,   msg: 'Growth rate: −50 – 200 %' },
-  BUDGET:       { min: 0,    max: 2000,  msg: 'Budget: $0 – $2,000/MWh' },
-  RE_TARGET:    { min: 0,    max: 100,   msg: 'RE target: 0 – 100 %' },
-  CI_TARGET:    { min: 0,    max: 1000,  msg: 'CI target: 0 – 1,000 gCO₂/kWh' },
-  RISK_MAX:     { min: 0,    max: 100,   msg: 'Risk tolerance: 0 – 100 %' },
-  PREF_TERM:    { min: 0.5,  max: 30,    msg: 'Tenor: 0.5 – 30 years' },
-  COV_MIN:      { min: 0,    max: 100,   msg: 'Coverage ratio: 0 – 100 %' },
-  CAP_PRICE:    { min: 0,    max: 5000,  msg: 'Capacity price: $0 – $5,000/MW-day' },
-  PPA_BM:       { min: 0,    max: 500,   msg: 'PPA benchmark: $0 – $500/MWh' },
-  REC_PRICE:    { min: 0,    max: 200,   msg: 'REC price: $0 – $200/MWh' },
-  CI_GRID:      { min: 0,    max: 1000,  msg: 'Grid CI: 0 – 1,000 gCO₂/kWh' },
+  V_CONN: { min: 0.1, max: 765, msg: 'Voltage: 0.1 – 765 kV' },
+  C_MAX: { min: 0.1, max: 5000, msg: 'Capacity: 0.1 – 5,000 MW' },
+  IT_LOAD: { min: 0, max: 1000, msg: 'IT load: 0 – 1,000 MW' },
+  IT_CAP: { min: 0, max: 1000, msg: 'IT capacity: 0 – 1,000 MW' },
+  PUE: { min: 1.0, max: 4.0, msg: 'PUE: 1.0 – 4.0' },
+  ETA_UPS: { min: 50, max: 100, msg: 'UPS efficiency: 50 – 100 %' },
+  ETA_PDU: { min: 50, max: 100, msg: 'PDU efficiency: 50 – 100 %' },
+  P_COOL: { min: 0, max: 1000, msg: 'Cooling: 0 – 1,000 MW' },
+  P_FAC: { min: 0, max: 500, msg: 'Facilities power: 0 – 500 MW' },
+  GEN_CAP: { min: 0, max: 5000, msg: 'Generation: 0 – 5,000 MW' },
+  BATT_CAP: { min: 0, max: 10000, msg: 'Battery: 0 – 10,000 MWh' },
+  P_IT_START: { min: 0.01, max: 1000, msg: 'IT load at commissioning: 0.01 – 1,000 MW' },
+  LF_ASSUMED: { min: 1, max: 100, msg: 'Load factor: 1 – 100 %' },
+  PUE_EXPECTED: { min: 1.0, max: 4.0, msg: 'Expected PUE: 1.0 – 4.0' },
+  UTIL_RAMP: { min: 0, max: 100, msg: 'Utilisation ramp: 0 – 100 %' },
+  g_IT: { min: -50, max: 200, msg: 'Growth rate: −50 – 200 %' },
+  BUDGET: { min: 0, max: 2000, msg: 'Budget: $0 – $2,000/MWh' },
+  RE_TARGET: { min: 0, max: 100, msg: 'RE target: 0 – 100 %' },
+  CI_TARGET: { min: 0, max: 1000, msg: 'CI target: 0 – 1,000 gCO₂/kWh' },
+  RISK_MAX: { min: 0, max: 100, msg: 'Risk tolerance: 0 – 100 %' },
+  PREF_TERM: { min: 0.5, max: 30, msg: 'Tenor: 0.5 – 30 years' },
+  COV_MIN: { min: 0, max: 100, msg: 'Coverage ratio: 0 – 100 %' },
+  CAP_PRICE: { min: 0, max: 5000, msg: 'Capacity price: $0 – $5,000/MW-day' },
+  PPA_BM: { min: 0, max: 500, msg: 'PPA benchmark: $0 – $500/MWh' },
+  REC_PRICE: { min: 0, max: 200, msg: 'REC price: $0 – $200/MWh' },
+  CI_GRID: { min: 0, max: 1000, msg: 'Grid CI: 0 – 1,000 gCO₂/kWh' },
 };
 
 // Map a raw DB row to FacilityFormData
@@ -187,8 +192,8 @@ function dbRowToForm(row: any): FacilityFormData {
     typeof row.contracts === 'string'
       ? JSON.parse(row.contracts)
       : Array.isArray(row.contracts)
-      ? row.contracts
-      : [{ ...EMPTY_CONTRACT }];
+        ? row.contracts
+        : [{ ...EMPTY_CONTRACT }];
 
   const toStr = (val: any) => (val === null || val === undefined ? '' : String(val));
 
@@ -218,7 +223,9 @@ function dbRowToForm(row: any): FacilityFormData {
     HIST_MW: null,
     DELTA_CAP_y: toStr(row.DELTA_CAP_y),
     UTIL_RAMP: toStr(row.UTIL_RAMP),
+    UTIL_y: toStr(row.UTIL_y),
     PUE_y: toStr(row.PUE_y),
+    TEMP_AMB_monthly: toStr(row.TEMP_AMB_monthly),
     RE_GEN_y: toStr(row.RE_GEN_y),
     BATT_ADD_y: toStr(row.BATT_ADD_y),
     g_IT: toStr(row.g_IT),
@@ -285,6 +292,31 @@ export default function FacilityProfile() {
       if (fac) setFormRaw(dbRowToForm(fac.row));
     }
   };
+
+  // Auto-calculate PUE based on (p_total_facility / p_it)
+  useEffect(() => {
+    if (form.FACILITY_STATUS !== 'Running') return;
+    const itNum = Number(form.IT_LOAD) || 0;
+    const coolNum = Number(form.P_COOL) || 0;
+    const facNum = Number(form.P_FAC) || 0;
+
+    if (itNum > 0) {
+      const expectedPue = (itNum + coolNum + facNum) / itNum;
+      const expectedPueStr = expectedPue.toFixed(2);
+      if (form.PUE !== expectedPueStr) {
+        setFormRaw((prev) => ({ ...prev, PUE: expectedPueStr }));
+        setErrors((prev) => {
+          const n = { ...prev };
+          delete n.PUE;
+          return n;
+        });
+      }
+    } else {
+      if (form.PUE !== '') {
+        setFormRaw((prev) => ({ ...prev, PUE: '' }));
+      }
+    }
+  }, [form.IT_LOAD, form.P_COOL, form.P_FAC, form.FACILITY_STATUS]);
 
   // Validate a single numeric field against FIELD_RULES
   const validateField = <K extends keyof FacilityFormData>(key: K, value: FacilityFormData[K]) => {
@@ -584,100 +616,100 @@ export default function FacilityProfile() {
 
         {form.FACILITY_STATUS === 'Running' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Total IT load (MW)" symbol="IT_LOAD" error={errors.IT_LOAD}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 24.5"
-              value={form.IT_LOAD}
-              onChange={(e) => setField('IT_LOAD', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          <Field label="Installed IT capacity (MW)" symbol="IT_CAP" error={errors.IT_CAP}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 30.0"
-              value={form.IT_CAP}
-              onChange={(e) => setField('IT_CAP', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          <Field label="Power Usage Effectiveness" symbol="PUE" error={errors.PUE}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 1.35"
-              value={form.PUE}
-              onChange={(e) => setField('PUE', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          {form.FACILITY_STATUS === 'Running' && form.MEASUREMENT_POINT === 'UPS Input' && (
-            <Field label="UPS system efficiency (%)" symbol="ETA_UPS" error={errors.ETA_UPS}>
+            <Field label="Total IT load (MW)" symbol="IT_LOAD" error={errors.IT_LOAD}>
               <input
                 type="number"
-                step="0.1"
-                placeholder="e.g. 97.0 (Default: 0.97)"
-                value={form.ETA_UPS}
-                onChange={(e) => setField('ETA_UPS', e.target.value)}
+                step="0.01"
+                placeholder="e.g. 24.5"
+                value={form.IT_LOAD}
+                onChange={(e) => setField('IT_LOAD', e.target.value)}
                 className={inputCls}
               />
             </Field>
-          )}
-          {form.FACILITY_STATUS === 'Running' && ['UPS Input', 'PDU Input'].includes(form.MEASUREMENT_POINT) && (
-            <Field label="PDU / transformer efficiency (%)" symbol="ETA_PDU" error={errors.ETA_PDU}>
+            <Field label="Installed IT capacity (MW)" symbol="IT_CAP" error={errors.IT_CAP}>
               <input
                 type="number"
-                step="0.1"
-                placeholder="e.g. 98.0 (Default: 0.98)"
-                value={form.ETA_PDU}
-                onChange={(e) => setField('ETA_PDU', e.target.value)}
+                step="0.01"
+                placeholder="e.g. 30.0"
+                value={form.IT_CAP}
+                onChange={(e) => setField('IT_CAP', e.target.value)}
                 className={inputCls}
               />
             </Field>
-          )}
-          <Field label="Cooling system power (MW)" symbol="P_COOL" error={errors.P_COOL}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 6.2"
-              value={form.P_COOL}
-              onChange={(e) => setField('P_COOL', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          <Field label="Lighting and general facilities (MW)" symbol="P_FAC" error={errors.P_FAC}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 1.5"
-              value={form.P_FAC}
-              onChange={(e) => setField('P_FAC', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          <Field label="On-site generation capacity (MW)" symbol="GEN_CAP" error={errors.GEN_CAP}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 40.0"
-              value={form.GEN_CAP}
-              onChange={(e) => setField('GEN_CAP', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
-          <Field label="Battery storage capacity (MWh)" symbol="BATT_CAP" error={errors.BATT_CAP}>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="e.g. 10.0"
-              value={form.BATT_CAP}
-              onChange={(e) => setField('BATT_CAP', e.target.value)}
-              className={inputCls}
-            />
-          </Field>
+            <Field label="Power Usage Effectiveness (Calculated)" symbol="PUE" error={errors.PUE}>
+              <input
+                type="number"
+                step="0.01"
+                readOnly
+                placeholder="Calculated automatically"
+                value={form.PUE}
+                className={`${inputCls} bg-slate-50 cursor-not-allowed`}
+              />
+            </Field>
+            {form.FACILITY_STATUS === 'Running' && form.MEASUREMENT_POINT === 'UPS Input' && (
+              <Field label="UPS system efficiency (%)" symbol="ETA_UPS" error={errors.ETA_UPS}>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="e.g. 97.0 (Default: 0.97)"
+                  value={form.ETA_UPS}
+                  onChange={(e) => setField('ETA_UPS', e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+            )}
+            {form.FACILITY_STATUS === 'Running' && ['UPS Input', 'PDU Input'].includes(form.MEASUREMENT_POINT) && (
+              <Field label="PDU / transformer efficiency (%)" symbol="ETA_PDU" error={errors.ETA_PDU}>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="e.g. 98.0 (Default: 0.98)"
+                  value={form.ETA_PDU}
+                  onChange={(e) => setField('ETA_PDU', e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+            )}
+            <Field label="Cooling system power (MW)" symbol="P_COOL" error={errors.P_COOL}>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="e.g. 6.2"
+                value={form.P_COOL}
+                onChange={(e) => setField('P_COOL', e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Lighting and general facilities (MW)" symbol="P_FAC" error={errors.P_FAC}>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="e.g. 1.5"
+                value={form.P_FAC}
+                onChange={(e) => setField('P_FAC', e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="On-site generation capacity (MW)" symbol="GEN_CAP" error={errors.GEN_CAP}>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="e.g. 40.0"
+                value={form.GEN_CAP}
+                onChange={(e) => setField('GEN_CAP', e.target.value)}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Battery storage capacity (MWh)" symbol="BATT_CAP" error={errors.BATT_CAP}>
+              <input
+                type="number"
+                step="0.01"
+                placeholder="e.g. 10.0"
+                value={form.BATT_CAP}
+                onChange={(e) => setField('BATT_CAP', e.target.value)}
+                className={inputCls}
+              />
+            </Field>
             <Field
               label="Historical interval meter data (CSV)"
               symbol="HIST_MW[]"
@@ -691,31 +723,32 @@ export default function FacilityProfile() {
           </div>
         )}
 
-          {form.FACILITY_STATUS === 'New' && (
-            <div className="col-span-1 md:col-span-2 mt-4 p-4 bg-teal-50 rounded-lg border border-teal-100">
-              <p className="text-sm font-semibold text-teal-800 mb-3">Since there is no historical data, please provide the following design assumptions:</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Field label="Expected IT Load at Commissioning (MW)" symbol="P_IT_START" error={errors.P_IT_START}>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="e.g. 24.5"
-                    value={form.P_IT_START}
-                    onChange={(e) => setField('P_IT_START', e.target.value)}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label="Assumed Load Factor (%)" symbol="LF_ASSUMED" error={errors.LF_ASSUMED}>
-                  <input
-                    type="number"
-                    step="0.1"
-                    placeholder="e.g. 85.0"
-                    value={form.LF_ASSUMED}
-                    onChange={(e) => setField('LF_ASSUMED', e.target.value)}
-                    className={inputCls}
-                  />
-                </Field>
-                <Field label="Expected Annual PUE" symbol="PUE_EXPECTED" error={errors.PUE_EXPECTED}>
+        {form.FACILITY_STATUS === 'New' && (
+          <div className="col-span-1 md:col-span-2 mt-4 p-4 bg-teal-50 rounded-lg border border-teal-100">
+            <p className="text-sm font-semibold text-teal-800 mb-3">Since there is no historical data, please provide the following design assumptions:</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Field label="Expected IT Load at Commissioning (MW)" symbol="P_IT_START" error={errors.P_IT_START}>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="e.g. 24.5"
+                  value={form.P_IT_START}
+                  onChange={(e) => setField('P_IT_START', e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Assumed Load Factor (%)" symbol="LF_ASSUMED" error={errors.LF_ASSUMED}>
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="e.g. 85.0"
+                  value={form.LF_ASSUMED}
+                  onChange={(e) => setField('LF_ASSUMED', e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Expected Annual PUE" symbol="PUE_EXPECTED" error={errors.PUE_EXPECTED}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <input
                     type="number"
                     step="0.01"
@@ -724,10 +757,79 @@ export default function FacilityProfile() {
                     onChange={(e) => setField('PUE_EXPECTED', e.target.value)}
                     className={inputCls}
                   />
-                </Field>
-              </div>
+                  {form.PUE_EXPECTED && (
+                    <button
+                      type="button"
+                      onClick={() => setField('PUE_EXPECTED', '')}
+                      style={{ fontSize: 12, color: '#0d9488', textDecoration: 'underline', whiteSpace: 'nowrap', fontWeight: 500 }}
+                    >
+                      Use Ambient Temps
+                    </button>
+                  )}
+                </div>
+              </Field>
             </div>
-          )}
+            {!form.PUE_EXPECTED && (
+              <div className="mt-4 md:col-span-3">
+                <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
+                  Ambient Temperature (°C) - Fill 12 months to compute temperature-dependent PUE
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 6 }}>
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const vals = form.TEMP_AMB_monthly ? form.TEMP_AMB_monthly.split(',') : [];
+                    return (
+                      <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                        <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>M{i + 1}</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder="0"
+                          value={vals[i]?.trim() || ''}
+                          onChange={(e) => {
+                            const arr = form.TEMP_AMB_monthly ? form.TEMP_AMB_monthly.split(',').map(s => s.trim()) : [];
+                            while (arr.length < 12) arr.push('');
+                            arr[i] = e.target.value;
+                            setField('TEMP_AMB_monthly', arr.join(', '));
+                          }}
+                          style={{
+                            width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
+                            borderRadius: 6, padding: '4px 2px', fontSize: 12,
+                            fontFamily: 'Inter, sans-serif', outline: 'none',
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const arrStr = form.TEMP_AMB_monthly ? form.TEMP_AMB_monthly.split(',') : [];
+                  if (arrStr.length === 12 && arrStr.every(s => s.trim() !== '')) {
+                    const temps = arrStr.map(s => Number(s.trim()));
+                    const calcPPUE = (T: number) => 7.1705e-5 * T * T + 0.0041 * T + 1.0743;
+                    const avgPPUE = temps.reduce((acc, t) => acc + calcPPUE(t), 0) / 12;
+                    const pit = Number(form.P_IT_START) || 1;
+                    const pfac = Number(form.P_FAC) || 0;
+                    const avgPUE = avgPPUE + (pfac / pit);
+                    return (
+                      <div style={{ marginTop: 12, textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setField('PUE_EXPECTED', avgPUE.toFixed(3));
+                          }}
+                          style={{ padding: '6px 12px', backgroundColor: '#0f172a', color: '#fff', borderRadius: 6, fontSize: 13, fontWeight: 500 }}
+                        >
+                          Auto-fill Expected PUE ({avgPUE.toFixed(3)})
+                        </button>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
+            </div>
+        )}
       </section>
 
       {/* Section C */}
@@ -772,7 +874,39 @@ export default function FacilityProfile() {
               })}
             </div>
           </div>
-          <Field label="Utilisation rate of new capacity at ramp (%)" symbol="UTIL_RAMP" error={errors.UTIL_RAMP}>
+          <div className="md:col-span-2">
+            <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
+              Planned capacity utilization by year (%) <span style={{ color: '#94a3b8', fontWeight: 400 }}>UTIL[y]</span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+              {Array.from({ length: 10 }, (_, i) => {
+                const vals = form.UTIL_y ? form.UTIL_y.split(',') : [];
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
+                    <input
+                      type="number"
+                      step="1"
+                      placeholder="80"
+                      value={vals[i]?.trim() || ''}
+                      onChange={(e) => {
+                        const arr = form.UTIL_y ? form.UTIL_y.split(',').map(s => s.trim()) : [];
+                        while (arr.length < 10) arr.push('');
+                        arr[i] = e.target.value;
+                        setField('UTIL_y', arr.join(', '));
+                      }}
+                      style={{
+                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
+                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
+                        fontFamily: 'Inter, sans-serif', outline: 'none',
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <Field label="Utilisation rate of new capacity at ramp per month (%)" symbol="UTIL_RAMP" error={errors.UTIL_RAMP}>
             <input
               type="number"
               step="0.1"
