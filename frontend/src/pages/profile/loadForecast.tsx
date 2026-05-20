@@ -408,14 +408,14 @@ export default function LoadForcast() {
           const superPeakThresh = (peakHorizonNum * 1.05).toFixed(2);
 
           const detailMetrics = [
-            { label: 'Forecast IT Load', value: `${avgIT} MW`, color: '#6366f1', formula: 'P_IT_0 * (1 + g)^y + Delta_CAP * util' },
-            { label: 'Forecast PUE', value: avgPUE, color: '#8b5cf6', formula: 'SUM(P_FAC[h]*dt) / SUM(P_IT[h]*dt)' },
-            { label: 'Annual Energy', value: `${annualEnergyGWh} GWh`, color: '#0ea5e9', formula: 'SUM(P_NET_AVG_MONTH * Hours) / 1000' },
-            { label: 'Contracted Capacity', value: `${totalContractVol} MW`, color: '#10b981', formula: 'SUM(CV_i)' },
-            { label: 'Peak Uncontracted', value: `${uncontPeak} MW`, color: '#f59e0b', formula: 'Peak Load - CV_i' },
-            { label: 'Uncontracted Energy', value: `${uncontEnergy} GWh`, color: '#f59e0b', formula: 'UncontPeak * LF * 8760 / 1000' },
-            { label: 'Baseload Threshold', value: `${baseloadThresh} MW`, color: '#64748b', formula: 'Peak Load * 0.76' },
-            { label: 'Super-Peak Threshold', value: `${superPeakThresh} MW`, color: '#ef4444', formula: 'Peak Load * 1.05' },
+            { label: 'Forecast IT Load', value: `${avgIT} MW`, color: '#6366f1' },
+            { label: 'Forecast PUE', value: avgPUE, color: '#8b5cf6' },
+            { label: 'Annual Energy', value: `${annualEnergyGWh} GWh`, color: '#0ea5e9' },
+            { label: 'Contracted Capacity', value: `${totalContractVol} MW`, color: '#10b981' },
+            { label: 'Peak Uncontracted', value: `${uncontPeak} MW`, color: '#f59e0b' },
+            { label: 'Uncontracted Energy', value: `${uncontEnergy} GWh`, color: '#f59e0b' },
+            { label: 'Baseload Threshold', value: `${baseloadThresh} MW`, color: '#64748b' },
+            { label: 'Super-Peak Threshold', value: `${superPeakThresh} MW`, color: '#ef4444' },
           ];
 
           return (
@@ -439,14 +439,13 @@ export default function LoadForcast() {
 
               {/* Detailed forecast breakdown row */}
               <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-                {detailMetrics.map(({ label, value, color, formula }) => (
+                {detailMetrics.map(({ label, value, color }) => (
                   <div key={label} style={{
                     flex: '1 1 calc(25% - 10px)', minWidth: 140,
                     background: '#f8fafc', borderRadius: 8, padding: '10px 14px',
                     borderLeft: `3px solid ${color}`,
                   }}>
                     <p style={{ margin: 0, fontSize: 9, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
-                    <p style={{ margin: '1px 0 0', fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={formula}>{formula}</p>
                     <p style={{ margin: '3px 0 0', fontSize: 14, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
                   </div>
                 ))}
