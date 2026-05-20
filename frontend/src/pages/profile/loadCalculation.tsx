@@ -78,7 +78,9 @@ export function currentLoadDemand(
 ): {
     p_it: number;
     p_cooling: number;
+    p_cooling_monthly: number[]; // Monthly cooling power (MW), 12 values
     p_gross: number;
+    p_gross_monthly: number[];   // Monthly gross facility draw (MW), 12 values
     p_net_avg_current: number;
     p_net_peak_current: number;
     p_total_facility: number;
@@ -87,16 +89,35 @@ export function currentLoadDemand(
     const it_load = isNew ? (data.P_IT_START || 0) : (data.IT_LOAD || 0);
     const pue = isNew ? (data.PUE_EXPECTED || 1.0) : (data.PUE || 1.0);
     const gen_cap = data.GEN_CAP || 0;
+    const p_other = data.P_FAC || 0;
 
+    const p_it = it_load; // IT load (MW)
 
-    const p_it = it_load;                                     // IT load (MW)
-    const p_cooling = it_load * (pue - 1);                    // Cooling overhead = IT × (PUE − 1)
-    const p_gross = it_load * pue;                            // Total facility draw = IT × PUE
+    // Compute monthly cooling and gross if TEMP_AMB_monthly is available (Fix 3)
+    let p_cooling_monthly: number[];
+    let p_gross_monthly: number[];
+
+    if (data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
+        // Temperature-aware: derive per-month cooling from calcPPUE polynomial
+        p_cooling_monthly = data.TEMP_AMB_monthly.map(T => it_load * (calcPPUE(T) - 1));
+        p_gross_monthly = data.TEMP_AMB_monthly.map((_, m) => it_load + p_cooling_monthly[m] + p_other);
+    } else {
+        // Flat fallback — use the user-entered / calculated PUE
+        const p_cooling_flat = it_load * (pue - 1);   // Cooling overhead = IT × (PUE − 1)
+        const p_gross_flat   = it_load + p_cooling_flat + p_other; // Total facility draw
+        p_cooling_monthly = Array(12).fill(p_cooling_flat);
+        p_gross_monthly   = Array(12).fill(p_gross_flat);
+    }
+
+    // Annual averages (used by callers that only need a single scalar)
+    const p_cooling = p_cooling_monthly.reduce((a, b) => a + b, 0) / 12;
+    const p_gross   = p_gross_monthly.reduce((a, b) => a + b, 0) / 12;
+
     const p_net_avg_current = Math.max(0, p_gross - gen_cap); // Net grid import after on-site gen
     const p_net_peak_current = p_net_avg_current / lf;        // Peak demand from load factor
     const p_total_facility = p_it + (data.P_COOL || 0) + (data.P_FAC || 0);
 
-    return { p_it, p_cooling, p_gross, p_net_avg_current, p_net_peak_current, p_total_facility };
+    return { p_it, p_cooling, p_cooling_monthly, p_gross, p_gross_monthly, p_net_avg_current, p_net_peak_current, p_total_facility };
 }
 
 export function calculateHourlyLoad(monthlyNetLoad: number[], lf_assumed: number = 0.85): HourlyLoadPoint[] {
@@ -149,13 +170,9 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
     let IT_SHAPE = Array(12).fill(1); // Flat shape assumed if hourly data absent
 
     if (data.FACILITY_STATUS === 'Running') {
-        // Step 1: Current Gross and Net Demand
-        const baseGross = (data.IT_LOAD || 0) * (data.PUE || 1);
-        P_GROSS = Array(12).fill(baseGross);
         // Step 2: IT Load Calculation (P_IT)
         let eta_ups = data.ETA_UPS ? data.ETA_UPS / 100 : 0.97; // Default 0.97
         let eta_pdu = data.ETA_PDU ? data.ETA_PDU / 100 : 0.98; // Default 0.98
-
 
         let pit_val = data.IT_LOAD || 0;
         if (data.MEASUREMENT_POINT === 'UPS Input') {
@@ -170,25 +187,43 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         }
         P_IT = Array(12).fill(pit_val);
 
-        // Step 3: Current Calculated PUE & Shape
-        // Formula: PUE[m] = SUM(P_FACILITY[h] * delta_t) / SUM(P_IT[h] * delta_t)
-        for (let m = 0; m < 12; m++) {
-            const hoursInMonth = HOURS_PER_MONTH[m];
-            const delta_t = 1.0; // 1-hour interval duration
-
-            let sum_facility_dt = 0;
-            let sum_it_dt = 0;
-
-            for (let h = 0; h < hoursInMonth; h++) {
-                const p_facility_h = P_GROSS[m]; // P_FACILITY[h] is P_GROSS[m] (constant hourly load for the month)
-                const p_it_h = P_IT[m];           // P_IT[h] is P_IT[m] (constant hourly IT load for the month)
-
-                sum_facility_dt += p_facility_h * delta_t;
-                sum_it_dt += p_it_h * delta_t;
+        // Step 3: Current Calculated PUE & Shape (Fix 1)
+        if (data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
+            // Temperature-aware path: derive monthly P_GROSS and PUE_CALC from calcPPUE polynomial
+            for (let m = 0; m < 12; m++) {
+                const T = data.TEMP_AMB_monthly[m];
+                const ppue = calcPPUE(T);
+                const p_cool_m = pit_val * (ppue - 1);
+                const p_other  = data.P_FAC || 0;
+                P_GROSS[m]   = pit_val + p_cool_m + p_other;
+                PUE_CALC[m]  = pit_val > 0 ? P_GROSS[m] / pit_val : ppue;
+                IT_SHAPE[m]  = 1.0;
             }
+        } else {
+            // Flat fallback: use the measured / user-entered PUE (preserves existing behaviour)
+            // Step 1: Current Gross and Net Demand
+            const baseGross = (data.IT_LOAD || 0) * (data.PUE || 1);
+            P_GROSS = Array(12).fill(baseGross);
 
-            PUE_CALC[m] = sum_it_dt > 0 ? sum_facility_dt / sum_it_dt : (data.PUE || 1.0);
-            IT_SHAPE[m] = 1.0;
+            // Formula: PUE[m] = SUM(P_FACILITY[h] * delta_t) / SUM(P_IT[h] * delta_t)
+            for (let m = 0; m < 12; m++) {
+                const hoursInMonth = HOURS_PER_MONTH[m];
+                const delta_t = 1.0; // 1-hour interval duration
+
+                let sum_facility_dt = 0;
+                let sum_it_dt = 0;
+
+                for (let h = 0; h < hoursInMonth; h++) {
+                    const p_facility_h = P_GROSS[m]; // P_FACILITY[h] is P_GROSS[m] (constant hourly load for the month)
+                    const p_it_h = P_IT[m];           // P_IT[h] is P_IT[m] (constant hourly IT load for the month)
+
+                    sum_facility_dt += p_facility_h * delta_t;
+                    sum_it_dt += p_it_h * delta_t;
+                }
+
+                PUE_CALC[m] = sum_it_dt > 0 ? sum_facility_dt / sum_it_dt : (data.PUE || 1.0);
+                IT_SHAPE[m] = 1.0;
+            }
         }
     } else {
         // Greenfield / New Facility
@@ -300,7 +335,8 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 let pue_proj_m = 0;
                 let p_gross_proj_m = 0;
 
-                if (data.FACILITY_STATUS === 'New' && data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
+                // Fix 2: temp-aware PUE path now applies to ALL facilities when TEMP_AMB_monthly is present
+                if (data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
                     const T = data.TEMP_AMB_monthly[m];
                     const ppue = calcPPUE(T);
                     const pue_eff_improve = y > 0 ? (data.PUE_y?.[y - 1] || 0) : 0;
