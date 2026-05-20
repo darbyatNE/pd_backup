@@ -535,8 +535,12 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
               `<div style="color:${lmpColor};font-weight:700;font-size:13px;margin-top:3px">${lmpVal}</div>`,
               `<div style="color:#6366f1;font-weight:600;margin-top:2px;font-size:10px">PNode: ${f['pnode_name']} (${f['pnode_id']})</div>`,
               `<div style="color:#64748b;margin-top:1px;font-size:10px">${f['CITY'] ?? ''}, ${f['STATE'] ?? ''}</div>`,
-              f['MAX_VOLT'] ? `<div style="color:#94a3b8;margin-top:1px;font-size:10px">${f['MAX_VOLT']} kV · ${f['pnode_subtype'] ?? ''}</div>` : '',
-              `<div style="color:#94a3b8;margin-top:1px;font-size:10px">Match: ${Math.round(Number(f['match_score']))}%</div>`,
+              (() => {
+                const voltage = Number(f['MAX_VOLT']);
+                const isValidVoltage = voltage >= 0 && voltage <= 765;
+                const voltageDisplay = isValidVoltage ? `${voltage} kV` : 'NA';
+                return f['MAX_VOLT'] ? `<div style="color:#94a3b8;margin-top:1px;font-size:10px">${voltageDisplay} · ${f['pnode_subtype'] ?? ''}</div>` : '';
+              })(),
             ].join('');
 
             subsTooltip.style.display = 'block';
