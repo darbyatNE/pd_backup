@@ -40,7 +40,7 @@ export interface SiteFacilityInfo {
 
 export interface LinkedContract {
   projectName: string;
-  generationType: 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hybrid' | 'Combined Cycle' | 'Peaker';
+  generationType: 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hybrid' | 'Combined Cycle' | 'Peaker' | 'Hydro';
   mwCovered: number;       // contracted MW (cap)
   pricePerMwh: number;     // blended contract price ($/MWh)
   shape: ContractShape;    // delivery profile
@@ -77,6 +77,41 @@ export const LOAD_COLORS = {
 // All contract patterns share the same dark foreground — patterns differentiate
 // contracts, not color.
 export const PATTERN_FG = '#1e293b'; // slate-800
+
+// Pattern mapping for each generation type - consistent across all contracts
+export const GENERATION_TYPE_PATTERNS: Record<string, 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid'> = {
+  'Solar': 'dots',
+  'Wind': 'diagonal', 
+  'Nuclear': 'wave',
+  'Hybrid': 'crosshatch',
+  'Combined Cycle': 'vertical',
+  'Peaker': 'grid',
+  'Battery': 'wave',
+  'Hydro': 'vertical', // For potential future Hydro support
+};
+
+// Stacking order for generation types (bottom to top in stack)
+export const GENERATION_TYPE_ORDER: string[] = [
+  'Solar',
+  'Wind', 
+  'Hydro',
+  'Nuclear',
+  'Hybrid',
+  'Combined Cycle',
+  'Peaker',
+  'Battery',
+];
+
+/** Get pattern for a generation type */
+export function getPatternForGenerationType(generationType: string): 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' {
+  return GENERATION_TYPE_PATTERNS[generationType] || 'grid';
+}
+
+/** Get sort order for a generation type */
+export function getGenerationTypeOrder(generationType: string): number {
+  const index = GENERATION_TYPE_ORDER.indexOf(generationType);
+  return index === -1 ? 999 : index; // Unknown types go to the end
+}
 
 // Site facility definitions with type, volume, and target COD
 export const SITE_FACILITIES: Record<string, SiteFacilityInfo> = {
@@ -133,9 +168,7 @@ function generateBrownfieldHedges(site: SiteFacilityInfo): LinkedContract[] {
   // Target hedge coverage by year (baseload focus with over-hedge for demo)
   const baseload2026 = baseloadMw * 1.05; // 105% - slight over-hedge for demo
   const baseload2027 = baseloadMw * 0.85; // 85% - near full coverage
-  const baseload2028 = baseloadMw * 0.55; // 55% - partial coverage
   
-  const peak2026 = peakMw * 0.90; // 90% peak coverage
   const peak2027 = peakMw * 0.70; // 70% peak coverage  
   const peak2028 = peakMw * 0.50; // 50% peak coverage
   
@@ -289,8 +322,8 @@ function mapBuyerProjectToContract(project: BuyerProject, siteKey: string): Link
   // Tier: baseload for nuclear/gas, peak for solar/wind
   const tier: ContractTier = (generationType === 'Nuclear' || generationType === 'Combined Cycle') ? 'base' : 'peak';
   
-  // Pattern based on type
-  const pattern = generationType === 'Nuclear' ? 'wave' : generationType === 'Solar' ? 'dots' : generationType === 'Wind' ? 'diagonal' : 'grid';
+  // Pattern based on generation type
+  const pattern = getPatternForGenerationType(generationType);
   
   // Term: brownfield gets longer terms, greenfield shorter
   const termYears = isBrownfield ? (5 + Math.floor(Math.random() * 3)) : (2 + Math.floor(Math.random() * 3));
@@ -352,39 +385,39 @@ export async function getRealProjectsAsHedges(siteKey: string): Promise<LinkedCo
 export const LINKED_CONTRACTS: Record<string, LinkedContract[]> = {
   'ashburn-dc': [
     // Big nuclear baseload — comes online with Phase II expansion (Jan 2027)
-    { projectName: 'Susquehanna SMR',         generationType: 'Nuclear',        mwCovered: 20, pricePerMwh: 35, shape: 'flat',    tier: 'base', pattern: 'wave',
+    { projectName: 'Susquehanna SMR',         generationType: 'Nuclear',        mwCovered: 20, pricePerMwh: 35, shape: 'flat',    tier: 'base', pattern: getPatternForGenerationType('Nuclear'),
       startYear: 2027, startMonth: 1,  endYear: 2033, endMonth: 12 },
     // Long-term solar PPA — covers the full scope and beyond
-    { projectName: 'Spotsylvania Solar II',   generationType: 'Solar',          mwCovered: 8,  pricePerMwh: 28, shape: 'solar',   tier: 'peak', pattern: 'dots',
+    { projectName: 'Spotsylvania Solar II',   generationType: 'Solar',          mwCovered: 8,  pricePerMwh: 28, shape: 'solar',   tier: 'peak', pattern: getPatternForGenerationType('Solar'),
       startYear: 2026, startMonth: 1,  endYear: 2032, endMonth: 12 },
     // Legacy wind — expires end of 2027, so 2028 loses 4 MW peak hedge
-    { projectName: 'Tucker Mountain Wind',    generationType: 'Wind',           mwCovered: 4,  pricePerMwh: 31, shape: 'wind',    tier: 'peak', pattern: 'diagonal',
+    { projectName: 'Tucker Mountain Wind',    generationType: 'Wind',           mwCovered: 4,  pricePerMwh: 31, shape: 'wind',    tier: 'peak', pattern: getPatternForGenerationType('Wind'),
       startYear: 2024, startMonth: 1,  endYear: 2027, endMonth: 12 },
   ],
   'manassas-industrial': [
     // Strict-allocation baseload contract — 20 MW exceeds Manassas's 15 MW
     // baseload tier on purpose, so the chart reveals the 5 MW over-hedge.
-    { projectName: 'North Anna Allocation',   generationType: 'Nuclear',        mwCovered: 20, pricePerMwh: 38, shape: 'flat',    tier: 'base', pattern: 'grid',
+    { projectName: 'North Anna Allocation',   generationType: 'Nuclear',        mwCovered: 20, pricePerMwh: 38, shape: 'flat',    tier: 'base', pattern: getPatternForGenerationType('Nuclear'),
       startYear: 2026, startMonth: 1,  endYear: 2030, endMonth: 12 },
     // Short hybrid hedge — rolls off Dec 2027, leaving 2028 peak exposed
-    { projectName: 'Front Royal Hybrid',      generationType: 'Hybrid',         mwCovered: 10, pricePerMwh: 45, shape: 'evening', tier: 'peak', pattern: 'crosshatch',
+    { projectName: 'Front Royal Hybrid',      generationType: 'Hybrid',         mwCovered: 10, pricePerMwh: 45, shape: 'evening', tier: 'peak', pattern: getPatternForGenerationType('Hybrid'),
       startYear: 2026, startMonth: 1,  endYear: 2027, endMonth: 12 },
     // Comes online Jul 2027 — coincides with the +25% Manassas load bump
-    { projectName: 'Loudoun Solar Garden',    generationType: 'Solar',          mwCovered: 5,  pricePerMwh: 28, shape: 'solar',   tier: 'peak', pattern: 'dots',
+    { projectName: 'Loudoun Solar Garden',    generationType: 'Solar',          mwCovered: 5,  pricePerMwh: 28, shape: 'solar',   tier: 'peak', pattern: getPatternForGenerationType('Solar'),
       startYear: 2027, startMonth: 7,  endYear: 2032, endMonth: 12 },
   ],
   'sterling-hyperscale': [
     // Bigger Susquehanna slice — Jan 2027 online with Sterling's allocation
-    { projectName: 'Susquehanna SMR',         generationType: 'Nuclear',        mwCovered: 30, pricePerMwh: 35, shape: 'flat',    tier: 'base', pattern: 'wave',
+    { projectName: 'Susquehanna SMR',         generationType: 'Nuclear',        mwCovered: 30, pricePerMwh: 35, shape: 'flat',    tier: 'base', pattern: getPatternForGenerationType('Nuclear'),
       startYear: 2027, startMonth: 1,  endYear: 2033, endMonth: 12 },
     // Long-term hybrid for evening peaks
-    { projectName: 'Hudson Co. Hybrid',       generationType: 'Hybrid',         mwCovered: 8,  pricePerMwh: 45, shape: 'evening', tier: 'peak', pattern: 'crosshatch',
+    { projectName: 'Hudson Co. Hybrid',       generationType: 'Hybrid',         mwCovered: 8,  pricePerMwh: 45, shape: 'evening', tier: 'peak', pattern: getPatternForGenerationType('Hybrid'),
       startYear: 2026, startMonth: 1,  endYear: 2032, endMonth: 12 },
     // Wind expires end of 2028 — last month of scope
-    { projectName: 'Garrett Ridge Wind',      generationType: 'Wind',           mwCovered: 12, pricePerMwh: 31, shape: 'wind',    tier: 'peak', pattern: 'diagonal',
+    { projectName: 'Garrett Ridge Wind',      generationType: 'Wind',           mwCovered: 12, pricePerMwh: 31, shape: 'wind',    tier: 'peak', pattern: getPatternForGenerationType('Wind'),
       startYear: 2026, startMonth: 1,  endYear: 2028, endMonth: 12 },
     // CCGT — comes online Apr 2027 (mid-quarter)
-    { projectName: 'Marcus Hook CCGT II',     generationType: 'Combined Cycle', mwCovered: 10, pricePerMwh: 42, shape: 'flat',    tier: 'base', pattern: 'vertical',
+    { projectName: 'Marcus Hook CCGT II',     generationType: 'Combined Cycle', mwCovered: 10, pricePerMwh: 42, shape: 'flat',    tier: 'base', pattern: getPatternForGenerationType('Combined Cycle'),
       startYear: 2027, startMonth: 4,  endYear: 2034, endMonth: 3  },
   ],
 };
@@ -498,9 +531,10 @@ export function getContractsForSites(siteKeys: string[]): LinkedContract[] {
   const earlier = (ay: number, am: number, by: number, bm: number) =>
     ay < by || (ay === by && am < bm);
   for (const key of siteKeys) {
-    // Use facility-aware hedge generation if site is defined in SITE_FACILITIES
+    // Prefer static LINKED_CONTRACTS; fall back to generated hedges only when absent
+    const staticContracts = LINKED_CONTRACTS[key];
     const facility = SITE_FACILITIES[key];
-    const list = facility ? generateHedgesForSite(facility) : (LINKED_CONTRACTS[key] ?? []);
+    const list = staticContracts ?? (facility ? generateHedgesForSite(facility) : []);
     for (const c of list) {
       const existing = merged.get(c.projectName);
       if (existing) {
@@ -710,12 +744,10 @@ export function capacitySourceKey(name: string): string {
   return name.replace(/[^a-zA-Z0-9]+/g, '_');
 }
 
-// Helper to get hedge contracts for any site using the new logic
+// Helper to get hedge contracts for any site — static LINKED_CONTRACTS take priority
 export function getHedgesForSite(siteKey: string): LinkedContract[] {
+  const staticContracts = LINKED_CONTRACTS[siteKey];
+  if (staticContracts) return staticContracts;
   const facility = SITE_FACILITIES[siteKey];
-  if (!facility) {
-    // Fallback to legacy LINKED_CONTRACTS if site not in new system
-    return LINKED_CONTRACTS[siteKey] ?? [];
-  }
-  return generateHedgesForSite(facility);
+  return facility ? generateHedgesForSite(facility) : [];
 }

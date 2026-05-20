@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { supabase } from '../services/supabase';
 import { getZoneCoords } from '../utils/pjmZones';
@@ -52,11 +52,35 @@ const MARKER_COLORS: Record<GenerationType, string> = {
   Wind:             '#0ea5e9',
   Nuclear:          '#8b5cf6',
   Battery:          '#10b981',
-  Hydrogen:         '#06b6d4',
-  Hybrid:           '#f97316',
-  'Combined Cycle': '#dc2626',
-  Peaker:           '#7c2d12',
+  Hydro:            '#06b6d4',
+  Hybrid:           '#06b6d4',
+  'Combined Cycle': '#64748b',
+  Peaker:           '#ef4444',
 };
+
+// Map icon functions for generation types
+function getMapIconSvg(generationType: string): string {
+  switch (generationType) {
+    case 'Wind':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="1.5" fill="#0ea5e9"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(45)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(135)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(225)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(315)"/></g></svg>`;
+    case 'Hydro':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M-8,4 L-3,4 L-3,-2 L3,-2 L3,4 L8,4 L8,8 L-8,8 Z" fill="#06b6d4"/><path d="M-6,10 Q-3,12 0,10 Q3,12 6,10" fill="none" stroke="#06b6d4" stroke-width="1.5"/><path d="M-6,12 Q-3,14 0,12 Q3,14 6,12" fill="none" stroke="#06b6d4" stroke-width="1.5"/></g></svg>`;
+    case 'Nuclear':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="2" fill="#8b5cf6"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(0)"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(60)"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(120)"/></g></svg>`;
+    case 'Solar':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="4" fill="#f59e0b"/><g stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><line x1="0" y1="-8" x2="0" y2="-6"/><line x1="5.66" y1="-5.66" x2="4.24" y2="-4.24"/><line x1="8" y1="0" x2="6" y2="0"/><line x1="5.66" y1="5.66" x2="4.24" y2="4.24"/><line x1="0" y1="8" x2="0" y2="6"/><line x1="-5.66" y1="5.66" x2="-4.24" y2="4.24"/><line x1="-8" y1="0" x2="-6" y2="0"/><line x1="-5.66" y1="-5.66" x2="-4.24" y2="-4.24"/></g></g></svg>`;
+    case 'Combined Cycle':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><rect x="-2" y="-8" width="4" height="12" rx="1" fill="#64748b"/><rect x="-6" y="2" width="12" height="4" rx="1" fill="#64748b"/><path d="M-2,-8 L-6,2 M2,-8 L6,2 M-2,4 L-6,2 M2,4 L6,2" stroke="#64748b" stroke-width="1" fill="none"/></g></svg>`;
+    case 'Battery':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><rect x="-8" y="-4" width="16" height="8" rx="1" fill="#10b981"/><rect x="8" y="-2" width="2" height="4" fill="#10b981"/><rect x="-6" y="-2" width="3" height="4" fill="white"/><rect x="-1.5" y="-2" width="3" height="4" fill="white"/><rect x="3" y="-2" width="2" height="4" fill="white"/></g></svg>`;
+    case 'Hybrid':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M0,-8 L3,-2 L8,-3 L2,2 L4,8 L-2,2 L-8,3 L-3,-2 Z" fill="#06b6d4"/><circle r="2" fill="white"/></g></svg>`;
+    case 'Peaker':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M-6,6 L0,-8 L6,6 Z" fill="#ef4444"/><rect x="-2" y="2" width="4" height="4" fill="#dc2626"/></g></svg>`;
+    default:
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><circle cx="12" cy="12" r="8" fill="#64748b"/></svg>`;
+  }
+}
 
 const ALL_GEN_TYPES = Object.keys(MARKER_COLORS) as GenerationType[];
 
@@ -106,10 +130,13 @@ function featureBounds(geometry: { type: string; coordinates: unknown }): maplib
   return [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]];
 }
 
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Map pnode_id → total_lmp for the selected month
+type LmpMap = Map<number, number>;
 
 export default function MapPage({ inline = false }: { inline?: boolean }) {
-  const { selectedSites, endYear, endMonth, setEndDate } = useScopeContext();
+  const { selectedSites, startYear, startMonth, endYear, endMonth, setEndDate } = useScopeContext();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<Map<string, maplibregl.Marker>>(new Map());
@@ -134,11 +161,87 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [visibleGenTypes, setVisibleGenTypes] = useState<Set<GenerationType>>(
-    () => new Set(ALL_GEN_TYPES)
-  );
+  const [visibleGenTypes, setVisibleGenTypes] = useState<Set<GenerationType>>(() => {
+    const saved = localStorage.getItem('map-visibleGenTypes');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return new Set(parsed as GenerationType[]);
+      } catch {
+        return new Set(ALL_GEN_TYPES);
+      }
+    }
+    return new Set(ALL_GEN_TYPES);
+  });
   const [tryOnProject, setTryOnProject] = useState<MappedProject | null>(null);
-  const [showLabels, setShowLabels] = useState(true);
+  // Load persisted states from localStorage
+  const [showLabels, setShowLabels] = useState(() => {
+    const saved = localStorage.getItem('map-showLabels');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [lmpPrices, setLmpPrices] = useState<LmpMap>(new Map());
+  const [legendMode, setLegendMode] = useState<'gen' | 'lmp'>(() => {
+    const saved = localStorage.getItem('map-legendMode');
+    return saved !== null ? JSON.parse(saved) : 'gen';
+  });
+  const [showGenMarkers, setShowGenMarkers] = useState(() => {
+    const saved = localStorage.getItem('map-showGenMarkers');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [showLmpDots, setShowLmpDots] = useState(() => {
+    const saved = localStorage.getItem('map-showLmpDots');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
+  // LMP frames driven by scope dates
+  const LMP_FRAMES = useMemo(() => {
+    const frames: { month: number; year: number }[] = [];
+    for (let y = startYear; y <= endYear; y++) {
+      const mStart = y === startYear ? startMonth : 1;
+      const mEnd   = y === endYear   ? endMonth   : 12;
+      for (let m = mStart; m <= mEnd; m++) frames.push({ month: m, year: y });
+    }
+    return frames;
+  }, [startYear, startMonth, endYear, endMonth]);
+
+  // Initial slider position = scope end; clamp if scope changes
+  const [lmpMonth, setLmpMonth] = useState(endMonth);
+  const [lmpYear,  setLmpYear]  = useState(endYear);
+  useEffect(() => {
+    if (LMP_FRAMES.length === 0) return;
+    const inRange = LMP_FRAMES.some((f) => f.month === lmpMonth && f.year === lmpYear);
+    if (!inRange) {
+      const last = LMP_FRAMES[LMP_FRAMES.length - 1];
+      setLmpMonth(last.month);
+      setLmpYear(last.year);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [LMP_FRAMES]);
+
+  const lmpFrameIdx = LMP_FRAMES.findIndex((f) => f.month === lmpMonth && f.year === lmpYear);
+  const lmpCacheRef = useRef<Map<string, LmpMap>>(new Map());
+
+  // Fetch LMP prices whenever selected month/year changes
+  useEffect(() => {
+    const key = `${lmpYear}-${lmpMonth}`;
+    if (lmpCacheRef.current.has(key)) {
+      setLmpPrices(lmpCacheRef.current.get(key)!);
+      return;
+    }
+    supabase
+      .schema('planning')
+      .from('lmp_forecast')
+      .select('pnode_id,total_lmp')
+      .eq('month', lmpMonth)
+      .eq('year', lmpYear)
+      .then(({ data, error: fetchErr }) => {
+        if (fetchErr || !data) return;
+        const m: LmpMap = new Map();
+        (data as { pnode_id: number; total_lmp: number }[]).forEach((r) => m.set(r.pnode_id, r.total_lmp));
+        lmpCacheRef.current.set(key, m);
+        setLmpPrices(m);
+      });
+  }, [lmpMonth, lmpYear]);
 
   // Keep refs in sync so renderMarkers always sees latest data
   useEffect(() => { projectsRef.current = projects; }, [projects]);
@@ -149,7 +252,29 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
 
   // Ref for showLabels so renderMarkers can access current value
   const showLabelsRef = useRef(showLabels);
-  useEffect(() => { showLabelsRef.current = showLabels; }, [showLabels]);
+  useEffect(() => { 
+    showLabelsRef.current = showLabels;
+    // Save to localStorage
+    localStorage.setItem('map-showLabels', JSON.stringify(showLabels));
+  }, [showLabels]);
+
+  // Save other states to localStorage
+  useEffect(() => {
+    localStorage.setItem('map-legendMode', JSON.stringify(legendMode));
+  }, [legendMode]);
+
+  useEffect(() => {
+    localStorage.setItem('map-showGenMarkers', JSON.stringify(showGenMarkers));
+  }, [showGenMarkers]);
+
+  useEffect(() => {
+    localStorage.setItem('map-showLmpDots', JSON.stringify(showLmpDots));
+  }, [showLmpDots]);
+
+  // Save visibleGenTypes state to localStorage
+  useEffect(() => {
+    localStorage.setItem('map-visibleGenTypes', JSON.stringify(Array.from(visibleGenTypes)));
+  }, [visibleGenTypes]);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -188,11 +313,72 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
 
     map.current.addControl(new maplibregl.NavigationControl(), 'top-right');
 
+    // Add custom reset view button
+    const resetViewButton = document.createElement('button');
+    resetViewButton.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+    resetViewButton.innerHTML = `
+      <svg class="maplibregl-ctrl-icon" viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+        <circle cx="12" cy="12" r="10" fill="none" stroke="#333" stroke-width="2"/>
+        <circle cx="12" cy="12" r="6" fill="none" stroke="#333" stroke-width="2"/>
+        <circle cx="12" cy="12" r="2" fill="#333"/>
+      </svg>
+      <span class="maplibregl-ctrl-tooltip" style="display:none;">Reset view</span>
+    `;
+    resetViewButton.style.cssText = 'position: relative;';
+    
+    resetViewButton.addEventListener('mouseenter', () => {
+      const tooltip = resetViewButton.querySelector('.maplibregl-ctrl-tooltip') as HTMLElement;
+      if (tooltip) {
+        tooltip.style.display = 'block';
+        tooltip.style.position = 'absolute';
+        tooltip.style.bottom = '100%';
+        tooltip.style.left = '50%';
+        tooltip.style.transform = 'translateX(-50%)';
+        tooltip.style.marginBottom = '8px';
+        tooltip.style.padding = '4px 8px';
+        tooltip.style.background = '#333';
+        tooltip.style.color = 'white';
+        tooltip.style.fontSize = '12px';
+        tooltip.style.borderRadius = '4px';
+        tooltip.style.whiteSpace = 'nowrap';
+        tooltip.style.zIndex = '1000';
+      }
+    });
+    
+    resetViewButton.addEventListener('mouseleave', () => {
+      const tooltip = resetViewButton.querySelector('.maplibregl-ctrl-tooltip') as HTMLElement;
+      if (tooltip) {
+        tooltip.style.display = 'none';
+      }
+    });
+    
+    resetViewButton.addEventListener('click', () => {
+      map.current?.flyTo({
+        center: [-82.7, 39.25],
+        zoom: 5.4,
+        duration: 1000
+      });
+    });
+    
+    // Add the button to the navigation control group
+    const navControl = map.current!.getContainer().querySelector('.maplibregl-ctrl-top-right .maplibregl-ctrl-group');
+    if (navControl) {
+      navControl.appendChild(resetViewButton);
+    } else {
+      // Fallback: add directly to top-right
+      map.current!.addControl({
+        onAdd: () => resetViewButton,
+        onRemove: () => { resetViewButton.remove(); }
+      }, 'top-right');
+    }
+
     // disable default double-click zoom — we handle it ourselves
     map.current.doubleClickZoom.disable();
 
     map.current.on('load', async () => {
       if (!map.current) return;
+
+      // Icons are now rendered as inline SVGs in DOM markers
 
       try {
         const res = await fetch('/PJM_zones.geojson');
@@ -201,18 +387,33 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
 
           map.current!.addSource('pjm-zones', { type: 'geojson', data: geojson });
 
+          // Subtle fill for entire PJM region to make it stand out
           map.current!.addLayer({
             id: 'pjm-fill',
             type: 'fill',
             source: 'pjm-zones',
-            paint: { 'fill-color': '#0d9488', 'fill-opacity': 0.08 },
+            paint: { 'fill-color': '#0f766e', 'fill-opacity': 0.05 },
           });
 
+          // Zone interior lines (inter-zone boundaries)
           map.current!.addLayer({
             id: 'pjm-line',
             type: 'line',
             source: 'pjm-zones',
-            paint: { 'line-color': '#0f766e', 'line-width': 1.5, 'line-opacity': 0.6 },
+            paint: { 'line-color': '#0f766e', 'line-width': 1.2, 'line-opacity': 0.7 },
+          });
+
+          // Outer PJM footprint border — thicker, darker line drawn on top
+          map.current!.addLayer({
+            id: 'pjm-border',
+            type: 'line',
+            source: 'pjm-zones',
+            paint: {
+              'line-color': '#0f766e',
+              'line-width': 2,
+              'line-opacity': 0.9,
+              'line-gap-width': 0,
+            },
           });
 
           // Highlight layers for the zone selected via double-click
@@ -272,6 +473,85 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
         }
       } catch {
         // non-critical — map renders without zone overlay
+      }
+
+      // ── PJM Priced Substations layer ────────────────────────────────────────
+      try {
+        const subsRes = await fetch('/PJM_subs_priced.geojson');
+        if (subsRes.ok) {
+          const subsGeoJson = await subsRes.json();
+
+          map.current!.addSource('pjm-subs', { type: 'geojson', data: subsGeoJson });
+
+          // ── LMP colored circle markers — data-driven color by price
+          map.current!.addLayer({
+            id: 'pjm-subs-dots',
+            type: 'circle',
+            source: 'pjm-subs',
+            paint: {
+              'circle-radius': [
+                'interpolate', ['linear'], ['zoom'],
+                4, 3,
+                8, 5,
+                11, 8,
+              ] as maplibregl.ExpressionSpecification,
+              'circle-color': [
+                'interpolate', ['linear'],
+                ['coalesce', ['get', 'lmp_price'], 34],
+                34, '#1e40af',
+                40, '#0891b2',
+                48, '#16a34a',
+                56, '#ca8a04',
+                64, '#ea580c',
+                72, '#dc2626',
+              ] as maplibregl.ExpressionSpecification,
+              'circle-opacity': 0.85,
+              'circle-stroke-width': 0.5,
+              'circle-stroke-color': '#fff',
+            },
+          });
+
+          // Hover tooltip for substations
+          const subsTooltip = document.createElement('div');
+          subsTooltip.style.cssText = [
+            'position:absolute', 'pointer-events:none', 'display:none',
+            'background:rgba(255,255,255,0.97)', 'border:1px solid #e2e8f0',
+            'border-radius:6px', 'padding:6px 10px', 'font-family:system-ui,sans-serif',
+            'font-size:11px', 'box-shadow:0 2px 8px rgba(0,0,0,0.15)',
+            'z-index:10', 'white-space:nowrap', 'max-width:240px',
+          ].join(';');
+          map.current!.getContainer().appendChild(subsTooltip);
+
+          map.current!.on('mousemove', 'pjm-subs-dots', (e) => {
+            if (!map.current || !e.features?.length) return;
+            map.current.getCanvas().style.cursor = 'crosshair';
+            const f = e.features[0].properties as Record<string, unknown>;
+
+            const lmpVal = f['lmp_price'] != null ? `$${Number(f['lmp_price']).toFixed(2)}/MWh` : 'No price data';
+            const lmpRaw = f['lmp_price'] != null ? Number(f['lmp_price']) : null;
+            const lmpColor = lmpRaw === null ? '#94a3b8' : lmpRaw >= 72 ? '#dc2626' : lmpRaw >= 64 ? '#ea580c' : lmpRaw >= 56 ? '#ca8a04' : lmpRaw >= 48 ? '#16a34a' : lmpRaw >= 40 ? '#0891b2' : '#1e40af';
+            subsTooltip.innerHTML = [
+              `<strong style="font-size:12px;color:#1e293b">${f['NAME'] ?? 'Unknown'}</strong>`,
+              `<div style="color:${lmpColor};font-weight:700;font-size:13px;margin-top:3px">${lmpVal}</div>`,
+              `<div style="color:#6366f1;font-weight:600;margin-top:2px;font-size:10px">PNode: ${f['pnode_name']} (${f['pnode_id']})</div>`,
+              `<div style="color:#64748b;margin-top:1px;font-size:10px">${f['CITY'] ?? ''}, ${f['STATE'] ?? ''}</div>`,
+              f['MAX_VOLT'] ? `<div style="color:#94a3b8;margin-top:1px;font-size:10px">${f['MAX_VOLT']} kV · ${f['pnode_subtype'] ?? ''}</div>` : '',
+              `<div style="color:#94a3b8;margin-top:1px;font-size:10px">Match: ${Math.round(Number(f['match_score']))}%</div>`,
+            ].join('');
+
+            subsTooltip.style.display = 'block';
+            subsTooltip.style.left = `${e.point.x + 12}px`;
+            subsTooltip.style.top = `${e.point.y - 10}px`;
+          });
+
+          map.current!.on('mouseleave', 'pjm-subs-dots', () => {
+            if (!map.current) return;
+            map.current.getCanvas().style.cursor = '';
+            subsTooltip.style.display = 'none';
+          });
+        }
+      } catch {
+        // non-critical — map renders without substations layer
       }
 
       // Double-click: highlight + zoom to zone bounds if over a zone, otherwise zoom +2 and clear highlight
@@ -436,16 +716,130 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
         el.appendChild(label);
       }
 
-      // Marker dot (APPENDED SECOND so it appears below label)
-      const dot = document.createElement('div');
-      const color = MARKER_COLORS[project.generation_type] ?? '#64748b';
-      dot.style.cssText = `
-        width: 14px; height: 14px; border-radius: 50%;
-        background: ${color}; border: 2px solid white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+      // Icon marker (APPENDED SECOND so it appears below label)
+      const icon = document.createElement('div');
+      const type = project.generation_type;
+      
+      // Create icon based on generation type using CSS
+      icon.style.cssText = `
+        width: 24px; height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
       `;
+      
+      // Add specific icon content based on type
+      switch (type) {
+        case 'Wind':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <circle r="1.5" fill="#0ea5e9"/>
+                <path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(45)"/>
+                <path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(135)"/>
+                <path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(225)"/>
+                <path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(315)"/>
+              </g>
+            </svg>
+          `;
+          break;
+        case 'Nuclear':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <circle r="2" fill="#8b5cf6"/>
+                <ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(0)"/>
+                <ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(60)"/>
+                <ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(120)"/>
+              </g>
+            </svg>
+          `;
+          break;
+        case 'Solar':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <circle r="4" fill="#f59e0b"/>
+                <g stroke="#f59e0b" stroke-width="2" stroke-linecap="round">
+                  <line x1="0" y1="-8" x2="0" y2="-6"/>
+                  <line x1="5.66" y1="-5.66" x2="4.24" y2="-4.24"/>
+                  <line x1="8" y1="0" x2="6" y2="0"/>
+                  <line x1="5.66" y1="5.66" x2="4.24" y2="4.24"/>
+                  <line x1="0" y1="8" x2="0" y2="6"/>
+                  <line x1="-5.66" y1="5.66" x2="-4.24" y2="4.24"/>
+                  <line x1="-8" y1="0" x2="-6" y2="0"/>
+                  <line x1="-5.66" y1="-5.66" x2="-4.24" y2="-4.24"/>
+                </g>
+              </g>
+            </svg>
+          `;
+          break;
+        case 'Combined Cycle':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <rect x="-2" y="-8" width="4" height="12" rx="1" fill="#64748b"/>
+                <rect x="-6" y="2" width="12" height="4" rx="1" fill="#64748b"/>
+                <path d="M-2,-8 L-6,2 M2,-8 L6,2 M-2,4 L-6,2 M2,4 L6,2" stroke="#64748b" stroke-width="1" fill="none"/>
+              </g>
+            </svg>
+          `;
+          break;
+        case 'Battery':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <rect x="-8" y="-4" width="16" height="8" rx="1" fill="#10b981"/>
+                <rect x="8" y="-2" width="2" height="4" fill="#10b981"/>
+                <rect x="-6" y="-2" width="3" height="4" fill="white"/>
+                <rect x="-1.5" y="-2" width="3" height="4" fill="white"/>
+                <rect x="3" y="-2" width="2" height="4" fill="white"/>
+              </g>
+            </svg>
+          `;
+          break;
+        case 'Hybrid':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <path d="M0,-8 L3,-2 L8,-3 L2,2 L4,8 L-2,2 L-8,3 L-3,-2 Z" fill="#06b6d4"/>
+                <circle r="2" fill="white"/>
+              </g>
+            </svg>
+          `;
+          break;
+        case 'Hydro':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <path d="M-8,4 L-3,4 L-3,-2 L3,-2 L3,4 L8,4 L8,8 L-8,8 Z" fill="#06b6d4"/>
+                <path d="M-6,10 Q-3,12 0,10 Q3,12 6,10" fill="none" stroke="#06b6d4" stroke-width="2"/>
+                <path d="M-6,12 Q-3,14 0,12 Q3,14 6,12" fill="none" stroke="#06b6d4" stroke-width="2"/>
+              </g>
+            </svg>
+          `;
+          break;
+        case 'Peaker':
+          icon.innerHTML = `
+            <svg viewBox="0 0 24 24" width="24" height="24" style="display:block;">
+              <g transform="translate(12,12)">
+                <path d="M-6,6 L0,-8 L6,6 Z" fill="#ef4444"/>
+                <rect x="-2" y="2" width="4" height="4" fill="#dc2626"/>
+              </g>
+            </svg>
+          `;
+          break;
+        default:
+          // Fallback circle
+          icon.style.cssText += `
+            background: #64748b;
+            border-radius: 50%;
+            border: 2px solid white;
+          `;
+      }
 
-      el.appendChild(dot);
+      el.appendChild(icon);
       const priceStr = project.fixed_price_per_mwh ? `$${project.fixed_price_per_mwh}/MWh` : 'Price TBD';
 
       const popupNode = document.createElement('div');
@@ -605,6 +999,29 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
     });
   }, []);
 
+  // When LMP prices load, inject lmp_price into GeoJSON source and toggle visibility
+  useEffect(() => {
+    if (!map.current) return;
+    const src = map.current.getSource('pjm-subs') as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    fetch('/PJM_subs_priced.geojson')
+      .then((r) => r.json())
+      .then((geojson) => {
+        const annotated = {
+          ...geojson,
+          features: geojson.features.map((f: { properties: Record<string, unknown>; [k: string]: unknown }) => ({
+            ...f,
+            properties: {
+              ...f.properties,
+              lmp_price: lmpPrices.get(Number(f.properties['pnode_id'])) ?? null,
+            },
+          })),
+        };
+        src.setData(annotated);
+      })
+      .catch(() => {});
+  }, [lmpPrices]);
+
   // Trigger re-render whenever data / filters change.
   // We no longer gate on isStyleLoaded() — that caused a race where the
   // effect sometimes fired before the style finished loading and then never
@@ -614,6 +1031,20 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
     if (!map.current) return;
     renderMarkers();
   }, [projects, buyerSites, visibleGenTypes, selectedSites, showLabels, renderMarkers]);
+
+  // Toggle gen-type project marker visibility
+  useEffect(() => {
+    markers.current.forEach((marker) => {
+      const el = marker.getElement();
+      el.style.display = showGenMarkers ? '' : 'none';
+    });
+  }, [showGenMarkers]);
+
+  // Toggle LMP substation dot visibility
+  useEffect(() => {
+    if (!map.current || !map.current.getLayer('pjm-subs-dots')) return;
+    map.current.setLayoutProperty('pjm-subs-dots', 'visibility', showLmpDots ? 'visible' : 'none');
+  }, [showLmpDots]);
 
   const flyToProject = (project: MappedProject) => {
     if (!project.coords || !map.current) return;
@@ -636,7 +1067,7 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
   const mappedSites = buyerSites.filter((s) => s.coords && siteInScope(s.name, selectedSites));
 
   const toggleGenType = (type: GenerationType) => {
-    setVisibleGenTypes((prev) => {
+    setVisibleGenTypes((prev: Set<GenerationType>) => {
       const next = new Set(prev);
       if (next.has(type)) next.delete(type); else next.add(type);
       return next;
@@ -644,7 +1075,7 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
   };
   const showAllGenTypes = () => setVisibleGenTypes(new Set(ALL_GEN_TYPES));
   const hideAllGenTypes = () => setVisibleGenTypes(new Set());
-  const toggleLabels = () => setShowLabels((prev) => !prev);
+  const toggleLabels = () => setShowLabels((prev: boolean) => !prev);
 
   return (
     // standalone: header = 64px nav + 40px ScopeBar = 104px; -my-6 removes layout padding
@@ -697,9 +1128,11 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
               }`}
             >
               <div className="flex items-center gap-2">
-                <span
-                  className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ background: MARKER_COLORS[project.generation_type] ?? '#64748b' }}
+                <svg 
+                  width="16" 
+                  height="16" 
+                  className="flex-shrink-0"
+                  dangerouslySetInnerHTML={{ __html: getMapIconSvg(project.generation_type) }}
                 />
                 <span className="text-sm font-medium text-slate-800 truncate">{project.name}</span>
               </div>
@@ -762,55 +1195,167 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
 
       {/* Map */}
       <div ref={mapContainer} className="flex-1 relative">
-        {/* Legend — clickable per-type filter */}
-        <div className="absolute bottom-6 left-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg border border-slate-200 shadow-md px-3 py-2.5 text-xs space-y-1">
-          <div className="flex items-center justify-between gap-3 mb-1.5">
-            <p className="font-semibold text-slate-600 uppercase tracking-wide text-[10px]">Legend · Filter</p>
-            <div className="flex items-center gap-1.5 text-[10px] font-medium">
-              <button onClick={showAllGenTypes} className="text-teal-600 hover:text-teal-700">All</button>
-              <span className="text-slate-300">·</span>
-              <button onClick={hideAllGenTypes} className="text-slate-500 hover:text-slate-700">None</button>
-              <span className="text-slate-300">·</span>
-              <button onClick={toggleLabels} className={showLabels ? 'text-teal-600 hover:text-teal-700' : 'text-slate-500 hover:text-slate-700'}>
-                Labels {showLabels ? '✓' : '✗'}
-              </button>
+        {/* Legend panel — toggles between Gen Types and LMP Price Scale */}
+        <div className="absolute bottom-6 left-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg border border-slate-200 shadow-md text-xs" style={{ minWidth: 192 }}>
+
+          {/* Mode toggle header */}
+          <div className="flex items-stretch border-b border-slate-200">
+            <button
+              onClick={() => setLegendMode('gen')}
+              className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wide rounded-tl-lg transition-colors ${
+                legendMode === 'gen' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              Gen Types
+            </button>
+            <button
+              onClick={() => setLegendMode('lmp')}
+              className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wide rounded-tr-lg transition-colors ${
+                legendMode === 'lmp' ? 'bg-teal-700 text-white' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+            >
+              LMP Prices
+            </button>
+          </div>
+
+          {legendMode === 'gen' && (
+            <div className="px-3 py-2 space-y-1">
+              {/* Controls row */}
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-1.5 text-[10px] font-medium">
+                  <button onClick={showAllGenTypes} className="text-teal-600 hover:text-teal-700">All</button>
+                  <span className="text-slate-300">·</span>
+                  <button onClick={hideAllGenTypes} className="text-slate-500 hover:text-slate-700">None</button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={toggleLabels} className={`text-[10px] font-medium ${ showLabels ? 'text-teal-600' : 'text-slate-400'}`}>
+                    Labels {showLabels ? '✓' : '✗'}
+                  </button>
+                  <button
+                    onClick={() => setShowGenMarkers((v: boolean) => !v)}
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border transition-colors ${
+                      showGenMarkers ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-400 border-slate-200'
+                    }`}
+                  >
+                    {showGenMarkers ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+              {(['Wind', 'Hydro', 'Nuclear', 'Solar', 'Combined Cycle', 'Battery', 'Hybrid', 'Peaker'] as GenerationType[]).map((type) => {
+                const active = visibleGenTypes.has(type);
+                const getIconSvg = (t: string) => {
+                  switch (t) {
+                    case 'Wind':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="1.5" fill="#0ea5e9"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(45)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(135)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(225)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(315)"/></g></svg>`;
+                    case 'Nuclear':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="2" fill="#8b5cf6"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(0)"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(60)"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(120)"/></g></svg>`;
+                    case 'Solar':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="4" fill="#f59e0b"/><g stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><line x1="0" y1="-8" x2="0" y2="-6"/><line x1="5.66" y1="-5.66" x2="4.24" y2="-4.24"/><line x1="8" y1="0" x2="6" y2="0"/><line x1="5.66" y1="5.66" x2="4.24" y2="4.24"/><line x1="0" y1="8" x2="0" y2="6"/><line x1="-5.66" y1="5.66" x2="-4.24" y2="4.24"/><line x1="-8" y1="0" x2="-6" y2="0"/><line x1="-5.66" y1="-5.66" x2="-4.24" y2="-4.24"/></g></g></svg>`;
+                    case 'Combined Cycle':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><rect x="-2" y="-8" width="4" height="12" rx="1" fill="#64748b"/><rect x="-6" y="2" width="12" height="4" rx="1" fill="#64748b"/><path d="M-2,-8 L-6,2 M2,-8 L6,2 M-2,4 L-6,2 M2,4 L6,2" stroke="#64748b" stroke-width="1" fill="none"/></g></svg>`;
+                    case 'Battery':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><rect x="-8" y="-4" width="16" height="8" rx="1" fill="#10b981"/><rect x="8" y="-2" width="2" height="4" fill="#10b981"/><rect x="-6" y="-2" width="3" height="4" fill="white"/><rect x="-1.5" y="-2" width="3" height="4" fill="white"/><rect x="3" y="-2" width="2" height="4" fill="white"/></g></svg>`;
+                    case 'Hybrid':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M0,-8 L3,-2 L8,-3 L2,2 L4,8 L-2,2 L-8,3 L-3,-2 Z" fill="#06b6d4"/><circle r="2" fill="white"/></g></svg>`;
+                    case 'Hydro':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M-8,4 L-3,4 L-3,-2 L3,-2 L3,4 L8,4 L8,8 L-8,8 Z" fill="#06b6d4"/><path d="M-6,10 Q-3,12 0,10 Q3,12 6,10" fill="none" stroke="#06b6d4" stroke-width="1.5"/><path d="M-6,12 Q-3,14 0,12 Q3,14 6,12" fill="none" stroke="#06b6d4" stroke-width="1.5"/></g></svg>`;
+                    case 'Peaker':
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M-6,6 L0,-8 L6,6 Z" fill="#ef4444"/><rect x="-2" y="2" width="4" height="4" fill="#dc2626"/></g></svg>`;
+                    default:
+                      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><circle cx="12" cy="12" r="8" fill="#64748b"/></svg>`;
+                  }
+                };
+                
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => toggleGenType(type)}
+                    className={`flex items-center gap-2 w-full text-left rounded px-1 py-0.5 transition-colors hover:bg-slate-100 ${
+                      active ? '' : 'opacity-40'
+                    }`}
+                  >
+                    <span
+                      dangerouslySetInnerHTML={{ __html: getIconSvg(type) }}
+                      className="flex-shrink-0"
+                      style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.25))' }}
+                    />
+                    <span className={`text-slate-600 ${active ? '' : 'line-through'}`}>{type}</span>
+                  </button>
+                );
+              })}
+              <div className="flex items-center gap-2 pt-1 border-t border-slate-100 mt-1 px-0.5">
+                <span className="inline-block w-2.5 h-3 flex-shrink-0 rounded-sm" style={{ background: '#475569', border: '1.5px solid white', boxShadow: '0 1px 2px rgba(0,0,0,0.25)' }} />
+                <span className="text-slate-500">Load Site (in scope)</span>
+              </div>
             </div>
-          </div>
-          {(Object.entries(MARKER_COLORS) as [GenerationType, string][]).map(([type, color]) => {
-            const active = visibleGenTypes.has(type);
-            return (
-              <button
-                key={type}
-                type="button"
-                onClick={() => toggleGenType(type)}
-                className={`flex items-center gap-2 w-full text-left rounded px-1 py-0.5 transition-colors hover:bg-slate-100 ${
-                  active ? '' : 'opacity-40'
-                }`}
-                title={active ? `Hide ${type}` : `Show ${type}`}
-              >
-                <span
-                  className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
-                  style={{ background: color, border: '1.5px solid white', boxShadow: '0 1px 2px rgba(0,0,0,0.25)' }}
+          )}
+
+          {legendMode === 'lmp' && (
+            <div className="px-3 pt-2 pb-3 space-y-2">
+              {/* Current month/year display + toggle */}
+              <div className="flex items-center justify-between">
+                <span className="text-base font-bold text-slate-900">
+                  {MONTH_ABBR[lmpMonth - 1]} {lmpYear}
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400">{lmpFrameIdx + 1}/{LMP_FRAMES.length}</span>
+                  <button
+                    onClick={() => setShowLmpDots((v: boolean) => !v)}
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border transition-colors ${
+                      showLmpDots ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-slate-400 border-slate-200'
+                    }`}
+                  >
+                    {showLmpDots ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Time scrubber */}
+              <div className="relative flex items-center">
+                <div className="absolute inset-x-0 h-px bg-slate-300 pointer-events-none" />
+                <input
+                  type="range"
+                  min={0}
+                  max={LMP_FRAMES.length - 1}
+                  value={lmpFrameIdx < 0 ? 0 : lmpFrameIdx}
+                  onChange={(e) => {
+                    const f = LMP_FRAMES[Number(e.target.value)];
+                    setLmpMonth(f.month);
+                    setLmpYear(f.year);
+                  }}
+                  className="relative w-full h-1.5 rounded appearance-none cursor-pointer bg-transparent"
+                  style={{ accentColor: '#0f766e' }}
                 />
-                <span className={`text-slate-600 ${active ? '' : 'line-through'}`}>{type}</span>
-              </button>
-            );
-          })}
-          <div className="flex items-center gap-2 pt-1 border-t border-slate-100 mt-1 px-1">
-            <span className="inline-flex items-center justify-center w-4 h-4 flex-shrink-0">
-              <span
-                className="inline-block w-2.5 h-3 flex-shrink-0"
-                style={{
-                  background: '#475569',
-                  border: '1.5px solid white',
-                  borderRadius: '1px',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
-                }}
+              </div>
+              <div className="flex justify-between text-[9px] text-slate-400 -mt-1">
+                {LMP_FRAMES.length > 0 && (
+                  <>
+                    <span>{MONTH_ABBR[LMP_FRAMES[0].month - 1]} {LMP_FRAMES[0].year}</span>
+                    <span>{MONTH_ABBR[LMP_FRAMES[LMP_FRAMES.length - 1].month - 1]} {LMP_FRAMES[LMP_FRAMES.length - 1].year}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Gradient colour scale */}
+              <div
+                className="h-2.5 rounded w-full mt-1"
+                style={{ background: 'linear-gradient(to right, #1e40af, #0891b2, #16a34a, #ca8a04, #ea580c, #dc2626)' }}
               />
-            </span>
-            <span className="text-slate-600">Load Site (in scope)</span>
-          </div>
+              <div className="flex justify-between text-[9px] text-slate-400">
+                <span>≤$34</span><span>$40</span><span>$48</span><span>$56</span><span>$64</span><span>≥$72</span>
+              </div>
+
+              <p className="text-[9px] text-slate-400 border-t border-slate-100 pt-1.5">
+                {lmpPrices.size > 0
+                  ? <>{lmpPrices.size.toLocaleString()} nodes · hover for price</>
+                  : <>Loading prices…</>}
+              </p>
+            </div>
+          )}
+
         </div>
+
       </div>
     </div>
   );

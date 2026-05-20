@@ -597,7 +597,7 @@ export default function Planning() {
                 <tfoot>
                   <tr>
                     <td colSpan={5} className="px-4 py-3 text-xs text-slate-400 italic border-t border-slate-100">
-                      Risks 4–8 (Long-Term Market, Execution/Timeline, Counterparty/Credit) — coming in next module release
+                      Analysis of additional risk including Long-Term Market, Execution/Timeline, Counterparty/Credit — coming in next module release
                     </td>
                   </tr>
                 </tfoot>

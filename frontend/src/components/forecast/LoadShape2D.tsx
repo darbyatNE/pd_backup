@@ -21,13 +21,39 @@ import {
   patternId,
   LOAD_COLORS,
   PATTERN_FG,
+  getGenerationTypeOrder,
 } from '../../data/linkedContracts'
+import { GENERATION_TYPE_ORDER } from '../../data/linkedContracts'
 import type { LinkedContract, ContractTier } from '../../data/linkedContracts'
 
 const OVERHEDGE_PATTERN_ID = 'pat-overhedge'
 
 function contractKey(name: string): string {
   return name.replace(/[^a-zA-Z0-9]+/g, '_')
+}
+
+// Map icon functions for generation types
+function getMapIconSvg(generationType: string): string {
+  switch (generationType) {
+    case 'Wind':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="1.5" fill="#0ea5e9"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(45)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(135)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(225)"/><path d="M0,-1.5 Q-2,-4 -1,-8 Q0,-10 0,-12 Q0,-10 1,-8 Q2,-4 0,-1.5" fill="#0ea5e9" transform="rotate(315)"/></g></svg>`;
+    case 'Hydro':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M-8,4 L-3,4 L-3,-2 L3,-2 L3,4 L8,4 L8,8 L-8,8 Z" fill="#06b6d4"/><path d="M-6,10 Q-3,12 0,10 Q3,12 6,10" fill="none" stroke="#06b6d4" stroke-width="1.5"/><path d="M-6,12 Q-3,14 0,12 Q3,14 6,12" fill="none" stroke="#06b6d4" stroke-width="1.5"/></g></svg>`;
+    case 'Nuclear':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="2" fill="#8b5cf6"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(0)"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(60)"/><ellipse cx="0" cy="-6" rx="3" ry="1" fill="#8b5cf6" transform="rotate(120)"/></g></svg>`;
+    case 'Solar':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="4" fill="#f59e0b"/><g stroke="#f59e0b" stroke-width="2" stroke-linecap="round"><line x1="0" y1="-8" x2="0" y2="-6"/><line x1="5.66" y1="-5.66" x2="4.24" y2="-4.24"/><line x1="8" y1="0" x2="6" y2="0"/><line x1="5.66" y1="5.66" x2="4.24" y2="4.24"/><line x1="0" y1="8" x2="0" y2="6"/><line x1="-5.66" y1="5.66" x2="-4.24" y2="4.24"/><line x1="-8" y1="0" x2="-6" y2="0"/><line x1="-5.66" y1="-5.66" x2="-4.24" y2="-4.24"/></g></g></svg>`;
+    case 'Combined Cycle':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><rect x="-2" y="-8" width="4" height="12" rx="1" fill="#64748b"/><rect x="-6" y="2" width="12" height="4" rx="1" fill="#64748b"/><path d="M-2,-8 L-6,2 M2,-8 L6,2 M-2,4 L-6,2 M2,4 L6,2" stroke="#64748b" stroke-width="1" fill="none"/></g></svg>`;
+    case 'Battery':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><rect x="-8" y="-4" width="16" height="8" rx="1" fill="#10b981"/><rect x="8" y="-2" width="2" height="4" fill="#10b981"/><rect x="-6" y="-2" width="3" height="4" fill="white"/><rect x="-1.5" y="-2" width="3" height="4" fill="white"/><rect x="3" y="-2" width="2" height="4" fill="white"/></g></svg>`;
+    case 'Hybrid':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M0,-8 L3,-2 L8,-3 L2,2 L4,8 L-2,2 L-8,3 L-3,-2 Z" fill="#06b6d4"/><circle r="2" fill="white"/></g></svg>`;
+    case 'Peaker':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M-6,6 L0,-8 L6,6 Z" fill="#ef4444"/><rect x="-2" y="2" width="4" height="4" fill="#dc2626"/></g></svg>`;
+    default:
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><circle cx="12" cy="12" r="8" fill="#64748b"/></svg>`;
+  }
 }
 
 function PatternDef({ c, tier }: { c: LinkedContract; tier: ContractTier }) {
@@ -116,6 +142,33 @@ function PatternDefsLayer({ contracts }: { contracts: LinkedContract[] }) {
           </Fragment>
         ))}
         <OverhedgePatternDef />
+        
+        {/* Simple patterns for generation type legend */}
+        <pattern id="solar-pattern" patternUnits="userSpaceOnUse" width="6" height="6">
+          <circle cx="3" cy="3" r="1.3" fill="#f59e0b" />
+        </pattern>
+        <pattern id="wind-pattern" patternUnits="userSpaceOnUse" width="7" height="7">
+          <path d="M0,7 L7,0 M-1,1 L1,-1 M6,8 L8,6" stroke="#0ea5e9" strokeWidth="1.3" />
+        </pattern>
+        <pattern id="hydro-pattern" patternUnits="userSpaceOnUse" width="10" height="6">
+          <path d="M0,3 Q2.5,0 5,3 T10,3" fill="none" stroke="#06b6d4" strokeWidth="1.2" />
+        </pattern>
+        <pattern id="nuclear-pattern" patternUnits="userSpaceOnUse" width="8" height="8">
+          <circle cx="4" cy="4" r="2" fill="#8b5cf6" />
+        </pattern>
+        <pattern id="hybrid-pattern" patternUnits="userSpaceOnUse" width="8" height="8">
+          <path d="M0,8 L8,0" stroke="#06b6d4" strokeWidth="1" />
+          <path d="M0,0 L8,8" stroke="#06b6d4" strokeWidth="1" />
+        </pattern>
+        <pattern id="combinedcycle-pattern" patternUnits="userSpaceOnUse" width="12" height="12">
+          <circle cx="6" cy="6" r="2.5" fill="#1e293b" />
+        </pattern>
+        <pattern id="peaker-pattern" patternUnits="userSpaceOnUse" width="6" height="6">
+          <path d="M0,0 L6,0 M0,3 L6,3 M0,0 L0,6 M3,0 L3,6" stroke="#ef4444" strokeWidth="0.7" />
+        </pattern>
+        <pattern id="battery-pattern" patternUnits="userSpaceOnUse" width="6" height="6">
+          <path d="M0,6 L6,0 M-1,1 L1,-1 M5,7 L7,5" stroke="#10b981" strokeWidth="1.3" />
+        </pattern>
       </defs>
     </svg>
   )
@@ -163,11 +216,20 @@ function ChartTooltip({ active, payload, label, contracts, yLabel }: ChartToolti
     <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs font-sans space-y-0.5">
       <p className="font-bold text-slate-700 mb-1">{label}</p>
       {rows.map((row) => {
-        const tierColor = row.tier === 'base' ? LOAD_COLORS.base : LOAD_COLORS.peak
+        const contract = contracts.find(c => c.projectName === row.name)
+        const generationType = contract?.generationType
+        // Extract base name without site references (remove content in parentheses)
+        const baseName = row.name.replace(/\s*\([^)]+\)$/, '')
         return (
-          <p key={`c-${row.name}`}>
-            <span style={{ color: tierColor }}>■</span>{' '}
-            <span className="text-slate-700">{row.name}</span>:{' '}
+          <p key={`c-${row.name}`} className="flex items-center gap-1">
+            {generationType ? (
+              <svg width="12" height="12" className="flex-shrink-0">
+                <g dangerouslySetInnerHTML={{ __html: getMapIconSvg(generationType).replace('width="16" height="16"', 'width="12" height="12"').replace('viewBox="0 0 24 24"', 'viewBox="0 0 24 24"') }} />
+              </svg>
+            ) : (
+              <span style={{ color: row.tier === 'base' ? LOAD_COLORS.base : LOAD_COLORS.peak }}>■</span>
+            )}
+            <span className="text-slate-700">{baseName}</span>:{' '}
             <strong>{r1(row.total)} {yLabel}</strong>
           </p>
         )
@@ -232,10 +294,12 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     return row
   }
 
-  // Sort contracts: baseload first, then by volume descending
+  // Sort contracts by generation type order, then by volume descending
   const sortedContracts = useMemo(() => {
     return [...contracts].sort((a, b) => {
-      if (a.tier !== b.tier) return a.tier === 'base' ? -1 : 1
+      const orderA = getGenerationTypeOrder(a.generationType)
+      const orderB = getGenerationTypeOrder(b.generationType)
+      if (orderA !== orderB) return orderA - orderB
       return b.mwCovered - a.mwCovered
     })
   }, [contracts])
@@ -251,7 +315,9 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       }
       const avgBase = baseSum / 12
       const avgPeak = peakSum / 12
-      return buildRow(`${h}h`, avgBase, avgPeak,
+      // Use HE (Hour Ending) format for energy industry standard
+      const hourHE = `HE${h + 1}`
+      return buildRow(hourHE, avgBase, avgPeak,
         sortedContracts.map((c) => contractMwForHourAvgInYear(c, h, year)),
       )
     })
@@ -323,9 +389,9 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
 
   const LegendItem = ({ color, pattern, label, sublabel, isInactive = false, title }: { color: string; pattern?: string; label: string; sublabel?: string; isInactive?: boolean; title?: string }) => (
     <div className={`flex items-center gap-2 py-1 ${isInactive ? 'opacity-40' : ''}`} title={title}>
-      <svg width="24" height="14" className="flex-shrink-0">
-        <rect width="24" height="14" fill={color} />
-        {pattern && <rect width="24" height="14" fill={pattern} />}
+      <svg width="16" height="16" className="flex-shrink-0">
+        <rect width="16" height="16" fill={color} />
+        {pattern && <rect width="16" height="16" fill={pattern} />}
       </svg>
       <div className="flex flex-col leading-tight">
         <span className="text-slate-700 font-medium">{label}</span>
@@ -334,22 +400,42 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     </div>
   )
 
-  const ContractLegendItem = ({ color, pattern, name, sites, mw, term, isInactive = false, title }: { color: string; pattern?: string; name: string; sites: string; mw: number; term: string; isInactive?: boolean; title?: string }) => (
+  const ContractLegendItem = ({ color, pattern, name, sites, mw, term, isInactive = false, title, generationType }: { color: string; pattern?: string; name: string; sites: string; mw: number; term: string; isInactive?: boolean; title?: string; generationType?: string }) => (
     <div className={`flex items-start gap-2 py-1 ${isInactive ? 'opacity-40' : ''}`} title={title}>
-      <svg width="24" height="14" className="flex-shrink-0 mt-0.5">
-        <rect width="24" height="14" fill={color} />
-        {pattern && <rect width="24" height="14" fill={pattern} />}
+      <svg width="16" height="16" className="flex-shrink-0 mt-0.5">
+        {generationType ? (
+          <>
+            <rect width="16" height="16" fill="white" stroke="#e2e8f0" strokeWidth="0.5"/>
+            <rect width="16" height="16" fill={`url(#${generationType.toLowerCase().replace(' ', '')}-pattern)`} opacity="0.8"/>
+          </>
+        ) : (
+          <>
+            <rect width="16" height="16" fill={color} />
+            {pattern && <rect width="16" height="16" fill={pattern} />}
+          </>
+        )}
       </svg>
       <div className="flex flex-col leading-tight">
-        <span className="text-slate-700 font-medium">{name}</span>
-        <span className="text-slate-500 text-[10px]">Serving: {sites}</span>
+        <div className="flex items-center gap-1">
+          {generationType && (
+            <svg width="12" height="12" className="flex-shrink-0">
+              <g dangerouslySetInnerHTML={{ __html: getMapIconSvg(generationType).replace('width="16" height="16"', 'width="12" height="12"').replace('viewBox="0 0 24 24"', 'viewBox="0 0 24 24"') }} />
+            </svg>
+          )}
+          <span 
+            className="text-slate-700 font-medium cursor-help" 
+            title={sites ? `Serving: ${sites}` : ''}
+          >
+            {name}
+          </span>
+        </div>
         <span className="text-slate-500 text-[10px]">{mw} MW · {term}</span>
       </div>
     </div>
   )
 
   const LegendGroup = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="flex flex-col min-w-[140px]">
+    <div className="flex flex-col min-w-[140px] max-w-[180px]">
       <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-200 pb-1">{title}</h4>
       <div className="space-y-0.5">
         {children}
@@ -399,6 +485,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                     term={`${startLabel}–${endLabel}`}
                     isInactive={!isAnyYearActive}
                     title={`${c.generationType} · covers baseload · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
+                    generationType={c.generationType}
                   />
                 )
               })}
@@ -428,6 +515,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                     term={`${startLabel}–${endLabel}`}
                     isInactive={!isAnyYearActive}
                     title={`${c.generationType} · covers peak · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
+                    generationType={c.generationType}
                   />
                 )
               })}
@@ -552,6 +640,31 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
             />
           </ReBarChart>
         </ResponsiveContainer>
+
+        {/* Pattern Legend - Below X-axis */}
+        <div className="mt-4 border-t border-slate-200 pt-3">
+          <div className="flex flex-wrap items-center gap-4 text-xs">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Generation Type Patterns:</span>
+            {GENERATION_TYPE_ORDER.map((genType) => {
+              const visibleYears = fullScopeYears ?? [year];
+              const hasActiveContracts = contracts.some(c => 
+                c.generationType === genType && 
+                visibleYears.some((y) => y >= c.startYear && y <= c.endYear)
+              );
+              if (!hasActiveContracts) return null;
+              
+              return (
+                <div key={genType} className="flex items-center gap-2">
+                  <svg width="20" height="12" className="flex-shrink-0">
+                    <rect width="20" height="12" fill="white" stroke="#e2e8f0" strokeWidth="0.5"/>
+                    <rect width="20" height="12" fill={`url(#${genType.toLowerCase().replace(' ', '')}-pattern)`} opacity="0.8"/>
+                  </svg>
+                  <span className="text-slate-600 font-medium">{genType}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   )

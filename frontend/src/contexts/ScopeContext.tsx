@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { supabase } from '../services/supabase';
+import { LOAD_PROFILE_MAP } from '../data/loadProfile';
 
 export interface ScopeState {
   selectedSites: string[];         // site keys currently checked
@@ -66,10 +67,12 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
         setAvailableSites(FALLBACK_SITE_KEYS);
         setSelectedSites(FALLBACK_SITE_KEYS);
       } else if (data && data.length > 0) {
-        // Use sites from database
-        const siteKeys = data.map((row: any) => row.FAC_ID);
+        // Only use DB keys that have a known load profile; fall back if none match
+        const dbKeys = data.map((row: { FAC_ID: string }) => row.FAC_ID as string);
+        const knownKeys = dbKeys.filter((k) => k in LOAD_PROFILE_MAP);
+        const siteKeys = knownKeys.length > 0 ? knownKeys : FALLBACK_SITE_KEYS;
         setAvailableSites(siteKeys);
-        setSelectedSites(siteKeys); // Select all by default
+        setSelectedSites(siteKeys);
       } else {
         // No sites in DB for this user - use fallback
         console.warn('No sites found in DB for user', user.id, '- using fallback sites');
