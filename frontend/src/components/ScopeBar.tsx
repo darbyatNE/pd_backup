@@ -9,6 +9,18 @@ const SHORT_NAMES: Record<string, string> = {
   'sterling-hyperscale': 'Sterling HC',
 };
 
+// Helper to format site key into readable name
+function formatSiteName(siteKey: string): string {
+  // If we have a short name defined, use it
+  if (SHORT_NAMES[siteKey]) return SHORT_NAMES[siteKey];
+  
+  // Otherwise, format the key: 'my-new-site' -> 'My New Site'
+  return siteKey
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const YEARS = [2026, 2027, 2028, 2029, 2030];
 
@@ -18,9 +30,19 @@ interface ScopeBarProps {
 
 export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
   const {
-    selectedSites, startYear, startMonth, endYear, endMonth,
-    toggleSite, addSite, setStartDate, setEndDate,
+    selectedSites, availableSites, startYear, startMonth, endYear, endMonth,
+    loading, toggleSite, addSite, setStartDate, setEndDate,
   } = useScopeContext();
+  
+  // Get display info for each available site
+  const siteInfoList = availableSites.map(siteKey => {
+    const profile = LOAD_PROFILES.find(p => p.siteKey === siteKey);
+    return {
+      siteKey,
+      name: profile?.name || formatSiteName(siteKey),
+      shortName: SHORT_NAMES[siteKey] || formatSiteName(siteKey),
+    };
+  });
 
   const { view } = useDashboardView();
   const isProfileView = view === 'profile';
@@ -43,25 +65,31 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
               Scope
             </span>
             <div className="flex items-center gap-1.5 flex-wrap">
-              {LOAD_PROFILES.map((p) => {
-                const checked = selectedSites.includes(p.siteKey);
-                return (
-                  <span
-                    key={p.siteKey}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                      checked
-                        ? 'bg-teal-50 border-teal-200 text-teal-700'
-                        : 'bg-slate-50 border-slate-200 text-slate-400 line-through'
-                    }`}
-                    title={checked ? `${SHORT_NAMES[p.siteKey] ?? p.name} — in scope` : `${SHORT_NAMES[p.siteKey] ?? p.name} — out of scope`}
-                  >
-                    <span aria-hidden className={checked ? 'text-teal-600' : 'text-slate-300'}>
-                      {checked ? '✓' : '○'}
+              {loading ? (
+                <span className="text-xs text-slate-400">Loading sites...</span>
+              ) : siteInfoList.length === 0 ? (
+                <span className="text-xs text-slate-400">No sites available</span>
+              ) : (
+                siteInfoList.map((site) => {
+                  const checked = selectedSites.includes(site.siteKey);
+                  return (
+                    <span
+                      key={site.siteKey}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                        checked
+                          ? 'bg-teal-50 border-teal-200 text-teal-700'
+                          : 'bg-slate-50 border-slate-200 text-slate-400 line-through'
+                      }`}
+                      title={checked ? `${site.shortName} — in scope` : `${site.shortName} — out of scope`}
+                    >
+                      <span aria-hidden className={checked ? 'text-teal-600' : 'text-slate-300'}>
+                        {checked ? '✓' : '○'}
+                      </span>
+                      {site.shortName}
                     </span>
-                    {SHORT_NAMES[p.siteKey] ?? p.name}
-                  </span>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
 
             {!isProfileView && (
@@ -89,22 +117,28 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
               Sites
             </span>
             <div className="flex items-center gap-4 flex-wrap">
-              {LOAD_PROFILES.map((p) => {
-                const checked = selectedSites.includes(p.siteKey);
-                return (
-                  <label key={p.siteKey} className="flex items-center gap-1.5 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleSite(p.siteKey)}
-                      className="w-3.5 h-3.5 rounded accent-teal-600 cursor-pointer"
-                    />
-                    <span className={`text-xs font-medium transition-colors ${checked ? 'text-slate-700' : 'text-slate-400'}`}>
-                      {SHORT_NAMES[p.siteKey] ?? p.name}
-                    </span>
-                  </label>
-                );
-              })}
+              {loading ? (
+                <span className="text-xs text-slate-400">Loading...</span>
+              ) : siteInfoList.length === 0 ? (
+                <span className="text-xs text-slate-400">No sites available</span>
+              ) : (
+                siteInfoList.map((site) => {
+                  const checked = selectedSites.includes(site.siteKey);
+                  return (
+                    <label key={site.siteKey} className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSite(site.siteKey)}
+                        className="w-3.5 h-3.5 rounded accent-teal-600 cursor-pointer"
+                      />
+                      <span className={`text-xs font-medium transition-colors ${checked ? 'text-slate-700' : 'text-slate-400'}`}>
+                        {site.shortName}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
             </div>
 
             <span className="w-px h-4 bg-slate-200 flex-shrink-0" />

@@ -105,7 +105,7 @@ export function getLoadMultiplierForYearMonth(
 // ─── Hour shapes (0–1 normalized, fraction of peak range above baseload) ───────
 
 // Data center: flat 24/7 profile with slight business-hours compute peak
-const HOUR_SHAPE_DC = [
+export const HOUR_SHAPE_DC = [
   0.00, 0.00, 0.00, 0.00, 0.00, 0.00,   // HE01–06 deep overnight
   0.10, 0.24, 0.50, 0.80, 0.93, 1.00,   // HE07–12 morning ramp
   0.96, 0.88, 0.82, 0.88, 0.95, 0.84,   // HE13–18 daytime plateau
@@ -113,7 +113,7 @@ const HOUR_SHAPE_DC = [
 ];
 
 // Industrial: strong production-hours peak, negligible overnight
-const HOUR_SHAPE_IND = [
+export const HOUR_SHAPE_IND = [
   0.00, 0.00, 0.00, 0.00, 0.00, 0.06,   // HE01–06
   0.34, 0.87, 1.00, 0.96, 0.91, 0.86,   // HE07–12 production ramp
   0.82, 0.88, 0.93, 0.89, 0.71, 0.44,   // HE13–18 afternoon plateau / shift end
@@ -121,7 +121,7 @@ const HOUR_SHAPE_IND = [
 ];
 
 // Hyperscale: very flat, slight IT workload diurnal variation
-const HOUR_SHAPE_HP = [
+export const HOUR_SHAPE_HP = [
   0.03, 0.02, 0.01, 0.00, 0.00, 0.01,   // HE01–06
   0.07, 0.21, 0.46, 0.74, 0.91, 1.00,   // HE07–12
   0.96, 0.90, 0.85, 0.91, 0.99, 0.91,   // HE13–18
@@ -131,9 +131,9 @@ const HOUR_SHAPE_HP = [
 // ─── Month factors (1.0 = nominal; >1 = cooling season uplift) ──────────────
 
 //                          J     F     M     A     M     J     J     A     S     O     N     D
-const MONTH_DC =  [0.92, 0.88, 0.92, 0.95, 0.98, 1.07, 1.18, 1.13, 1.02, 0.96, 0.93, 0.95];
-const MONTH_IND = [0.93, 0.88, 0.95, 1.01, 1.06, 1.02, 0.97, 1.00, 1.03, 1.05, 1.00, 0.89];
-const MONTH_HP =  [0.91, 0.87, 0.91, 0.94, 0.97, 1.09, 1.21, 1.16, 1.04, 0.95, 0.91, 0.94];
+export const MONTH_DC =  [0.92, 0.88, 0.92, 0.95, 0.98, 1.07, 1.18, 1.13, 1.02, 0.96, 0.93, 0.95];
+export const MONTH_IND = [0.93, 0.88, 0.95, 1.01, 1.06, 1.02, 0.97, 1.00, 1.03, 1.05, 1.00, 0.89];
+export const MONTH_HP =  [0.91, 0.87, 0.91, 0.94, 0.97, 1.09, 1.21, 1.16, 1.04, 0.95, 0.91, 0.94];
 
 const HOURS_IN_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 744];
 

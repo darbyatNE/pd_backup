@@ -12,7 +12,11 @@ import { useScopeContext } from '../contexts/ScopeContext';
 import { useDashboardView } from '../contexts/DashboardViewContext';
 import { CapacityRollup } from '../components/CapacitySettlement';
 import ModuleHandoffDialog from '../components/ModuleHandoffDialog';
-import { getContractsForSites, getContractAnnualMwhForYear } from '../data/linkedContracts';
+import { 
+  getContractAnnualMwhForYear,
+  getHedgesForSite,
+  SITE_FACILITIES,
+} from '../data/linkedContracts';
 import { useNavigate } from 'react-router-dom';
 
 const PAGE_NAV_LINKS = [
@@ -317,7 +321,9 @@ export default function Planning() {
     const lp = LOAD_PROFILE_MAP[key];
     return lp ? sum + getEffectiveAnnualLoadMwh(lp, activeYear) : sum;
   }, 0);
-  const linkedContracts = getContractsForSites(selectedSites);
+  
+  // Use new facility-aware hedge generation (brownfield/greenfield logic)
+  const linkedContracts = selectedSites.flatMap(siteKey => getHedgesForSite(siteKey));
   const totalTransactionMwh = linkedContracts.reduce(
     (s, c) => s + getContractAnnualMwhForYear(c, activeYear),
     0,
@@ -325,6 +331,49 @@ export default function Planning() {
   const hedgeCoveragePct = annualLoadMwh > 0
     ? Math.round((totalTransactionMwh / annualLoadMwh) * 100)
     : 0;
+  
+  // Calculate facility-type-aware hedge percentages
+  const siteHedgeData = selectedSites.map(siteKey => {
+    const facility = SITE_FACILITIES[siteKey];
+    const siteContracts = getHedgesForSite(siteKey);
+    const siteHedgeMwh = siteContracts.reduce(
+      (s, c) => s + getContractAnnualMwhForYear(c, activeYear),
+      0,
+    );
+    const loadProfile = LOAD_PROFILE_MAP[siteKey];
+    const siteLoadMwh = loadProfile ? getEffectiveAnnualLoadMwh(loadProfile, activeYear) : 0;
+    
+    // Calculate peak/off-peak split based on facility type
+    let onPeakPct = 0;
+    let offPeakPct = 0;
+    
+    if (facility && siteLoadMwh > 0) {
+      const hedgeRatio = siteHedgeMwh / siteLoadMwh;
+      if (facility.facilityType === 'brownfield') {
+        // Brownfields: 75-95% on-peak, 95-120% off-peak (may over-hedge)
+        onPeakPct = Math.min(100, Math.round(hedgeRatio * 85));
+        offPeakPct = Math.min(120, Math.round(hedgeRatio * 110));
+      } else {
+        // Greenfields: 20-40% hedged across both periods
+        onPeakPct = Math.round(hedgeRatio * 30);
+        offPeakPct = Math.round(hedgeRatio * 35);
+      }
+    } else {
+      // Fallback to static profile data
+      const profile = profiles.find(p => p.key === siteKey);
+      onPeakPct = profile?.hedgePctOnPeak ?? 0;
+      offPeakPct = profile?.hedgePctOffPeak ?? 0;
+    }
+    
+    return {
+      siteKey,
+      facilityType: facility?.facilityType ?? 'brownfield',
+      onPeakPct,
+      offPeakPct,
+      hedgeMwh: siteHedgeMwh,
+      loadMwh: siteLoadMwh,
+    };
+  });
   const savings = baselineCostUsd - totalDeliveredCost.p50;
   const savingsPct = baselineCostUsd > 0 ? (savings / baselineCostUsd) * 100 : 0;
 
@@ -548,7 +597,7 @@ export default function Planning() {
                 <tfoot>
                   <tr>
                     <td colSpan={5} className="px-4 py-3 text-xs text-slate-400 italic border-t border-slate-100">
-                      Risks 4–8 (Long-Term Market, Execution/Timeline, Counterparty/Credit) — coming in next module release
+                      Analysis of additional risk including Long-Term Market, Execution/Timeline, Counterparty/Credit — coming in next module release
                     </td>
                   </tr>
                 </tfoot>
@@ -567,41 +616,55 @@ export default function Planning() {
               <div className="px-6 py-4">
                 {selectedSites.length === SITE_PROFILES.length ? (
                   <div className="space-y-5">
-                    {profiles.map((site) => (
-                      <div key={site.key}>
-                        <p className="text-xs font-semibold text-slate-600 mb-2">{site.name}</p>
-                        <HedgeBar label="On-Peak" pct={site.hedgePctOnPeak} />
-                        <HedgeBar label="Off-Peak" pct={site.hedgePctOffPeak} />
-                      </div>
-                    ))}
+                    {siteHedgeData.map((siteData) => {
+                      const profile = profiles.find(p => p.key === siteData.siteKey);
+                      return (
+                        <div key={siteData.siteKey}>
+                          <p className="text-xs font-semibold text-slate-600 mb-2">{profile?.name ?? siteData.siteKey}</p>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs px-2 py-0.5 rounded ${siteData.facilityType === 'brownfield' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {siteData.facilityType}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              {Math.round(siteData.hedgeMwh / 1000)} GWh / {Math.round(siteData.loadMwh / 1000)} GWh
+                            </span>
+                          </div>
+                          <HedgeBar label="On-Peak" pct={siteData.onPeakPct} />
+                          <HedgeBar label="Off-Peak" pct={siteData.offPeakPct} />
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : (
-                  profiles.map((site) => (
-                    <div key={site.key}>
-                      <dl className="space-y-2 mb-4 text-xs">
-                        <div className="flex justify-between">
-                          <dt className="text-slate-500">Settlement Zone</dt>
-                          <dd className="font-medium text-slate-800">{site.settlementZone}</dd>
-                        </div>
-                        <div className="flex justify-between">
-                          <dt className="text-slate-500">PPA Strike</dt>
-                          <dd className="font-medium text-slate-800">${site.ppaContractPricePerMwh}/MWh</dd>
-                        </div>
-                        <div className="flex justify-between">
-                          <dt className="text-slate-500">Utility Tariff</dt>
-                          <dd className="font-medium text-slate-800">${site.utilityTariffPerMwh}/MWh</dd>
-                        </div>
-                        <div className="flex justify-between">
-                          <dt className="text-slate-500">Unhedged Contract</dt>
-                          <dd className="font-medium text-slate-800">
-                            {site.unhedgedContract === 'da-float' ? 'DA Float' : 'Utility Tariff'}
-                          </dd>
-                        </div>
-                      </dl>
-                      <HedgeBar label="On-Peak Hedged" pct={site.hedgePctOnPeak} />
-                      <HedgeBar label="Off-Peak Hedged" pct={site.hedgePctOffPeak} />
-                    </div>
-                  ))
+                  siteHedgeData.map((siteData) => {
+                    const profile = profiles.find(p => p.key === siteData.siteKey);
+                    return (
+                      <div key={siteData.siteKey}>
+                        <dl className="space-y-2 mb-4 text-xs">
+                          <div className="flex justify-between">
+                            <dt className="text-slate-500">Settlement Zone</dt>
+                            <dd className="font-medium text-slate-800">{profile?.settlementZone ?? '-'}</dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt className="text-slate-500">Facility Type</dt>
+                            <dd className="font-medium text-slate-800 capitalize">{siteData.facilityType}</dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt className="text-slate-500">PPA Strike</dt>
+                            <dd className="font-medium text-slate-800">${profile?.ppaContractPricePerMwh ?? '-'}/MWh</dd>
+                          </div>
+                          <div className="flex justify-between">
+                            <dt className="text-slate-500">Hedge Coverage</dt>
+                            <dd className="font-medium text-slate-800">
+                              {siteData.loadMwh > 0 ? Math.round((siteData.hedgeMwh / siteData.loadMwh) * 100) : 0}%
+                            </dd>
+                          </div>
+                        </dl>
+                        <HedgeBar label="On-Peak Hedged" pct={siteData.onPeakPct} />
+                        <HedgeBar label="Off-Peak Hedged" pct={siteData.offPeakPct} />
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>

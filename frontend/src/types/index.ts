@@ -20,7 +20,7 @@ export interface User {
 }
 
 // Generation types (matches database constraint)
-export type GenerationType = 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hydrogen' | 'Hybrid' | 'Combined Cycle' | 'Peaker';
+export type GenerationType = 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hydro' | 'Hybrid' | 'Combined Cycle' | 'Peaker';
 export type ProjectStatus = 'draft' | 'published' | 'unpublished' | 'active' | 'inactive' | 'sold';
 
 // Generic metadata type to replace 'any'
