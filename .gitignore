@@ -1,49 +1,73 @@
 # Dependencies
 node_modules/
-**/node_modules/
+.pnp
+.pnp.js
 
-# Build output
-dist/
-**/dist/
+# Testing
+coverage/
+
+# Production
 build/
-**/build/
-*.tsbuildinfo
+dist/
 
-# Vite cache
-.vite/
-**/.vite/
-
-# Environment files (contains secrets — never commit)
+# Environment variables
 .env
 .env.local
-.env.*.local
-**/.env
-**/.env.local
-**/.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Logs
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# OS
-.DS_Store
-Thumbs.db
+logs/
+*.log
 
 # Editor
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# Test/coverage
-coverage/
+# OS
+.DS_Store
+Thumbs.db
 
-# Project-specific
-# Large geojson files (exceed Cloudflare 25MB limit)
-PJM_subs.geojson
-frontend/public/CAISO_zones.geojson
-frontend/public/ERCOT_zones.geojson
-frontend/public/MISO_zones.geojson
-frontend/public/PJM_subs_backup.geojson
+# Supabase
+.supabase/
+supabase/migrations/
+supabase/schema.sql
+
+# PD Module
+energy-market/config/ec2-db.json
+
+# Terraform
+infrastructure/.terraform/
+infrastructure/.terraform.lock.hcl
+infrastructure/*.tfstate
+infrastructure/*.tfstate.backup
+infrastructure/terraform.tfvars
+infrastructure/secrets.tfvars
+infrastructure/**/*.tfstate
+infrastructure/**/*.tfstate.backup
+*.tfvars.local
+
+# Secrets (never commit these!)
+**/secrets/
+*.secret
+*.key
+*.pem
+credentials.json
+
+# GeoJSON zone overlays — only PJM is committed; others are sourced locally
+frontend/public/*.geojson
+!frontend/public/PJM_zones.geojson
+
+# Misc
+.cache/
+temp/
+tmp/
+.gstack/
+ss

@@ -10,7 +10,9 @@ export function RiskAlerts() {
   return (
     <div className="flex flex-col h-full font-inter">
       <div className="flex items-center justify-between pb-5 mb-4" style={{ borderBottom: '1px solid rgba(134,133,133,0.33)' }}>
-        <h2 style={{ fontWeight: 600, fontSize: '20px', color: '#000000' }}>Risk &amp; Alerts</h2>
+        <h2 style={{ fontWeight: 600, fontSize: '20px', color: '#000000' }} title="Monitor procurement risks and real-time alerts: Track market volatility, demand spikes, generation shortfalls, price anomalies, and operational risks that could impact your energy procurement strategy and require immediate attention or action.">
+          Risk &amp; Alerts
+        </h2>
         <span className="text-xs px-3 py-1 rounded-full font-black uppercase tracking-widest bg-red-50 text-red-600 border border-red-100 shadow-sm">{alerts.length} active</span>
       </div>
       <div className="flex flex-col flex-1">

@@ -42,7 +42,7 @@ export function EnergyMixChart({ contracts, profile, startYear, endYear }: Energ
 
   return (
     <div className="flex flex-col h-full">
-      <h2 className="pb-4 mb-6" style={{ fontWeight: 700, fontSize: '20px', color: '#000', borderBottom: '1px solid #e5e7eb' }}>
+      <h2 className="pb-4 mb-6" style={{ fontWeight: 700, fontSize: '20px', color: '#000', borderBottom: '1px solid #e5e7eb' }} title="Understand your energy portfolio composition: View the percentage breakdown of energy sources including solar, wind, nuclear, hydro, battery storage, and conventional generation to assess renewable content and diversification strategy.">
         Current Energy Mix (In Scope)
       </h2>
       <div className="flex items-center gap-16 flex-1 px-4">

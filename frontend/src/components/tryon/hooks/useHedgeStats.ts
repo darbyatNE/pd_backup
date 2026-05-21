@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import type { LinkedContract } from '../../../data/linkedContracts';
-import { contractKey } from '../utils';
 import type { SummaryStats, XAxisMode } from '../types';
 
 export function useHedgeStats(
@@ -27,14 +26,8 @@ export function useHedgeStats(
       const uncPeak = (row.peak_uncovered as number) || 0;
       const tBase = (row.tryon_base as number) || 0;
       const tPeak = (row.tryon_peak as number) || 0;
-
-      let eBase = 0;
-      let ePeak = 0;
-      existingContracts.forEach((c) => {
-        const k = contractKey(c.projectName);
-        eBase += (row[`e_${k}_base`] as number) || 0;
-        ePeak += (row[`e_${k}_peak`] as number) || 0;
-      });
+      const eBase = (row.existing_base as number) || 0;
+      const ePeak = (row.existing_peak as number) || 0;
 
       totalBase += eBase + tBase + uncBase;
       totalPeak += ePeak + tPeak + uncPeak;

@@ -56,7 +56,9 @@ export function CostTimeChart({ contracts, profile, startYear, endYear, granular
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-start justify-between mb-4">
-        <h2 style={{ fontWeight: 700, fontSize: '20px', lineHeight: '24px', color: '#000' }}>Cost vs Time Optimization</h2>
+        <h2 style={{ fontWeight: 700, fontSize: '20px', lineHeight: '24px', color: '#000' }} title="Analyze the financial impact of procurement timing decisions: Compare costs across different contract durations, identify optimal procurement windows, and balance short-term savings against long-term price stability for maximum portfolio value.">
+          Cost vs Time Optimization
+        </h2>
         <div className="text-right leading-tight">
           <p style={{ fontSize: '13px', color: '#868585' }}>$/MWh</p>
           <p style={{ fontSize: '13px', color: '#868585' }}>{subtitle}</p>

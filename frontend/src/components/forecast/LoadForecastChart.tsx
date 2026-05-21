@@ -56,7 +56,9 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <h2 className="text-xl font-bold text-slate-900">Load Forecast &amp; Procurement</h2>
+        <h2 className="text-xl font-bold text-slate-900" title="Visualize your energy consumption patterns and contract coverage: Compare hourly/monthly demand against contracted positions, identify coverage gaps, and optimize procurement timing to minimize costs and ensure reliable supply.">
+          Load Forecast &amp; Procurement
+        </h2>
 
         {/* Chart controls - Year on left, View on right (matches Try On page) */}
         <div className="flex items-center justify-between gap-24">
