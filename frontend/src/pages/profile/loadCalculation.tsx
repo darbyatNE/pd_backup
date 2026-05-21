@@ -404,8 +404,15 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                     capacity_sum += delta_cap_j * util_j_y_m;
                 }
                 let p_it_proj_m = (P_IT[m] * Math.pow(1 + g_IT_s, y)) + capacity_sum;
-                if (data.IT_CAP && p_it_proj_m > data.IT_CAP) {
-                    p_it_proj_m = data.IT_CAP;
+                // IT capacity ceiling must grow with planned additions. data.IT_CAP is the
+                // year-0 installed capacity; each DELTA_CAP_y entry raises the ceiling for
+                // every subsequent year. Without this, organic growth in BASE/HIGH clips at
+                // the year-0 cap and the forecast flat-lines while LOW (slower growth)
+                // appears to keep growing.
+                const addedCapY = delta_cap_s.slice(0, y).reduce((a, b) => a + (b || 0), 0);
+                const itCapY = (data.IT_CAP || 0) + addedCapY;
+                if (itCapY > 0 && p_it_proj_m > itCapY) {
+                    p_it_proj_m = itCapY;
                 }
                 results.P_IT_PROJ[s][y][m] = p_it_proj_m;
                 // Step 6: Forecast PUE
@@ -452,7 +459,6 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 const p_bess_ch = 0; // Battery Energy Storage System (BESS) average charging power (in MW)
                 const p_net_avg = Math.max(0, p_gross_proj_m - p_gen_avg - p_bess_dis + p_bess_ch); // Net grid import (in MW) after offsetting gross demand with onsite generation and BESS
                 results.P_NET_AVG_MONTH[s][y][m] = p_net_avg;
-                console.log('p_net_avg', p_net_avg);
 
                 p_net_avg_sum += p_net_avg;
 

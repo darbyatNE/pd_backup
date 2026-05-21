@@ -287,6 +287,10 @@ export default function FacilityProfile() {
   // can sit between the DELTA_CAP_y and UTIL_RAMP charts).
   const [utilRampVisible, setUtilRampVisible] = useState<boolean[]>(() => Array(UTIL_RAMP_YEARS).fill(true));
   const [utilRampPropagate, setUtilRampPropagate] = useState(false);
+  // Input mode for the four yearly-by-year plan fields in Section C
+  // (DELTA_CAP_y, PUE_y, RE_GEN_y, BATT_ADD_y). 'graph' uses the drag-editable
+  // curve; 'manual' renders 10 numeric inputs (Y1–Y10).
+  const [planMode, setPlanMode] = useState<'graph' | 'manual'>('graph');
 
   useEffect(() => {
     if (!user?.id) { setLoadingFacilities(false); return; }
@@ -827,9 +831,26 @@ export default function FacilityProfile() {
 
       {/* Section C */}
       <section className={sectionCls}>
-        <h2 className="text-xl font-bold text-slate-900 mb-1">
-          Section C — Capacity Expansion Plans
-        </h2>
+        <div className="flex items-start justify-between mb-1">
+          <h2 className="text-xl font-bold text-slate-900">
+            Section C — Capacity Expansion Plans
+          </h2>
+          <div className="inline-flex bg-slate-100 rounded-full p-[3px] gap-[2px]">
+            {(['graph', 'manual'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setPlanMode(m)}
+                className={`px-3 py-1 rounded-full text-xs font-medium ${planMode === m
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                  }`}
+              >
+                {m === 'graph' ? 'Graph' : 'Manual'}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="text-xs text-slate-400 mb-5">
           Enter values per year (Y1 – Y10) for each field below.
         </p>
@@ -839,18 +860,27 @@ export default function FacilityProfile() {
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned IT capacity additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>ΔCAP[y]</span>
             </label>
-            <YearlyMetricCurveEditor
-              value={form.DELTA_CAP_y}
-              onChange={(s) => setField('DELTA_CAP_y', s)}
-              color="#ec4899"
-              fillColor="rgba(236, 72, 153, 0.10)"
-              unit="MW"
-              step={0.1}
-              scaleType="logarithmic"
-              yMin={1}
-              yMaxAbsolute={10000}
-              userAdjustableMax
-            />
+            {planMode === 'graph' ? (
+              <YearlyMetricCurveEditor
+                value={form.DELTA_CAP_y}
+                onChange={(s) => setField('DELTA_CAP_y', s)}
+                color="#ec4899"
+                fillColor="rgba(236, 72, 153, 0.10)"
+                unit="MW"
+                step={0.1}
+                scaleType="logarithmic"
+                yMin={1}
+                yMaxAbsolute={10000}
+                userAdjustableMax
+              />
+            ) : (
+              <ManualYearlyInputs
+                value={form.DELTA_CAP_y}
+                onChange={(s) => setField('DELTA_CAP_y', s)}
+                step={0.1}
+                unit="MW"
+              />
+            )}
           </div>
           <div
             className="md:col-span-2"
@@ -906,49 +936,76 @@ export default function FacilityProfile() {
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned PUE improvement by year (fractional, e.g. 0.05 = 5%) <span style={{ color: '#94a3b8', fontWeight: 400 }}>PUE[y]</span>
             </label>
-            <YearlyMetricCurveEditor
-              value={form.PUE_y}
-              onChange={(s) => setField('PUE_y', s)}
-              color="#10b981"
-              fillColor="rgba(16, 185, 129, 0.10)"
-              unit="fraction"
-              step={0.05}
-              yMaxAbsolute={1}
-              yTickStep={0.05}
-              userAdjustableMax
-            />
+            {planMode === 'graph' ? (
+              <YearlyMetricCurveEditor
+                value={form.PUE_y}
+                onChange={(s) => setField('PUE_y', s)}
+                color="#10b981"
+                fillColor="rgba(16, 185, 129, 0.10)"
+                unit="fraction"
+                step={0.05}
+                yMaxAbsolute={1}
+                yTickStep={0.05}
+                userAdjustableMax
+              />
+            ) : (
+              <ManualYearlyInputs
+                value={form.PUE_y}
+                onChange={(s) => setField('PUE_y', s)}
+                step={0.05}
+                unit="fraction"
+              />
+            )}
           </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned on-site renewable additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>RE_GEN[y]</span>
             </label>
-            <YearlyMetricCurveEditor
-              value={form.RE_GEN_y}
-              onChange={(s) => setField('RE_GEN_y', s)}
-              color="#f59e0b"
-              fillColor="rgba(245, 158, 11, 0.10)"
-              unit="MW"
-              step={0.1}
-              yMaxFloor={20}
-              yMaxAbsolute={200}
-              userAdjustableMax
-            />
+            {planMode === 'graph' ? (
+              <YearlyMetricCurveEditor
+                value={form.RE_GEN_y}
+                onChange={(s) => setField('RE_GEN_y', s)}
+                color="#f59e0b"
+                fillColor="rgba(245, 158, 11, 0.10)"
+                unit="MW"
+                step={0.1}
+                yMaxFloor={20}
+                yMaxAbsolute={200}
+                userAdjustableMax
+              />
+            ) : (
+              <ManualYearlyInputs
+                value={form.RE_GEN_y}
+                onChange={(s) => setField('RE_GEN_y', s)}
+                step={0.1}
+                unit="MW"
+              />
+            )}
           </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned battery storage additions by year (MWh) <span style={{ color: '#94a3b8', fontWeight: 400 }}>BATT_ADD[y]</span>
             </label>
-            <YearlyMetricCurveEditor
-              value={form.BATT_ADD_y}
-              onChange={(s) => setField('BATT_ADD_y', s)}
-              color="#8b5cf6"
-              fillColor="rgba(139, 92, 246, 0.10)"
-              unit="MWh"
-              step={0.1}
-              yMaxFloor={50}
-              yMaxAbsolute={2000}
-              userAdjustableMax
-            />
+            {planMode === 'graph' ? (
+              <YearlyMetricCurveEditor
+                value={form.BATT_ADD_y}
+                onChange={(s) => setField('BATT_ADD_y', s)}
+                color="#8b5cf6"
+                fillColor="rgba(139, 92, 246, 0.10)"
+                unit="MWh"
+                step={0.1}
+                yMaxFloor={50}
+                yMaxAbsolute={2000}
+                userAdjustableMax
+              />
+            ) : (
+              <ManualYearlyInputs
+                value={form.BATT_ADD_y}
+                onChange={(s) => setField('BATT_ADD_y', s)}
+                step={0.1}
+                unit="MWh"
+              />
+            )}
           </div>
           <Field label="Organic IT load growth rate (%)" symbol="g_IT" error={errors.g_IT}>
             <input
@@ -1338,6 +1395,65 @@ export default function FacilityProfile() {
   );
 
 } // End of FacilityProfile
+
+// Renders 10 per-year numeric inputs (Y1–Y10) sharing the same comma-separated
+// serialization the YearlyMetricCurveEditor uses, so the two input modes are
+// fully interchangeable without touching form state shape.
+function ManualYearlyInputs({
+  value,
+  onChange,
+  step,
+  unit,
+  placeholder,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  step?: number;
+  unit?: string;
+  placeholder?: string;
+}) {
+  const vals = value ? value.split(',') : [];
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+        {Array.from({ length: 10 }, (_, i) => (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>
+              Y{i + 1}
+            </span>
+            <input
+              type="number"
+              step={step ?? 0.1}
+              placeholder={placeholder ?? '0'}
+              value={vals[i]?.trim() || ''}
+              onChange={(e) => {
+                const arr = value ? value.split(',').map((s) => s.trim()) : [];
+                while (arr.length < 10) arr.push('');
+                arr[i] = e.target.value;
+                onChange(arr.join(', '));
+              }}
+              style={{
+                width: '100%',
+                textAlign: 'center',
+                border: '1px solid #e2e8f0',
+                borderRadius: 6,
+                padding: '4px 2px',
+                fontSize: 12,
+                fontFamily: 'Inter, sans-serif',
+                outline: 'none',
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      {unit && (
+        <div style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'Inter, sans-serif', marginTop: 6, textAlign: 'right' }}>
+          values in {unit}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Field({
   label,

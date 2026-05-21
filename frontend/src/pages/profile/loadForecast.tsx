@@ -4,7 +4,6 @@ import {
   fetchAllFacilities,
   calculateMultiYearForecast,
   calculateHourlyForecast,
-  currentLoadDemand,
   type FacilityData,
   type ForecastResult,
   type Scenario,
