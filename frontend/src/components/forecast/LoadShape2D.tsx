@@ -22,6 +22,7 @@ import {
   PATTERN_FG,
   getGenerationTypeOrder,
   GENERATION_TYPE_ORDER,
+  genTypePatternId,
 } from '../../data/linkedContracts'
 import type { LinkedContract } from '../../data/linkedContracts'
 
@@ -53,11 +54,6 @@ function getMapIconSvg(generationType: string): string {
     default:
       return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><circle cx="12" cy="12" r="8" fill="#64748b"/></svg>`;
   }
-}
-
-/** Stable pattern ID by gen type — shared by chart bars and legend swatches */
-export function genTypePatternId(generationType: string): string {
-  return `pat-gentype-${generationType.replace(/[^a-zA-Z0-9]+/g, '-')}`
 }
 
 function OverhedgePatternDef() {

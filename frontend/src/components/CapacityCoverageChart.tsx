@@ -277,11 +277,11 @@ function CapacityShape2D({
             interval={xAxis === 'hours' ? 2 : (data.length > 18 ? 2 : 0)}
           />
           <YAxis
-            tickFormatter={(v) => `${v}`}
+            tickFormatter={(v) => Number.isInteger(v) ? `${v}` : `${Math.round(v)}`}
             tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
             axisLine={false} tickLine={false} width={40}
             label={{ value: yLabel, angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }}
-            domain={[0, Math.max(maxCapacity * 1.1, 10)]}
+            domain={[0, Math.ceil(Math.max(maxCapacity * 1.1, 10))]}
           />
           <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
           {(() => {

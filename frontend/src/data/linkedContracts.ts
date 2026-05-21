@@ -107,6 +107,11 @@ export function getPatternForGenerationType(generationType: string): 'diagonal' 
   return GENERATION_TYPE_PATTERNS[generationType] || 'grid';
 }
 
+/** Stable SVG pattern ID by gen type — shared by chart bars and legend swatches */
+export function genTypePatternId(generationType: string): string {
+  return `pat-gentype-${generationType.replace(/[^a-zA-Z0-9]+/g, '-')}`
+}
+
 /** Get sort order for a generation type */
 export function getGenerationTypeOrder(generationType: string): number {
   const index = GENERATION_TYPE_ORDER.indexOf(generationType);
