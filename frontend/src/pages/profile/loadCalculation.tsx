@@ -26,8 +26,7 @@ export interface FacilityData {
     BATT_CAP: number;
 
     DELTA_CAP_y: number[]; // Capacity additions by year
-    UTIL_RAMP: number;
-    UTIL_y?: number[]; // Target utilization of capacity additions by year
+    UTIL_RAMP: number[]; // Cumulative utilization fraction at month m of year-of-addition y (10 yrs × 12 mo = 120 vals). Steady-state after year of addition = the December value of that year's curve.
     PUE_y: number[]; // PUE improvement by year
     g_IT: number; // Organic growth rate
     TEMP_AMB_monthly?: number[]; // Monthly average outdoor temp °C (12 values)
@@ -53,6 +52,30 @@ export interface ForecastResult {
 const MULT_HIGH = 1.25;
 const MULT_LOW = 0.75;
 const HOURS_PER_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 744]; // standard non-leap year
+
+// Parse UTIL_RAMP from the DB. New rows store 120 comma-separated cumulative-
+// utilisation values (10 yrs × 12 mo). Legacy rows store a single monthly-
+// increment value; expand those into the equivalent 120-cell linear ramp,
+// capped per year by the legacy UTIL_y target so projections stay numerically
+// equivalent until the user re-saves with a chart-edited curve.
+function parseUtilRamp(str?: string, utilYStr?: string): number[] {
+    if (!str) return [];
+    const parts = str.split(',').map(s => s.trim()).filter(s => s !== '');
+    if (parts.length === 0) return [];
+    const nums = parts.map(s => Number(s));
+    if (nums.length !== 1) return nums;
+    const v = nums[0];
+    if (isNaN(v)) return [];
+    const utilY = utilYStr ? utilYStr.split(',').map(s => Number(s.trim())) : [];
+    const expanded: number[] = [];
+    for (let y = 0; y < 10; y++) {
+        const cap = !isNaN(utilY[y]) ? utilY[y] : 100;
+        for (let m = 0; m < 12; m++) {
+            expanded.push(Math.min(cap, (m + 1) * v));
+        }
+    }
+    return expanded;
+}
 
 export interface HourlyLoadPoint {
     totalMw: number;
@@ -104,14 +127,14 @@ export function currentLoadDemand(
     } else {
         // Flat fallback — use the user-entered / calculated PUE
         const p_cooling_flat = it_load * (pue - 1);   // Cooling overhead = IT × (PUE − 1)
-        const p_gross_flat   = it_load + p_cooling_flat + p_other; // Total facility draw
+        const p_gross_flat = it_load + p_cooling_flat + p_other; // Total facility draw
         p_cooling_monthly = Array(12).fill(p_cooling_flat);
-        p_gross_monthly   = Array(12).fill(p_gross_flat);
+        p_gross_monthly = Array(12).fill(p_gross_flat);
     }
 
     // Annual averages (used by callers that only need a single scalar)
     const p_cooling = p_cooling_monthly.reduce((a, b) => a + b, 0) / 12;
-    const p_gross   = p_gross_monthly.reduce((a, b) => a + b, 0) / 12;
+    const p_gross = p_gross_monthly.reduce((a, b) => a + b, 0) / 12;
 
     const p_net_avg_current = Math.max(0, p_gross - gen_cap); // Net grid import after on-site gen
     const p_net_peak_current = p_net_avg_current / lf;        // Peak demand from load factor
@@ -194,10 +217,10 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 const T = data.TEMP_AMB_monthly[m];
                 const ppue = calcPPUE(T);
                 const p_cool_m = pit_val * (ppue - 1);
-                const p_other  = data.P_FAC || 0;
-                P_GROSS[m]   = pit_val + p_cool_m + p_other;
-                PUE_CALC[m]  = pit_val > 0 ? P_GROSS[m] / pit_val : ppue;
-                IT_SHAPE[m]  = 1.0;
+                const p_other = data.P_FAC || 0;
+                P_GROSS[m] = pit_val + p_cool_m + p_other;
+                PUE_CALC[m] = pit_val > 0 ? P_GROSS[m] / pit_val : ppue;
+                IT_SHAPE[m] = 1.0;
             }
         } else {
             // Flat fallback: use the measured / user-entered PUE (preserves existing behaviour)
@@ -304,21 +327,18 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 
             for (let m = 0; m < 12; m++) {
                 // Step 5: Forecast IT Load
-                const ramp_rate = (data.UTIL_RAMP || 20) / 100; // single monthly ramp rate for all capacity additions
+                const rampArr = data.UTIL_RAMP || [];
                 let capacity_sum = 0;
                 for (let j = 1; j <= y; j++) {
                     const delta_cap_j = y > 0 ? (delta_cap_s[j - 1] || 0) : 0; // adjusted capacity added in year j
-                    // Target utilization for year j's capacity addition
-                    const util_j = (data.UTIL_y?.[j - 1] !== undefined) ? (data.UTIL_y[j - 1] / 100) : 0.80; // default 80%
 
-                    let util_j_y_m;
-                    if (j < y) {
-                        // Capacity added in previous years is fully ramped up to its target utilization
-                        util_j_y_m = util_j;
-                    } else {
-                        // Capacity added in the current year y (which is j) is currently ramping up month-by-month
-                        util_j_y_m = Math.min(util_j, (m + 1) * ramp_rate);
-                    }
+                    // UTIL_RAMP[(j-1)*12 + k] is the cumulative utilisation fraction at month k of
+                    // capacity-addition year j (always 120-cell after parsing). When j == y the
+                    // capacity is still ramping at month m; when j < y it sits at the December
+                    // value of year j's curve (the steady-state captured by the chart's last point).
+                    const idx = (j - 1) * 12 + (j < y ? 11 : m);
+                    const v = rampArr[idx];
+                    const util_j_y_m = (v === undefined || isNaN(v)) ? 0 : v / 100;
                     capacity_sum += delta_cap_j * util_j_y_m;
                 }
                 let p_it_proj_m = (P_IT[m] * Math.pow(1 + g_IT_s, y)) + capacity_sum;
@@ -417,26 +437,6 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
             const ccr = p_net_peak_proj_y > 0 ? totalContractVol / p_net_peak_proj_y : 1;
             results.CCR_ANNUAL_PROJ[s][y] = ccr * 100;
 
-            // --- REQUESTED SUMMARY CONSOLE LOG ---
-            const avg_it_load = results.P_IT_PROJ[s][y].reduce((a, b) => a + b, 0) / 12;
-            const avg_pue = results.PUE_PROJ[s][y].reduce((a, b) => a + b, 0) / 12;
-            const e_annual_gwh = e_annual_y / 1000;
-            const uncont_energy_gwh = (uncont_exp * lf * 8760) / 1000; // approximation
-            const baseload_thresh = p_net_peak_proj_y * 0.76;
-            const superpeak_thresh = p_net_peak_proj_y * 1.05;
-
-            console.log(`--- YEAR ${y} [${s}] SUMMARY ---
-Forecast IT load: ${avg_it_load.toFixed(2)} MW
-Forecast PUE: ${avg_pue.toFixed(3)}
-Forecast average net demand: ${p_net_avg_proj_y.toFixed(2)} MW
-Forecast peak demand: ${p_net_peak_proj_y.toFixed(2)} MW
-Forecast annual energy: ${e_annual_gwh.toFixed(1)} GWh
-Contracted capacity: ${totalContractVol} MW
-Peak uncontracted demand: ${uncont_exp.toFixed(2)} MW
-Approx. uncontracted energy: ${uncont_energy_gwh.toFixed(1)} GWh
-Baseload threshold: ${baseload_thresh.toFixed(2)} MW
-Super-peak threshold: ${superpeak_thresh.toFixed(2)} MW
---------------------------------`);
 
             const cov_min = data.COV_MIN || 70;
             if ((ccr * 100) < cov_min) {
@@ -478,7 +478,7 @@ export async function fetchAllFacilities(
         data: {
             ...row,
             DELTA_CAP_y: parseNumArray(row.DELTA_CAP_y),
-            UTIL_y: parseNumArray(row.UTIL_y),
+            UTIL_RAMP: parseUtilRamp(row.UTIL_RAMP, row.UTIL_y),
             PUE_y: parseNumArray(row.PUE_y),
             TEMP_AMB_monthly: parseNumArray(row.TEMP_AMB_monthly),
             contracts: typeof row.contracts === 'string'
@@ -511,7 +511,7 @@ export async function fetchFacilityData(buyerId: string): Promise<FacilityData |
     return {
         ...data,
         DELTA_CAP_y: parseNumArray(data.DELTA_CAP_y),
-        UTIL_y: parseNumArray(data.UTIL_y),
+        UTIL_RAMP: parseUtilRamp(data.UTIL_RAMP, data.UTIL_y),
         PUE_y: parseNumArray(data.PUE_y),
         TEMP_AMB_monthly: parseNumArray(data.TEMP_AMB_monthly),
         contracts: typeof data.contracts === 'string' ? JSON.parse(data.contracts) : (data.contracts || [])

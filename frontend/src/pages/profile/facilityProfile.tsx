@@ -19,7 +19,7 @@ type FacilityFormData = {
 
   // Section A — Facility Identity and Grid Connection
   FAC_ID: string;
-  STATE: string;
+  facility_location: string; // PostGIS EWKB hex string (SRID 4326 Point)
   ISO: string;
   UTIL: string;
   V_CONN: string;
@@ -43,7 +43,6 @@ type FacilityFormData = {
   // Section C — Capacity Expansion Plans
   DELTA_CAP_y: string;
   UTIL_RAMP: string;
-  UTIL_y: string;
   PUE_y: string;
   RE_GEN_y: string;
   BATT_ADD_y: string;
@@ -93,7 +92,7 @@ const INITIAL_FORM: FacilityFormData = {
   PUE_EXPECTED: '',
 
   FAC_ID: '',
-  STATE: '',
+  facility_location: '',
   ISO: '',
   UTIL: '',
   V_CONN: '',
@@ -114,7 +113,6 @@ const INITIAL_FORM: FacilityFormData = {
 
   DELTA_CAP_y: '',
   UTIL_RAMP: '',
-  UTIL_y: '',
   PUE_y: '',
   RE_GEN_y: '',
   BATT_ADD_y: '',
@@ -147,6 +145,10 @@ const INITIAL_FORM: FacilityFormData = {
 
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../services/supabase';
+import UtilRampCurveEditor, { YEARS as UTIL_RAMP_YEARS, YEAR_COLORS as UTIL_RAMP_YEAR_COLORS } from './UtilRampCurveEditor';
+import YearlyMetricCurveEditor from './YearlyMetricCurveEditor';
+import LocationAutocomplete from './LocationAutocomplete';
+import { toEwkbHex } from './ewkb';
 
 const inputCls =
   'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-teal-500';
@@ -172,7 +174,6 @@ const FIELD_RULES: Partial<Record<keyof FacilityFormData, FieldRule>> = {
   P_IT_START: { min: 0.01, max: 1000, msg: 'IT load at commissioning: 0.01 – 1,000 MW' },
   LF_ASSUMED: { min: 1, max: 100, msg: 'Load factor: 1 – 100 %' },
   PUE_EXPECTED: { min: 1.0, max: 4.0, msg: 'Expected PUE: 1.0 – 4.0' },
-  UTIL_RAMP: { min: 0, max: 100, msg: 'Utilisation ramp: 0 – 100 %' },
   g_IT: { min: -50, max: 200, msg: 'Growth rate: −50 – 200 %' },
   BUDGET: { min: 0, max: 2000, msg: 'Budget: $0 – $2,000/MWh' },
   RE_TARGET: { min: 0, max: 100, msg: 'RE target: 0 – 100 %' },
@@ -185,6 +186,28 @@ const FIELD_RULES: Partial<Record<keyof FacilityFormData, FieldRule>> = {
   REC_PRICE: { min: 0, max: 200, msg: 'REC price: $0 – $200/MWh' },
   CI_GRID: { min: 0, max: 1000, msg: 'Grid CI: 0 – 1,000 gCO₂/kWh' },
 };
+
+// Expand a legacy single-value UTIL_RAMP (e.g. "20") into a 120-cell linear
+// ramp matching the old calculation semantics: month m → min(cap, (m+1)*v),
+// where cap is the legacy UTIL_y[year] target (default 100). Repeats per year.
+// Already-120-cell values pass through unchanged.
+function expandLegacyUtilRamp(raw: string, utilYRaw: string): string {
+  if (!raw) return '';
+  const parts = raw.split(',').map(s => s.trim()).filter(s => s !== '');
+  if (parts.length !== 1) return raw;
+  const v = Number(parts[0]);
+  if (isNaN(v)) return '';
+  const utilYParts = utilYRaw ? utilYRaw.split(',').map(s => s.trim()) : [];
+  const expanded: string[] = [];
+  for (let y = 0; y < 10; y++) {
+    const capRaw = utilYParts[y];
+    const cap = capRaw && capRaw !== '' && !isNaN(Number(capRaw)) ? Number(capRaw) : 100;
+    for (let m = 0; m < 12; m++) {
+      expanded.push(String(Math.min(cap, (m + 1) * v)));
+    }
+  }
+  return expanded.join(', ');
+}
 
 // Map a raw DB row to FacilityFormData
 function dbRowToForm(row: any): FacilityFormData {
@@ -204,7 +227,7 @@ function dbRowToForm(row: any): FacilityFormData {
     LF_ASSUMED: toStr(row.LF_ASSUMED),
     PUE_EXPECTED: toStr(row.PUE_EXPECTED),
     FAC_ID: row.FAC_ID ?? '',
-    STATE: row.STATE ?? '',
+    facility_location: toEwkbHex(row.facility_location),
     ISO: row.ISO ?? '',
     UTIL: row.UTIL ?? '',
     V_CONN: toStr(row.V_CONN),
@@ -222,8 +245,7 @@ function dbRowToForm(row: any): FacilityFormData {
     BATT_CAP: toStr(row.BATT_CAP),
     HIST_MW: null,
     DELTA_CAP_y: toStr(row.DELTA_CAP_y),
-    UTIL_RAMP: toStr(row.UTIL_RAMP),
-    UTIL_y: toStr(row.UTIL_y),
+    UTIL_RAMP: expandLegacyUtilRamp(toStr(row.UTIL_RAMP), toStr(row.UTIL_y)),
     PUE_y: toStr(row.PUE_y),
     TEMP_AMB_monthly: toStr(row.TEMP_AMB_monthly),
     RE_GEN_y: toStr(row.RE_GEN_y),
@@ -260,6 +282,10 @@ export default function FacilityProfile() {
   const [facilities, setFacilities] = useState<{ id: string; name: string; row: any }[]>([]);
   const [activeFacilityId, setActiveFacilityId] = useState<string | null>(null);
   const [loadingFacilities, setLoadingFacilities] = useState(true);
+  // UTIL_RAMP chart legend/control state (lifted out of the chart so the legend
+  // can sit between the DELTA_CAP_y and UTIL_RAMP charts).
+  const [utilRampVisible, setUtilRampVisible] = useState<boolean[]>(() => Array(UTIL_RAMP_YEARS).fill(true));
+  const [utilRampPropagate, setUtilRampPropagate] = useState(false);
 
   useEffect(() => {
     if (!user?.id) { setLoadingFacilities(false); return; }
@@ -517,13 +543,12 @@ export default function FacilityProfile() {
               className={inputCls}
             />
           </Field>
-          <Field label="State" symbol="STATE">
-            <input
-              type="text"
-              placeholder="e.g. Virginia"
-              value={form.STATE}
-              onChange={(e) => setField('STATE', e.target.value)}
+          <Field label="Location" symbol="facility_location">
+            <LocationAutocomplete
+              value={form.facility_location}
+              onChange={(ewkb) => setField('facility_location', ewkb)}
               className={inputCls}
+              placeholder="Type a facility address…"
             />
           </Field>
           <Field label="ISO / RTO region" symbol="ISO">
@@ -846,171 +871,116 @@ export default function FacilityProfile() {
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned IT capacity additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>ΔCAP[y]</span>
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
-              {Array.from({ length: 10 }, (_, i) => {
-                const vals = form.DELTA_CAP_y ? form.DELTA_CAP_y.split(',') : [];
-                return (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0"
-                      value={vals[i]?.trim() || ''}
-                      onChange={(e) => {
-                        const arr = form.DELTA_CAP_y ? form.DELTA_CAP_y.split(',').map(s => s.trim()) : [];
-                        while (arr.length < 10) arr.push('');
-                        arr[i] = e.target.value;
-                        setField('DELTA_CAP_y', arr.join(', '));
-                      }}
-                      style={{
-                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
-                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
-                        fontFamily: 'Inter, sans-serif', outline: 'none',
-                      }}
-                    />
-                  </div>
-                );
-              })}
+            <YearlyMetricCurveEditor
+              value={form.DELTA_CAP_y}
+              onChange={(s) => setField('DELTA_CAP_y', s)}
+              color="#ec4899"
+              fillColor="rgba(236, 72, 153, 0.10)"
+              unit="MW"
+              step={0.1}
+              scaleType="logarithmic"
+              yMin={1}
+              yMaxAbsolute={10000}
+              userAdjustableMax
+            />
+          </div>
+          <div
+            className="md:col-span-2"
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: 8,
+              padding: '10px 14px',
+              background: '#fff',
+              fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', letterSpacing: 0.4, marginBottom: 8 }}>
+              LEGEND AND CONTROLS
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', rowGap: 6 }}>
+              {Array.from({ length: UTIL_RAMP_YEARS }, (_, y) => (
+                <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
+                  <input
+                    type="checkbox"
+                    checked={utilRampVisible[y]}
+                    onChange={() => setUtilRampVisible(prev => prev.map((v, i) => (i === y ? !v : v)))}
+                  />
+                  <span style={{ width: 12, height: 12, background: UTIL_RAMP_YEAR_COLORS[y].line, borderRadius: 2, display: 'inline-block' }} />
+                  Year {y + 1}
+                </label>
+              ))}
+              <div style={{ width: 1, height: 22, background: '#e2e8f0' }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
+                <input
+                  type="checkbox"
+                  checked={utilRampPropagate}
+                  onChange={() => setUtilRampPropagate(p => !p)}
+                />
+                Propagate Forward
+                <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 4 }}>
+                  (apply Δ to same month in later years)
+                </span>
+              </label>
             </div>
           </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
-              Planned capacity utilization by year (%) <span style={{ color: '#94a3b8', fontWeight: 400 }}>UTIL[y]</span>
+              Utilisation rate of new capacity at ramp per month (%) <span style={{ color: '#94a3b8', fontWeight: 400 }}>UTIL_RAMP[y,m]</span>
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
-              {Array.from({ length: 10 }, (_, i) => {
-                const vals = form.UTIL_y ? form.UTIL_y.split(',') : [];
-                return (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
-                    <input
-                      type="number"
-                      step="1"
-                      placeholder="80"
-                      value={vals[i]?.trim() || ''}
-                      onChange={(e) => {
-                        const arr = form.UTIL_y ? form.UTIL_y.split(',').map(s => s.trim()) : [];
-                        while (arr.length < 10) arr.push('');
-                        arr[i] = e.target.value;
-                        setField('UTIL_y', arr.join(', '));
-                      }}
-                      style={{
-                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
-                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
-                        fontFamily: 'Inter, sans-serif', outline: 'none',
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <Field label="Utilisation rate of new capacity at ramp per month (%)" symbol="UTIL_RAMP" error={errors.UTIL_RAMP}>
-            <input
-              type="number"
-              step="0.1"
-              placeholder="e.g. 85.0"
+            <UtilRampCurveEditor
               value={form.UTIL_RAMP}
-              onChange={(e) => setField('UTIL_RAMP', e.target.value)}
-              className={inputCls}
+              onChange={(s) => setField('UTIL_RAMP', s)}
+              visible={utilRampVisible}
+              propagateForward={utilRampPropagate}
             />
-          </Field>
+          </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned PUE improvement by year (fractional, e.g. 0.05 = 5%) <span style={{ color: '#94a3b8', fontWeight: 400 }}>PUE[y]</span>
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
-              {Array.from({ length: 10 }, (_, i) => {
-                const vals = form.PUE_y ? form.PUE_y.split(',') : [];
-                return (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0"
-                      value={vals[i]?.trim() || ''}
-                      onChange={(e) => {
-                        const arr = form.PUE_y ? form.PUE_y.split(',').map(s => s.trim()) : [];
-                        while (arr.length < 10) arr.push('');
-                        arr[i] = e.target.value;
-                        setField('PUE_y', arr.join(', '));
-                      }}
-                      style={{
-                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
-                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
-                        fontFamily: 'Inter, sans-serif', outline: 'none',
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <YearlyMetricCurveEditor
+              value={form.PUE_y}
+              onChange={(s) => setField('PUE_y', s)}
+              color="#10b981"
+              fillColor="rgba(16, 185, 129, 0.10)"
+              unit="fraction"
+              step={0.05}
+              yMaxAbsolute={1}
+              yTickStep={0.05}
+              userAdjustableMax
+            />
           </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned on-site renewable additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>RE_GEN[y]</span>
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
-              {Array.from({ length: 10 }, (_, i) => {
-                const vals = form.RE_GEN_y ? form.RE_GEN_y.split(',') : [];
-                return (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0"
-                      value={vals[i]?.trim() || ''}
-                      onChange={(e) => {
-                        const arr = form.RE_GEN_y ? form.RE_GEN_y.split(',').map(s => s.trim()) : [];
-                        while (arr.length < 10) arr.push('');
-                        arr[i] = e.target.value;
-                        setField('RE_GEN_y', arr.join(', '));
-                      }}
-                      style={{
-                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
-                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
-                        fontFamily: 'Inter, sans-serif', outline: 'none',
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <YearlyMetricCurveEditor
+              value={form.RE_GEN_y}
+              onChange={(s) => setField('RE_GEN_y', s)}
+              color="#f59e0b"
+              fillColor="rgba(245, 158, 11, 0.10)"
+              unit="MW"
+              step={0.1}
+              yMaxFloor={20}
+              yMaxAbsolute={200}
+              userAdjustableMax
+            />
           </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned battery storage additions by year (MWh) <span style={{ color: '#94a3b8', fontWeight: 400 }}>BATT_ADD[y]</span>
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
-              {Array.from({ length: 10 }, (_, i) => {
-                const vals = form.BATT_ADD_y ? form.BATT_ADD_y.split(',') : [];
-                return (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                    <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>Y{i + 1}</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      placeholder="0"
-                      value={vals[i]?.trim() || ''}
-                      onChange={(e) => {
-                        const arr = form.BATT_ADD_y ? form.BATT_ADD_y.split(',').map(s => s.trim()) : [];
-                        while (arr.length < 10) arr.push('');
-                        arr[i] = e.target.value;
-                        setField('BATT_ADD_y', arr.join(', '));
-                      }}
-                      style={{
-                        width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
-                        borderRadius: 6, padding: '4px 2px', fontSize: 12,
-                        fontFamily: 'Inter, sans-serif', outline: 'none',
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <YearlyMetricCurveEditor
+              value={form.BATT_ADD_y}
+              onChange={(s) => setField('BATT_ADD_y', s)}
+              color="#8b5cf6"
+              fillColor="rgba(139, 92, 246, 0.10)"
+              unit="MWh"
+              step={0.1}
+              yMaxFloor={50}
+              yMaxAbsolute={2000}
+              userAdjustableMax
+            />
           </div>
           <Field label="Organic IT load growth rate (%)" symbol="g_IT" error={errors.g_IT}>
             <input
