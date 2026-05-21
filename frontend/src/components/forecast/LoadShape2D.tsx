@@ -464,7 +464,14 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
 
           {baseContracts.length > 0 && (
             <LegendGroup title="Baseload Projects">
-              {baseContracts.map((c) => {
+              {baseContracts
+                .sort((a, b) => {
+                  const orderA = getGenerationTypeOrder(a.generationType)
+                  const orderB = getGenerationTypeOrder(b.generationType)
+                  if (orderA !== orderB) return orderA - orderB
+                  return b.mwCovered - a.mwCovered
+                })
+                .map((c) => {
                 const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
                 const startLabel = `${monthShort[c.startMonth - 1]} '${String(c.startYear).slice(-2)}`
                 const endLabel = `${monthShort[c.endMonth - 1]} '${String(c.endYear).slice(-2)}`
@@ -494,7 +501,14 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
 
           {peakContracts.length > 0 && (
             <LegendGroup title="Peaking Projects">
-              {peakContracts.map((c) => {
+              {peakContracts
+                .sort((a, b) => {
+                  const orderA = getGenerationTypeOrder(a.generationType)
+                  const orderB = getGenerationTypeOrder(b.generationType)
+                  if (orderA !== orderB) return orderA - orderB
+                  return b.mwCovered - a.mwCovered
+                })
+                .map((c) => {
                 const monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
                 const startLabel = `${monthShort[c.startMonth - 1]} '${String(c.startYear).slice(-2)}`
                 const endLabel = `${monthShort[c.endMonth - 1]} '${String(c.endYear).slice(-2)}`
