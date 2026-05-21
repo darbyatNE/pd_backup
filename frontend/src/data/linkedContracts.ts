@@ -45,7 +45,7 @@ export interface LinkedContract {
   pricePerMwh: number;     // blended contract price ($/MWh)
   shape: ContractShape;    // delivery profile
   tier: ContractTier;      // baseload tier (teal) vs peak tier (amber)
-  pattern: 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid';
+  pattern: 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag';
   // Active term: contract delivers from (startYear, startMonth) through
   // (endYear, endMonth) inclusive. Outside the term it contributes 0 MW.
   startYear: number;
@@ -79,15 +79,15 @@ export const LOAD_COLORS = {
 export const PATTERN_FG = '#1e293b'; // slate-800
 
 // Pattern mapping for each generation type - consistent across all contracts
-export const GENERATION_TYPE_PATTERNS: Record<string, 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid'> = {
+export const GENERATION_TYPE_PATTERNS: Record<string, 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag'> = {
   'Solar': 'dots',
-  'Wind': 'diagonal', 
+  'Wind': 'diagonal',
   'Nuclear': 'wave',
   'Hybrid': 'crosshatch',
   'Combined Cycle': 'vertical',
   'Peaker': 'grid',
-  'Battery': 'wave',
-  'Hydro': 'vertical', // For potential future Hydro support
+  'Battery': 'horizontal',
+  'Hydro': 'zigzag',
 };
 
 // Stacking order for generation types (bottom to top in stack)
@@ -103,7 +103,7 @@ export const GENERATION_TYPE_ORDER: string[] = [
 ];
 
 /** Get pattern for a generation type */
-export function getPatternForGenerationType(generationType: string): 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' {
+export function getPatternForGenerationType(generationType: string): 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag' {
   return GENERATION_TYPE_PATTERNS[generationType] || 'grid';
 }
 
@@ -700,7 +700,7 @@ export interface CapacitySource {
   sourceName: string;
   channel: CapacityChannel;
   mwCovered: number;
-  pattern: 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid';
+  pattern: 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag';
 }
 
 // Single solid color for the capacity bar; pattern foreground stays slate.

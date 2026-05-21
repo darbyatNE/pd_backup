@@ -12,7 +12,6 @@ import {
   isContractActiveAt,
 } from '../../data/linkedContracts'
 
-const DEFAULT_ANNUAL_GROWTH = 0.05
 
 interface CapacityBoxProps {
   profile: SiteLoadProfile
@@ -173,8 +172,8 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
         <div className="flex flex-col gap-0.5 min-w-[120px]">
           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">Annual Load</p>
           <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-sky-600 leading-none">{annualGwh}</span>
-            <span className="text-sm font-semibold text-sky-500">GWh</span>
+            <span className="text-3xl font-extrabold text-slate-900 leading-none">{annualGwh}</span>
+            <span className="text-sm font-semibold text-slate-700">GWh</span>
           </div>
           <p className="text-xs text-slate-400">
             {isSingleYear && chartActiveYear ? `for ${chartActiveYear}` : 'projected'}
@@ -221,8 +220,8 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
             Avg Contracted Price
           </p>
           <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-indigo-600 leading-none">${avgContractPrice.toFixed(2)}</span>
-            <span className="text-sm font-semibold text-indigo-500">/MWh</span>
+            <span className="text-3xl font-extrabold text-slate-900 leading-none">${avgContractPrice.toFixed(2)}</span>
+            <span className="text-sm font-semibold text-slate-700">/MWh</span>
           </div>
           <p className="text-xs text-slate-400">
             volume-weighted · {effectiveYear}

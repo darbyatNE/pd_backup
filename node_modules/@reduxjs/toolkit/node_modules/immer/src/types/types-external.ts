@@ -30,12 +30,25 @@ type WeakReferences = IfAvailable<WeakMap<any, any>> | IfAvailable<WeakSet<any>>
 
 export type WritableDraft<T> = T extends any[]
 	? number extends T["length"]
-		? Draft<T[number]>[]
+		? IsPlainArray<T> extends true
+			? Draft<T[number]>[]
+			: WritableNonArrayDraft<T>
 		: WritableNonArrayDraft<T>
 	: WritableNonArrayDraft<T>
 
+/**
+ * Distinguishes plain array types (`number[]`, `readonly string[]`, etc.) from
+ * tuple types — including variadic tuples like `[boolean, ...number[]]` — whose
+ * `length` is also `number` but must not be widened to `Element[]`.
+ */
+type IsPlainArray<T extends readonly any[]> = T extends readonly (infer U)[]
+	? U[] extends T
+		? true
+		: false
+	: false
+
 type WritableNonArrayDraft<T> = {
-	-readonly [K in keyof T]: T[K] extends infer V
+	-readonly [K in keyof T]: {_: T[K]} extends {_: infer V}
 		? V extends object
 			? Draft<V>
 			: V

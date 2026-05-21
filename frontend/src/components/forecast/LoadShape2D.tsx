@@ -18,13 +18,12 @@ import type { SiteLoadProfile } from '../../data/loadProfile'
 import {
   contractMwForHourAvgInYear,
   contractMwForMonthInYear,
-  patternId,
   LOAD_COLORS,
   PATTERN_FG,
   getGenerationTypeOrder,
+  GENERATION_TYPE_ORDER,
 } from '../../data/linkedContracts'
-import { GENERATION_TYPE_ORDER } from '../../data/linkedContracts'
-import type { LinkedContract, ContractTier } from '../../data/linkedContracts'
+import type { LinkedContract } from '../../data/linkedContracts'
 
 const OVERHEDGE_PATTERN_ID = 'pat-overhedge'
 
@@ -56,50 +55,9 @@ function getMapIconSvg(generationType: string): string {
   }
 }
 
-function PatternDef({ c, tier }: { c: LinkedContract; tier: ContractTier }) {
-  const id = patternId(c, tier)
-  const fg = PATTERN_FG
-  switch (c.pattern) {
-    case 'diagonal':
-      return (
-        <pattern id={id} patternUnits="userSpaceOnUse" width="7" height="7">
-          <path d="M0,7 L7,0 M-1,1 L1,-1 M6,8 L8,6" stroke={fg} strokeWidth="1.3" />
-        </pattern>
-      )
-    case 'dots':
-      return (
-        <pattern id={id} patternUnits="userSpaceOnUse" width="6" height="6">
-          <circle cx="3" cy="3" r="1.3" fill={fg} />
-        </pattern>
-      )
-    case 'crosshatch':
-      return (
-        <pattern id={id} patternUnits="userSpaceOnUse" width="8" height="8">
-          <path d="M0,8 L8,0" stroke={fg} strokeWidth="1" />
-          <path d="M0,0 L8,8" stroke={fg} strokeWidth="1" />
-        </pattern>
-      )
-    case 'vertical':
-      return (
-        <pattern id={id} patternUnits="userSpaceOnUse" width="5" height="5">
-          <line x1="2.5" y1="0" x2="2.5" y2="5" stroke={fg} strokeWidth="1.4" />
-        </pattern>
-      )
-    case 'wave':
-      return (
-        <pattern id={id} patternUnits="userSpaceOnUse" width="10" height="6">
-          <path d="M0,3 Q2.5,0 5,3 T10,3" fill="none" stroke={fg} strokeWidth="1.2" />
-        </pattern>
-      )
-    case 'grid':
-      return (
-        <pattern id={id} patternUnits="userSpaceOnUse" width="6" height="6">
-          <path d="M0,0 L6,0 M0,3 L6,3 M0,0 L0,6 M3,0 L3,6" stroke={fg} strokeWidth="0.7" />
-        </pattern>
-      )
-    default:
-      return null
-  }
+/** Stable pattern ID by gen type — shared by chart bars and legend swatches */
+export function genTypePatternId(generationType: string): string {
+  return `pat-gentype-${generationType.replace(/[^a-zA-Z0-9]+/g, '-')}`
 }
 
 function OverhedgePatternDef() {
@@ -108,6 +66,23 @@ function OverhedgePatternDef() {
       <rect width="8" height="8" fill="#fecaca" />
       <path d="M0,8 L8,0 M-1,1 L1,-1 M7,9 L9,7" stroke="#b91c1c" strokeWidth="2" />
     </pattern>
+  )
+}
+
+/** One <pattern> per gen type — used by both chart bars and legend swatches */
+function AllPatternDefs() {
+  const fg = PATTERN_FG
+  return (
+    <>
+      <pattern id={genTypePatternId('Solar')}          patternUnits="userSpaceOnUse" width="6"  height="6"><circle cx="3" cy="3" r="1.3" fill={fg} /></pattern>
+      <pattern id={genTypePatternId('Wind')}           patternUnits="userSpaceOnUse" width="7"  height="7"><path d="M0,7 L7,0 M-1,1 L1,-1 M6,8 L8,6" stroke={fg} strokeWidth="1.3" /></pattern>
+      <pattern id={genTypePatternId('Hydro')}          patternUnits="userSpaceOnUse" width="10" height="6"><path d="M0,3 L2.5,0 L5,3 L7.5,6 L10,3" fill="none" stroke={fg} strokeWidth="1.2" /></pattern>
+      <pattern id={genTypePatternId('Nuclear')}        patternUnits="userSpaceOnUse" width="10" height="6"><path d="M0,3 Q2.5,0 5,3 T10,3" fill="none" stroke={fg} strokeWidth="1.2" /></pattern>
+      <pattern id={genTypePatternId('Hybrid')}         patternUnits="userSpaceOnUse" width="8"  height="8"><path d="M0,8 L8,0" stroke={fg} strokeWidth="1" /><path d="M0,0 L8,8" stroke={fg} strokeWidth="1" /></pattern>
+      <pattern id={genTypePatternId('Combined Cycle')} patternUnits="userSpaceOnUse" width="5"  height="5"><line x1="2.5" y1="0" x2="2.5" y2="5" stroke={fg} strokeWidth="1.4" /></pattern>
+      <pattern id={genTypePatternId('Peaker')}         patternUnits="userSpaceOnUse" width="6"  height="6"><path d="M0,0 L6,0 M0,3 L6,3 M0,0 L0,6 M3,0 L3,6" stroke={fg} strokeWidth="0.7" /></pattern>
+      <pattern id={genTypePatternId('Battery')}        patternUnits="userSpaceOnUse" width="6"  height="5"><line x1="0" y1="2.5" x2="6" y2="2.5" stroke={fg} strokeWidth="1.4" /></pattern>
+    </>
   )
 }
 
@@ -131,44 +106,12 @@ function makePatternedBarShape(loadColor: string, patternUrl: string) {
   }
 }
 
-function PatternDefsLayer({ contracts }: { contracts: LinkedContract[] }) {
+function PatternDefsLayer() {
   return (
     <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
       <defs>
-        {contracts.map((c) => (
-          <Fragment key={c.projectName}>
-            <PatternDef c={c} tier="base" />
-            <PatternDef c={c} tier="peak" />
-          </Fragment>
-        ))}
+        <AllPatternDefs />
         <OverhedgePatternDef />
-        
-        {/* Simple patterns for generation type legend */}
-        <pattern id="solar-pattern" patternUnits="userSpaceOnUse" width="6" height="6">
-          <circle cx="3" cy="3" r="1.3" fill="#f59e0b" />
-        </pattern>
-        <pattern id="wind-pattern" patternUnits="userSpaceOnUse" width="7" height="7">
-          <path d="M0,7 L7,0 M-1,1 L1,-1 M6,8 L8,6" stroke="#0ea5e9" strokeWidth="1.3" />
-        </pattern>
-        <pattern id="hydro-pattern" patternUnits="userSpaceOnUse" width="10" height="6">
-          <path d="M0,3 Q2.5,0 5,3 T10,3" fill="none" stroke="#06b6d4" strokeWidth="1.2" />
-        </pattern>
-        <pattern id="nuclear-pattern" patternUnits="userSpaceOnUse" width="8" height="8">
-          <circle cx="4" cy="4" r="2" fill="#8b5cf6" />
-        </pattern>
-        <pattern id="hybrid-pattern" patternUnits="userSpaceOnUse" width="8" height="8">
-          <path d="M0,8 L8,0" stroke="#06b6d4" strokeWidth="1" />
-          <path d="M0,0 L8,8" stroke="#06b6d4" strokeWidth="1" />
-        </pattern>
-        <pattern id="combinedcycle-pattern" patternUnits="userSpaceOnUse" width="12" height="12">
-          <circle cx="6" cy="6" r="2.5" fill="#1e293b" />
-        </pattern>
-        <pattern id="peaker-pattern" patternUnits="userSpaceOnUse" width="6" height="6">
-          <path d="M0,0 L6,0 M0,3 L6,3 M0,0 L0,6 M3,0 L3,6" stroke="#ef4444" strokeWidth="0.7" />
-        </pattern>
-        <pattern id="battery-pattern" patternUnits="userSpaceOnUse" width="6" height="6">
-          <path d="M0,6 L6,0 M-1,1 L1,-1 M5,7 L7,5" stroke="#10b981" strokeWidth="1.3" />
-        </pattern>
       </defs>
     </svg>
   )
@@ -286,7 +229,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       overhedge: -r1(totalOverhedge),
       _year: year,
     }
-    contracts.forEach((c, i) => {
+    sortedContracts.forEach((c, i) => {
       const k = contractKey(c.projectName)
       row[`c_${k}_base`] = r1(cBase[i])
       row[`c_${k}_peak`] = r1(cPeak[i])
@@ -406,7 +349,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
         {generationType ? (
           <>
             <rect width="16" height="16" fill="white" stroke="#e2e8f0" strokeWidth="0.5"/>
-            <rect width="16" height="16" fill={`url(#${generationType.toLowerCase().replace(' ', '')}-pattern)`} opacity="0.8"/>
+            <rect width="16" height="16" fill={`url(#${genTypePatternId(generationType)})`} opacity="0.8"/>
           </>
         ) : (
           <>
@@ -445,7 +388,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
 
   return (
     <div className="flex gap-4">
-      <PatternDefsLayer contracts={contracts} />
+      <PatternDefsLayer />
 
       {/* Legend - Left Side with Columns */}
       <div className="flex-shrink-0 text-xs border-r border-slate-200 pr-4">
@@ -485,7 +428,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                   <ContractLegendItem
                     key={c.projectName}
                     color={LOAD_COLORS.base}
-                    pattern={`url(#${patternId(c)})`}
+                    pattern={`url(#${genTypePatternId(c.generationType)})`}
                     name={baseName}
                     sites={sites}
                     mw={c.mwCovered}
@@ -522,7 +465,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                   <ContractLegendItem
                     key={c.projectName}
                     color={LOAD_COLORS.peak}
-                    pattern={`url(#${patternId(c)})`}
+                    pattern={`url(#${genTypePatternId(c.generationType)})`}
                     name={baseName}
                     sites={sites}
                     mw={c.mwCovered}
@@ -606,7 +549,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                     dataKey={`c_${k}_base`}
                     stackId="load"
                     fill={LOAD_COLORS.base}
-                    shape={makePatternedBarShape(LOAD_COLORS.base, `url(#${patternId(c, 'base')})`)}
+                    shape={makePatternedBarShape(LOAD_COLORS.base, `url(#${genTypePatternId(c.generationType)})`)}  
                     name={c.projectName}
                     isAnimationActive={false}
                   />
@@ -614,7 +557,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                     dataKey={`c_${k}_peak`}
                     stackId="load"
                     fill={LOAD_COLORS.peak}
-                    shape={makePatternedBarShape(LOAD_COLORS.peak, `url(#${patternId(c, 'peak')})`)}
+                    shape={makePatternedBarShape(LOAD_COLORS.peak, `url(#${genTypePatternId(c.generationType)})`)}  
                     name={c.projectName}
                     isAnimationActive={false}
                   />
@@ -671,7 +614,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                 <div key={genType} className="flex items-center gap-2">
                   <svg width="20" height="12" className="flex-shrink-0">
                     <rect width="20" height="12" fill="white" stroke="#e2e8f0" strokeWidth="0.5"/>
-                    <rect width="20" height="12" fill={`url(#${genType.toLowerCase().replace(' ', '')}-pattern)`} opacity="0.8"/>
+                    <rect width="20" height="12" fill={`url(#${genTypePatternId(genType)})`} opacity="0.8"/>
                   </svg>
                   <span className="text-slate-600 font-medium">{genType}</span>
                 </div>
