@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   fetchAllFacilities,
   calculateMultiYearForecast,
-  calculateHourlyLoad,
+  calculateHourlyForecast,
   currentLoadDemand,
   type FacilityData,
   type ForecastResult,
   type Scenario,
 } from './loadCalculation';
+import { ewkbToPoint } from './ewkb';
+import { useHourlyArchive } from '../../hooks/useHourlyArchive';
 import {
   LOAD_PROFILES,
   LOAD_PROFILE_MAP,
@@ -207,6 +209,9 @@ export default function LoadForcast() {
   const [xAxisMode, setXAxisMode] = useState<XAxisMode>('months');
   const [horizon, setHorizon] = useState<Horizon>(3);
   const [scenario, setScenario] = useState<Scenario>('BASE');
+  // Percentile of hourly P_NET that splits the load-shape stack: hours at or
+  // below this percentile become baseload; the excess becomes peak.
+  const [thresholdPct, setThresholdPct] = useState<number>(25);
 
   const { user } = useAuth();
   const [facilities, setFacilities] = useState<FacilityEntry[]>([]);
@@ -225,7 +230,6 @@ export default function LoadForcast() {
       if (list.length > 0) {
         setActiveFacilityId(list[0].id);
         setFacilityData(list[0].data);
-        console.log(list[0].data, 'list[0].data');
         setForecast(calculateMultiYearForecast(list[0].data));
       }
       setLoading(false);
@@ -237,8 +241,41 @@ export default function LoadForcast() {
     setActiveFacilityId(fac.id);
     setFacilityData(fac.data);
     setForecast(calculateMultiYearForecast(fac.data));
-    console.log(calculateMultiYearForecast(fac.data), 'calculateMultiYearForecast(fac.data)');
   };
+
+  // Open-Meteo ERA5 archive: most recent completed calendar year of hourly
+  // temperatures at the facility coordinates. Falls back to TEMP_AMB_monthly
+  // until the archive resolves (or if the facility has no location).
+  const facilityPoint = useMemo(
+    () => (facilityData?.facility_location ? ewkbToPoint(facilityData.facility_location) : null),
+    [facilityData?.facility_location],
+  );
+  const archiveYear = new Date().getUTCFullYear() - 1;
+  const { data: tempAmbHourly } = useHourlyArchive(facilityPoint, archiveYear);
+
+  // Hourly P_NET for year 0 of the BASE scenario. Cooling varies hour-by-hour
+  // with ambient temperature via the pPUE polynomial; P_IT is flat at the
+  // monthly mean within each month. See loadCalculation.calculateHourlyForecast.
+  // Computed before any early return so hook order stays stable across renders.
+  const hourly = useMemo(() => {
+    if (!facilityData || !forecast || !forecast.P_IT_PROJ['BASE']) return null;
+    return calculateHourlyForecast({
+      pItMonthly: forecast.P_IT_PROJ['BASE'][0],
+      pFac: facilityData.P_FAC,
+      pGen: facilityData.GEN_CAP,
+      tempAmbHourly: tempAmbHourly ?? undefined,
+      tempAmbMonthly: facilityData.TEMP_AMB_monthly,
+    });
+  }, [facilityData, forecast, tempAmbHourly]);
+
+  // Threshold (MW) is the chosen percentile of the 8760-point pNet series.
+  // Hours at or below it become baseload; the excess becomes peak.
+  const thresholdMw = useMemo(() => {
+    if (!hourly) return 0;
+    const sorted = [...hourly.pNet].sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((thresholdPct / 100) * (sorted.length - 1))));
+    return sorted[idx] ?? 0;
+  }, [hourly, thresholdPct]);
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading forecast data...</div>;
   if (!facilityData) return <div className="p-8 text-sm text-rose-500">No facility profile found. Please complete the Facility Profile first.</div>;
@@ -254,28 +291,26 @@ export default function LoadForcast() {
       ? profiles[0]
       : aggregateProfiles(profiles);
 
-  if (forecast && forecast.P_NET_AVG_MONTH['BASE']) {
-    const monthlyNetLoad = forecast.P_NET_AVG_MONTH['BASE'][0] || Array(12).fill(0);
-    const hourlyLoad = calculateHourlyLoad(monthlyNetLoad);
+  if (hourly) {
+    // monthStarts[m] = hour-of-year index where month m begins (Jan=0, Feb=744, …).
     const monthStarts = [0];
     for (let i = 0; i < 11; i++) {
       monthStarts.push(monthStarts[i] + HOURS_PER_MONTH[i]);
     }
 
-    // Use the monthly dynamic load for the load shape plot
-    const lf = facilityData.LF_ASSUMED ? facilityData.LF_ASSUMED / 100 : 0.82;
-
     profile = {
       ...profile,
       loadShape: profile.loadShape.map(pt => {
         const m = pt.month - 1;
-        const baseloadMw = monthlyNetLoad[m] || 0;
-        const totalMw = baseloadMw / lf;
+        // pt.hour is hour-of-day (0-23). Sample the corresponding hour from the
+        // 8760-point hourly series at the first day of each month.
+        const idx = monthStarts[m] + pt.hour;
+        const v = hourly.pNet[idx] ?? 0;
         return {
           ...pt,
-          baseloadMw: baseloadMw,
-          totalMw: totalMw,
-          peakMw: Math.max(0, totalMw - baseloadMw),
+          baseloadMw: Math.min(v, thresholdMw),
+          peakMw: Math.max(0, v - thresholdMw),
+          totalMw: v,
         };
       }),
     };
@@ -329,13 +364,47 @@ export default function LoadForcast() {
               {xAxisMode === 'months' ? 'Monthly average baseload & peak (MW)' : 'Hourly profile — representative day (Jan)'}
             </p>
           </div>
-          <PillToggle<XAxisMode>
-            options={['months', 'hours']}
-            value={xAxisMode}
-            onChange={setXAxisMode}
-            labelFn={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
-            idPrefix="shape-toggle"
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {hourly && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label
+                  htmlFor="shape-threshold-slider"
+                  style={{ fontSize: 11, color: '#64748b', fontFamily: 'Inter, sans-serif', fontWeight: 500, whiteSpace: 'nowrap' }}
+                >
+                  Baseload ≤
+                </label>
+                <input
+                  id="shape-threshold-slider"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={thresholdPct}
+                  onChange={(e) => setThresholdPct(Number(e.target.value))}
+                  style={{ width: 120, accentColor: '#6366f1' }}
+                />
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: '#64748b',
+                    fontFamily: 'Inter, sans-serif',
+                    fontVariantNumeric: 'tabular-nums',
+                    minWidth: 96,
+                    textAlign: 'right',
+                  }}
+                >
+                  {thresholdMw.toFixed(2)} MW (p{thresholdPct})
+                </span>
+              </div>
+            )}
+            <PillToggle<XAxisMode>
+              options={['months', 'hours']}
+              value={xAxisMode}
+              onChange={setXAxisMode}
+              labelFn={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
+              idPrefix="shape-toggle"
+            />
+          </div>
         </div>
         <LoadShapePlot profile={profile} xAxisMode={xAxisMode} />
       </div>

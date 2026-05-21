@@ -52,4 +52,26 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+router.delete('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        console.log(`Deleting datacenter ${id}`);
+
+        const { error } = await supabase
+            .from('data_centers')
+            .delete()
+            .eq('id', id);
+
+        if (error) {
+            console.error('Delete error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        res.status(200).json({ message: 'Datacenter profile deleted successfully' });
+    } catch (err) {
+        console.error('Internal server error:', err);
+        res.status(500).json({ error: 'Failed to delete datacenter details' });
+    }
+});
+
 export default router;

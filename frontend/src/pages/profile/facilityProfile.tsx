@@ -148,6 +148,7 @@ import { supabase } from '../../services/supabase';
 import UtilRampCurveEditor, { YEARS as UTIL_RAMP_YEARS, YEAR_COLORS as UTIL_RAMP_YEAR_COLORS } from './UtilRampCurveEditor';
 import YearlyMetricCurveEditor from './YearlyMetricCurveEditor';
 import LocationAutocomplete from './LocationAutocomplete';
+import WeatherPanel from './WeatherPanel';
 import { toEwkbHex } from './ewkb';
 
 const inputCls =
@@ -453,6 +454,32 @@ export default function FacilityProfile() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!activeFacilityId) return;
+    const facName = facilities.find((f) => f.id === activeFacilityId)?.name || 'this facility';
+    if (!window.confirm(`Delete "${facName}"? This cannot be undone.`)) return;
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || '/api';
+      const response = await fetch(`${API_URL}/datacenters/${activeFacilityId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('Failed to delete from database');
+      const remaining = facilities.filter((f) => f.id !== activeFacilityId);
+      setFacilities(remaining);
+      setErrors({});
+      if (remaining.length > 0) {
+        setActiveFacilityId(remaining[0].id);
+        setFormRaw(dbRowToForm(remaining[0].row));
+      } else {
+        setActiveFacilityId(null);
+        setFormRaw(INITIAL_FORM);
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert('Error deleting facility');
+    }
+  };
+
   if (loadingFacilities) {
     return <div className="p-8 text-sm text-slate-500">Loading facilities...</div>;
   }
@@ -616,6 +643,17 @@ export default function FacilityProfile() {
         </div>
       </section>
 
+      {/* Weather forecast at facility coordinates */}
+      <WeatherPanel
+        facilityLocation={form.facility_location}
+        facilityStatus={form.FACILITY_STATUS}
+        itLoadMw={form.IT_LOAD === '' ? null : Number(form.IT_LOAD)}
+        pItStartMw={form.P_IT_START === '' ? null : Number(form.P_IT_START)}
+        measurementPoint={form.MEASUREMENT_POINT}
+        etaUpsPct={form.ETA_UPS === '' ? null : Number(form.ETA_UPS)}
+        etaPduPct={form.ETA_PDU === '' ? null : Number(form.ETA_PDU)}
+      />
+
       {/* Section B */}
       <section className={sectionCls}>
         <h2 className="text-xl font-bold text-slate-900 mb-1">
@@ -773,87 +811,17 @@ export default function FacilityProfile() {
                 />
               </Field>
               <Field label="Expected Annual PUE" symbol="PUE_EXPECTED" error={errors.PUE_EXPECTED}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="e.g. 1.35"
-                    value={form.PUE_EXPECTED}
-                    onChange={(e) => setField('PUE_EXPECTED', e.target.value)}
-                    className={inputCls}
-                  />
-                  {form.PUE_EXPECTED && (
-                    <button
-                      type="button"
-                      onClick={() => setField('PUE_EXPECTED', '')}
-                      style={{ fontSize: 12, color: '#0d9488', textDecoration: 'underline', whiteSpace: 'nowrap', fontWeight: 500 }}
-                    >
-                      Use Ambient Temps
-                    </button>
-                  )}
-                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="e.g. 1.35"
+                  value={form.PUE_EXPECTED}
+                  onChange={(e) => setField('PUE_EXPECTED', e.target.value)}
+                  className={inputCls}
+                />
               </Field>
             </div>
-            {!form.PUE_EXPECTED && (
-              <div className="mt-4 md:col-span-3">
-                <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
-                  Ambient Temperature (°C) - Fill 12 months to compute temperature-dependent PUE
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 6 }}>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const vals = form.TEMP_AMB_monthly ? form.TEMP_AMB_monthly.split(',') : [];
-                    return (
-                      <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
-                        <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'Inter, sans-serif', fontWeight: 600 }}>M{i + 1}</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="0"
-                          value={vals[i]?.trim() || ''}
-                          onChange={(e) => {
-                            const arr = form.TEMP_AMB_monthly ? form.TEMP_AMB_monthly.split(',').map(s => s.trim()) : [];
-                            while (arr.length < 12) arr.push('');
-                            arr[i] = e.target.value;
-                            setField('TEMP_AMB_monthly', arr.join(', '));
-                          }}
-                          style={{
-                            width: '100%', textAlign: 'center', border: '1px solid #e2e8f0',
-                            borderRadius: 6, padding: '4px 2px', fontSize: 12,
-                            fontFamily: 'Inter, sans-serif', outline: 'none',
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-                {(() => {
-                  const arrStr = form.TEMP_AMB_monthly ? form.TEMP_AMB_monthly.split(',') : [];
-                  if (arrStr.length === 12 && arrStr.every(s => s.trim() !== '')) {
-                    const temps = arrStr.map(s => Number(s.trim()));
-                    const calcPPUE = (T: number) => 7.1705e-5 * T * T + 0.0041 * T + 1.0743;
-                    const avgPPUE = temps.reduce((acc, t) => acc + calcPPUE(t), 0) / 12;
-                    const pit = Number(form.P_IT_START) || 1;
-                    const pfac = Number(form.P_FAC) || 0;
-                    const avgPUE = avgPPUE + (pfac / pit);
-                    return (
-                      <div style={{ marginTop: 12, textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setField('PUE_EXPECTED', avgPUE.toFixed(3));
-                          }}
-                          style={{ padding: '6px 12px', backgroundColor: '#0f172a', color: '#fff', borderRadius: 6, fontSize: 13, fontWeight: 500 }}
-                        >
-                          Auto-fill Expected PUE ({avgPUE.toFixed(3)})
-                        </button>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-            )}
-            </div>
+          </div>
         )}
       </section>
 
@@ -1332,18 +1300,39 @@ export default function FacilityProfile() {
         </div>
       </section>
 
-      <div className="flex items-center justify-end gap-3 pb-6">
-        {submitted && (
-          <span className="text-sm text-teal-700">
-            Facility profile saved.
-          </span>
-        )}
-        <button
-          type="submit"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 transition-colors"
-        >
-          Save Facility Profile
-        </button>
+      <div className="flex items-center justify-between gap-3 pb-6">
+        <div>
+          {activeFacilityId !== null && (
+            <button
+              type="button"
+              id="facility-delete"
+              onClick={handleDelete}
+              className="inline-flex items-center gap-1.5 rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors"
+              style={{
+                background: '#dbeafe',
+                color: '#1d4ed8',
+                border: '1px solid #93c5fd',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#bfdbfe'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#dbeafe'; }}
+            >
+              Delete Facility
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {submitted && (
+            <span className="text-sm text-teal-700">
+              Facility profile saved.
+            </span>
+          )}
+          <button
+            type="submit"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 transition-colors"
+          >
+            Save Facility Profile
+          </button>
+        </div>
       </div>
     </form>
   );

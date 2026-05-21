@@ -14,6 +14,7 @@ export interface FacilityData {
     P_IT_START: number;
     LF_ASSUMED: number;
     PUE_EXPECTED: number;
+    facility_location?: string; // PostGIS EWKB hex (SRID 4326 Point)
 
     IT_LOAD: number;
     IT_CAP: number;
@@ -169,17 +170,78 @@ export function calculateHourlyLoad(monthlyNetLoad: number[], lf_assumed: number
     return hourlyLoad;
 }
 
-export function calculateMonthlyLoad(monthlyNetLoad: number[], lf_assumed: number = 0.85): number[] {
-    const monthlyLoad: number[] = [];
-    for (let m = 0; m < 12; m++) {
-        const avgNetLoad = monthlyNetLoad[m] || 0;
-        const peakDemand = avgNetLoad / lf_assumed;
-        monthlyLoad.push(peakDemand);
-    }
-    return monthlyLoad;
-}
 function calcPPUE(T: number): number {
     return 7.1705e-5 * T * T + 0.0041 * T + 1.0743;
+}
+
+export interface HourlyForecastInputs {
+    // Primary: 12 monthly IT load values, MW. Pass forecast.P_IT_PROJ['BASE'][0]
+    // for the current year, or P_IT_PROJ[s][y] for any (scenario, year) cell.
+    pItMonthly: number[];
+    pFac?: number;                // Flat facility/aux load, MW.
+    pGen?: number;                // Flat onsite generation capacity, MW.
+    tempAmbHourly?: number[];     // 8760 °C — preferred when available (e.g. Open-Meteo archive).
+    tempAmbMonthly?: number[];    // 12 °C — fallback if hourly absent; expanded across each month.
+    pGenHourly?: number[];        // Optional 8760 MW generation profile, overrides pGen per hour.
+}
+
+export interface HourlyForecastResult {
+    pIt: number[];        // 8760
+    ppue: number[];       // 8760
+    pCooling: number[];   // 8760
+    pGross: number[];     // 8760
+    pGen: number[];       // 8760
+    pNet: number[];       // 8760
+}
+
+// Hourly forecast of net grid import for a single (scenario, year) given that
+// scenario-year's monthly P_IT. Within each month P_IT is held flat at the
+// monthly mean; cooling varies hour-by-hour with ambient temperature through
+// the pPUE polynomial. BESS dispatch is 0 to match calculateMultiYearForecast.
+export function calculateHourlyForecast(inputs: HourlyForecastInputs): HourlyForecastResult {
+    const totalHours = HOURS_PER_MONTH.reduce((s, v) => s + v, 0); // 8760
+
+    const monthStarts: number[] = [0];
+    for (let i = 0; i < 11; i++) monthStarts.push(monthStarts[i] + HOURS_PER_MONTH[i]);
+
+    const pFac = inputs.pFac ?? 0;
+    const pGenFlat = inputs.pGen ?? 0;
+    const hasHourlyTemp = !!(inputs.tempAmbHourly && inputs.tempAmbHourly.length >= totalHours);
+    const hasMonthlyTemp = !!(inputs.tempAmbMonthly && inputs.tempAmbMonthly.length === 12);
+
+    const pIt = new Array<number>(totalHours);
+    const ppue = new Array<number>(totalHours);
+    const pCooling = new Array<number>(totalHours);
+    const pGross = new Array<number>(totalHours);
+    const pGen = new Array<number>(totalHours);
+    const pNet = new Array<number>(totalHours);
+
+    for (let m = 0; m < 12; m++) {
+        const pItM = inputs.pItMonthly[m] || 0;
+        const hours = HOURS_PER_MONTH[m];
+        for (let i = 0; i < hours; i++) {
+            const h = monthStarts[m] + i;
+            const T = hasHourlyTemp
+                ? inputs.tempAmbHourly![h]
+                : hasMonthlyTemp
+                    ? inputs.tempAmbMonthly![m]
+                    : 0;
+            const ppueH = calcPPUE(T);
+            const coolH = pItM * (ppueH - 1);
+            const grossH = pItM + coolH + pFac;
+            const genH = inputs.pGenHourly?.[h] ?? pGenFlat;
+            const netH = Math.max(0, grossH - genH);
+
+            pIt[h] = pItM;
+            ppue[h] = ppueH;
+            pCooling[h] = coolH;
+            pGross[h] = grossH;
+            pGen[h] = genH;
+            pNet[h] = netH;
+        }
+    }
+
+    return { pIt, ppue, pCooling, pGross, pGen, pNet };
 }
 
 export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
@@ -390,6 +452,7 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 const p_bess_ch = 0; // Battery Energy Storage System (BESS) average charging power (in MW)
                 const p_net_avg = Math.max(0, p_gross_proj_m - p_gen_avg - p_bess_dis + p_bess_ch); // Net grid import (in MW) after offsetting gross demand with onsite generation and BESS
                 results.P_NET_AVG_MONTH[s][y][m] = p_net_avg;
+                console.log('p_net_avg', p_net_avg);
 
                 p_net_avg_sum += p_net_avg;
 
