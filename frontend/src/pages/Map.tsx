@@ -4,6 +4,7 @@ import { supabase } from '../services/supabase';
 import { getZoneCoords } from '../utils/pjmZones';
 import TryOnOverlay from '../components/TryOnOverlay';
 import { useScopeContext } from '../contexts/ScopeContext';
+import { getLmpPeriodType, LMP_HISTORY_START, LMP_PERIODS_ALL, buildSimulatedLmpMap } from '../data/lmpData';
 import type { Project, GenerationType } from '../types';
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
@@ -135,8 +136,8 @@ const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct',
 // Map pnode_id → total_lmp for the selected month
 type LmpMap = Map<number, number>;
 
-export default function MapPage({ inline = false }: { inline?: boolean }) {
-  const { selectedSites, startYear, startMonth, endYear, endMonth, setEndDate } = useScopeContext();
+export default function MapPage() {
+  const { selectedSites, endYear, endMonth, setEndDate } = useScopeContext();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<Map<string, maplibregl.Marker>>(new Map());
@@ -180,6 +181,13 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
     return saved !== null ? JSON.parse(saved) : true;
   });
   const [lmpPrices, setLmpPrices] = useState<LmpMap>(new Map());
+  const [selectedZoneName, setSelectedZoneName] = useState<string | null>(null);
+  const selectedZoneNameRef = useRef<string | null>(null);
+  selectedZoneNameRef.current = selectedZoneName;
+  const zonePnodesRef = useRef<Set<number>>(new Set());
+  const pnodesByZoneRef = useRef<Record<string, number[]>>({});
+  const [selectedPnode, setSelectedPnode] = useState<{ id: number; name: string } | null>(null);
+  const lmpPricesRef = useRef<LmpMap>(new Map());
   const [legendMode, setLegendMode] = useState<'gen' | 'lmp'>(() => {
     const saved = localStorage.getItem('map-legendMode');
     return saved !== null ? JSON.parse(saved) : 'gen';
@@ -193,16 +201,18 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
     return saved !== null ? JSON.parse(saved) : true;
   });
 
-  // LMP frames driven by scope dates
+  // LMP frames: always start from Jan 2020 (full historical range) up to scope end
   const LMP_FRAMES = useMemo(() => {
     const frames: { month: number; year: number }[] = [];
-    for (let y = startYear; y <= endYear; y++) {
-      const mStart = y === startYear ? startMonth : 1;
-      const mEnd   = y === endYear   ? endMonth   : 12;
+    const fromYear  = LMP_HISTORY_START.year;
+    const fromMonth = LMP_HISTORY_START.month;
+    for (let y = fromYear; y <= endYear; y++) {
+      const mStart = y === fromYear ? fromMonth : 1;
+      const mEnd   = y === endYear  ? endMonth  : 12;
       for (let m = mStart; m <= mEnd; m++) frames.push({ month: m, year: y });
     }
     return frames;
-  }, [startYear, startMonth, endYear, endMonth]);
+  }, [endYear, endMonth]);
 
   // Initial slider position = scope end; clamp if scope changes
   const [lmpMonth, setLmpMonth] = useState(endMonth);
@@ -219,9 +229,10 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
   }, [LMP_FRAMES]);
 
   const lmpFrameIdx = LMP_FRAMES.findIndex((f) => f.month === lmpMonth && f.year === lmpYear);
+  const lmpPeriodType = getLmpPeriodType(lmpYear, lmpMonth);
   const lmpCacheRef = useRef<Map<string, LmpMap>>(new Map());
 
-  // Fetch LMP prices whenever selected month/year changes
+  // Fetch LMP prices whenever selected month/year changes; fall back to simulated when DB empty
   useEffect(() => {
     const key = `${lmpYear}-${lmpMonth}`;
     if (lmpCacheRef.current.has(key)) {
@@ -236,12 +247,28 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
       .eq('year', lmpYear)
       .then(({ data, error: fetchErr }) => {
         if (fetchErr || !data) return;
-        const m: LmpMap = new Map();
-        (data as { pnode_id: number; total_lmp: number }[]).forEach((r) => m.set(r.pnode_id, r.total_lmp));
+        let m: LmpMap;
+        if (data.length > 0) {
+          m = new Map();
+          (data as { pnode_id: number; total_lmp: number }[]).forEach((r) => m.set(r.pnode_id, r.total_lmp));
+        } else {
+          // No DB data — synthesise from simulated zone averages
+          m = buildSimulatedLmpMap(lmpYear, lmpMonth, pnodesByZoneRef.current);
+        }
         lmpCacheRef.current.set(key, m);
         setLmpPrices(m);
       });
   }, [lmpMonth, lmpYear]);
+
+  // Lock body scroll while map page is mounted
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  // Keep lmpPrices ref in sync for use in map event handlers
+  useEffect(() => { lmpPricesRef.current = lmpPrices; }, [lmpPrices]);
 
   // Keep refs in sync so renderMarkers always sees latest data
   useEffect(() => { projectsRef.current = projects; }, [projects]);
@@ -481,6 +508,18 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
         if (subsRes.ok) {
           const subsGeoJson = await subsRes.json();
 
+          // Build pnode-by-zone index for simulated fallback
+          const byZone: Record<string, number[]> = {};
+          (subsGeoJson.features as { properties: Record<string, unknown> }[]).forEach((feat) => {
+            const zone = feat.properties['pjm_zone'] as string | null;
+            const pid  = feat.properties['pnode_id'] as number | null;
+            if (zone && pid != null) {
+              if (!byZone[zone]) byZone[zone] = [];
+              byZone[zone].push(pid);
+            }
+          });
+          pnodesByZoneRef.current = byZone;
+
           map.current!.addSource('pjm-subs', { type: 'geojson', data: subsGeoJson });
 
           // ── LMP colored circle markers — data-driven color by price
@@ -534,7 +573,7 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
               `<strong style="font-size:12px;color:#1e293b">${f['NAME'] ?? 'Unknown'}</strong>`,
               `<div style="color:${lmpColor};font-weight:700;font-size:13px;margin-top:3px">${lmpVal}</div>`,
               `<div style="color:#6366f1;font-weight:600;margin-top:2px;font-size:10px">PNode: ${f['pnode_name']} (${f['pnode_id']})</div>`,
-              `<div style="color:#64748b;margin-top:1px;font-size:10px">${f['CITY'] ?? ''}, ${f['STATE'] ?? ''}</div>`,
+              `<div style="color:#64748b;margin-top:1px;font-size:10px">${f['CITY'] ?? ''}, ${f['STATE'] ?? ''}${f['pjm_zone'] ? ` · <span style="color:#0f766e;font-weight:600">${f['pjm_zone']}</span>` : ''}</div>`,
               (() => {
                 const voltage = Number(f['MAX_VOLT']);
                 const isValidVoltage = voltage >= 0 && voltage <= 765;
@@ -558,13 +597,37 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
         // non-critical — map renders without substations layer
       }
 
-      // Double-click: highlight + zoom to zone bounds if over a zone, otherwise zoom +2 and clear highlight
+      // Double-click: select pnode dot if hit, else highlight zone
       map.current!.on('dblclick', (e) => {
         if (!map.current) return;
+
+        // Check for pnode dot hit first
+        const dotFeatures = map.current.queryRenderedFeatures(e.point, { layers: ['pjm-subs-dots'] });
+        if (dotFeatures.length > 0) {
+          const dp = dotFeatures[0].properties as Record<string, unknown>;
+          const pid  = Number(dp['pnode_id']);
+          const name = String(dp['pnode_name'] ?? dp['NAME'] ?? `PNode ${pid}`);
+          setSelectedPnode(prev => (prev?.id === pid ? null : { id: pid, name }));
+          zonePnodesRef.current = new Set();
+          setSelectedZoneName(null);
+          e.preventDefault();
+          return;
+        }
+
         const highlightSrc = map.current.getSource('pjm-highlight') as maplibregl.GeoJSONSource | undefined;
         const features = map.current.queryRenderedFeatures(e.point, { layers: ['pjm-fill'] });
         if (features.length > 0 && features[0].geometry) {
           const f = features[0];
+          const zoneName = (f.properties?.['Transact_Z'] as string) ?? (f.properties?.['Zone_Name'] as string) ?? 'Zone';
+
+          // Toggle off if same zone double-clicked again
+          if (zoneName === selectedZoneNameRef.current) {
+            highlightSrc?.setData({ type: 'FeatureCollection', features: [] });
+            zonePnodesRef.current = new Set();
+            setSelectedZoneName(null);
+            return;
+          }
+
           // Outline the selected zone
           highlightSrc?.setData({
             type: 'FeatureCollection',
@@ -572,12 +635,25 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
           });
           const bounds = featureBounds(f.geometry as { type: string; coordinates: unknown });
           if (bounds) {
+            // Collect all pnode_ids in this zone — stored in ref, avg computed reactively
+            const srcFeatures = map.current.querySourceFeatures('pjm-subs', { sourceLayer: '' });
+            const pnodeIds = new Set<number>();
+            srcFeatures.forEach((d) => {
+              if (d.properties?.['pjm_zone'] === zoneName) {
+                pnodeIds.add(Number(d.properties?.['pnode_id']));
+              }
+            });
+            zonePnodesRef.current = pnodeIds;
+            setSelectedZoneName(zoneName);
+            setSelectedPnode(null);
             map.current.fitBounds(bounds, { padding: 40, duration: 600 });
             return;
           }
         }
-        // Off-zone: clear highlight and zoom in
+        // Off-zone: clear highlight, clear zone indicator, and zoom in
         highlightSrc?.setData({ type: 'FeatureCollection', features: [] });
+        zonePnodesRef.current = new Set();
+        setSelectedZoneName(null);
         map.current.flyTo({ center: e.lngLat, zoom: map.current.getZoom() + 2, duration: 500 });
       });
 
@@ -1050,6 +1126,20 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
     map.current.setLayoutProperty('pjm-subs-dots', 'visibility', showLmpDots ? 'visible' : 'none');
   }, [showLmpDots]);
 
+  // Update dot appearance when period type changes
+  // historical = amber dashed-style (thicker amber stroke)
+  // current    = solid bright green stroke
+  // forward    = default white stroke
+  useEffect(() => {
+    if (!map.current || !map.current.getLayer('pjm-subs-dots')) return;
+    const strokeColor = lmpPeriodType === 'historical' ? '#f59e0b' : lmpPeriodType === 'current' ? '#22c55e' : '#ffffff';
+    const strokeWidth = lmpPeriodType === 'historical' ? 1.0 : lmpPeriodType === 'current' ? 2 : 0.5;
+    const opacity     = lmpPeriodType === 'historical' ? 0.70 : 0.85;
+    map.current.setPaintProperty('pjm-subs-dots', 'circle-stroke-color', strokeColor);
+    map.current.setPaintProperty('pjm-subs-dots', 'circle-stroke-width', strokeWidth);
+    map.current.setPaintProperty('pjm-subs-dots', 'circle-opacity', opacity);
+  }, [lmpPeriodType]);
+
   const flyToProject = (project: MappedProject) => {
     if (!project.coords || !map.current) return;
     setSelectedId(project.id);
@@ -1080,10 +1170,11 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
   const showAllGenTypes = () => setVisibleGenTypes(new Set(ALL_GEN_TYPES));
   const hideAllGenTypes = () => setVisibleGenTypes(new Set());
   const toggleLabels = () => setShowLabels((prev: boolean) => !prev);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
     // standalone: header = 64px nav + 40px ScopeBar = 104px; -my-6 removes layout padding
-    <div className={inline ? 'flex overflow-hidden w-full h-full' : '-mx-4 sm:-mx-6 lg:-mx-8 -my-6 flex overflow-hidden'} style={inline ? undefined : { height: 'calc(100vh - 104px)' }}>
+    <div className="flex overflow-hidden w-full h-full">
       {tryOnProject && (
         <TryOnOverlay
           project={tryOnProject}
@@ -1091,23 +1182,33 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
         />
       )}
       {/* Sidebar */}
-      <aside className="w-72 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col overflow-hidden">
+      <aside className={`flex-shrink-0 border-r border-slate-200 bg-white flex flex-col overflow-hidden transition-all duration-200 ${sidebarOpen ? 'w-72' : 'w-0'}`}>
 
-        {/* Project list header */}
-        <div className="px-4 py-3 border-b border-slate-200">
-          <h2 className="text-sm font-semibold text-slate-900">Project Locations</h2>
-          {!loading && (
-            <p className="text-xs text-slate-500 mt-0.5">
-              {mapped.length} gen · {mappedSites.length} load · {unmapped.length} unmapped
-            </p>
-          )}
-
-          <p className="text-[10px] text-slate-400 mt-1">
-            Click types in the map legend to filter generation projects.
-          </p>
+        {/* Sidebar header */}
+        <div className="px-3 py-3 border-b border-slate-200 flex-shrink-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold text-slate-900 whitespace-nowrap">Project Locations</h2>
+              {!loading && (
+                <p className="text-xs text-slate-500 mt-0.5 whitespace-nowrap">
+                  {mapped.length} gen · {mappedSites.length} load · {unmapped.length} unmapped
+                </p>
+              )}
+              <p className="text-[10px] text-slate-400 mt-1 whitespace-nowrap">Click the Gen Type in the map legend to filter types.</p>
+            </div>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors mt-0.5"
+              title="Hide list"
+            >
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                <path d="M3 8l4.5-5 .7.6L4.4 8l3.8 4.4-.7.6L3 8z"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+        <div className={`flex-1 overflow-y-auto divide-y divide-slate-100 ${sidebarOpen ? '' : 'hidden'}`}>
           {loading && (
             <div className="p-4 space-y-3">
               {[...Array(5)].map((_, i) => (
@@ -1199,6 +1300,40 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
 
       {/* Map */}
       <div ref={mapContainer} className="flex-1 relative">
+        {/* Floating re-open tab when sidebar is hidden */}
+        {!sidebarOpen && (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="absolute left-0 top-1/3 -translate-y-1/2 z-20 flex flex-col items-center justify-center gap-1 bg-white border border-slate-200 border-l-0 rounded-r-md px-1 py-3 shadow-md hover:bg-slate-50 text-slate-500 hover:text-slate-800 transition-colors"
+            title="Show project list"
+          >
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+              <path d="M6 8l4.5-5 .7.6L7.4 8l3.8 4.4-.7.6L6 8z" transform="rotate(180 8 8)"/>
+            </svg>
+            <span className="text-[9px] font-semibold tracking-wide" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>Projects</span>
+          </button>
+        )}
+        {/* LMP period type badge — fixed near top-right map controls */}
+        {showLmpDots && (
+          <div
+            className={`absolute top-3 right-16 z-10 pointer-events-none flex items-center gap-2.5 px-4 py-2.5 rounded-lg border-2 ${
+              lmpPeriodType === 'historical' ? 'bg-amber-50 border-amber-400 text-amber-900' :
+              lmpPeriodType === 'current'    ? 'bg-green-50 border-green-500 text-green-900' :
+                                               'bg-sky-50 border-sky-400 text-sky-900'
+            }`}
+            style={{ boxShadow: '0 6px 20px rgba(0,0,0,0.28), 0 2px 6px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.7)' }}
+          >
+            <span className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 ring-white ${
+              lmpPeriodType === 'historical' ? 'bg-amber-500' :
+              lmpPeriodType === 'current'    ? 'bg-green-500' : 'bg-sky-500'
+            }`} />
+            <span className="text-sm font-bold tracking-wide">
+              {lmpPeriodType === 'historical' ? 'Historical Monthly $/MWh' :
+               lmpPeriodType === 'current'    ? 'Current Month $/MWh' :
+                                                'Forward Monthly $/MWh'}
+            </span>
+          </div>
+        )}
         {/* Legend panel — toggles between Gen Types and LMP Price Scale */}
         <div className="absolute bottom-6 left-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg border border-slate-200 shadow-md text-xs" style={{ minWidth: 192 }}>
 
@@ -1355,6 +1490,97 @@ export default function MapPage({ inline = false }: { inline?: boolean }) {
                   ? <>{lmpPrices.size.toLocaleString()} nodes · hover for price</>
                   : <>Loading prices…</>}
               </p>
+
+              {/* LMP indicator bars — reactive to slider month */}
+              {(() => {
+                const allPrices = Array.from(lmpPrices.values());
+                const isLive = allPrices.length > 0;
+                const simPeriod = LMP_PERIODS_ALL.find(p => p.year === lmpYear && p.month === lmpMonth);
+                const simAvg = simPeriod ? (simPeriod.onPeak.whAvg + simPeriod.offPeak.whAvg) / 2 : 45;
+                const pjmAvg = isLive ? allPrices.reduce((a, b) => a + b, 0) / allPrices.length : simAvg;
+
+                // Zone avg — computed from current lmpPrices filtered to selected zone's pnodes
+                let zoneAvg: number | null = null;
+                if (selectedZoneName && zonePnodesRef.current.size > 0) {
+                  const zonePrices: number[] = [];
+                  zonePnodesRef.current.forEach(pid => {
+                    const price = lmpPrices.get(pid);
+                    if (price != null) zonePrices.push(price);
+                  });
+                  zoneAvg = zonePrices.length > 0
+                    ? zonePrices.reduce((a, b) => a + b, 0) / zonePrices.length
+                    : null;
+                }
+
+                const sliderMin = 20;
+                const sliderMax = 90;
+                const pct = (v: number) => Math.min(100, Math.max(0, ((v - sliderMin) / (sliderMax - sliderMin)) * 100));
+                const lmpColor = (v: number) => v >= 72 ? '#dc2626' : v >= 64 ? '#ea580c' : v >= 56 ? '#ca8a04' : v >= 48 ? '#16a34a' : v >= 40 ? '#0891b2' : '#1e40af';
+
+                const Bar = ({ value, label, sublabel, delta }: { value: number; label: string; sublabel?: string; delta?: number }) => (
+                  <div>
+                    <div className="flex justify-between items-baseline mb-0.5">
+                      <span className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide">
+                        {label}{sublabel && <span className="ml-1 text-[8px] normal-case text-slate-400 font-normal">{sublabel}</span>}
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        {delta != null && (
+                          <span className={`text-[8px] font-semibold ${delta > 0 ? 'text-red-400' : delta < 0 ? 'text-teal-500' : 'text-slate-400'}`}>
+                            {delta > 0 ? `+$${delta.toFixed(2)}` : `-$${Math.abs(delta).toFixed(2)}`}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold" style={{ color: lmpColor(value) }}>${value.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    <div className="relative h-2 rounded-full bg-slate-100">
+                      <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-300" style={{ width: `${pct(value)}%`, background: lmpColor(value) }} />
+                      <div className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow transition-all duration-300" style={{ left: `calc(${pct(value)}% - 5px)`, background: lmpColor(value) }} />
+                    </div>
+                  </div>
+                );
+
+                // Pnode price — single node lookup
+                const pnodePrice = selectedPnode ? lmpPrices.get(selectedPnode.id) ?? null : null;
+
+                return (
+                  <div className="space-y-2.5 border-t border-slate-100 pt-2">
+                    {selectedPnode && pnodePrice != null && (
+                      <Bar
+                        value={pnodePrice}
+                        label={selectedPnode.name.length > 18 ? selectedPnode.name.slice(0, 17) + '…' : selectedPnode.name}
+                        sublabel={!isLive ? '(sim)' : undefined}
+                        delta={parseFloat((pnodePrice - pjmAvg).toFixed(2))}
+                      />
+                    )}
+                    {selectedPnode && pnodePrice == null && (
+                      <p className="text-[9px] text-slate-400 italic truncate">{selectedPnode.name}: no data</p>
+                    )}
+                    {selectedZoneName && zoneAvg != null && (
+                      <Bar
+                        value={zoneAvg}
+                        label={`${selectedZoneName} Zone`}
+                        sublabel={!isLive ? '(simulated)' : undefined}
+                        delta={parseFloat((zoneAvg - pjmAvg).toFixed(2))}
+                      />
+                    )}
+                    {selectedZoneName && zoneAvg == null && (
+                      <p className="text-[9px] text-slate-400 italic">{selectedZoneName}: no price data this month</p>
+                    )}
+                    <Bar
+                      value={pjmAvg}
+                      label="PJM System"
+                      sublabel={!isLive ? '(simulated)' : undefined}
+                    />
+                    <p className="text-[8px] text-slate-300">$20 ─────────────────── $90</p>
+                    {(selectedZoneName || selectedPnode) && (
+                      <button
+                        onClick={() => { setSelectedPnode(null); zonePnodesRef.current = new Set(); setSelectedZoneName(null); }}
+                        className="text-[8px] text-slate-400 hover:text-slate-600 underline"
+                      >{selectedPnode ? 'Clear node' : 'Clear zone'}</button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

@@ -78,7 +78,7 @@ function App() {
           <Route
             path="/map"
             element={
-              <ProtectedRoute fullWidth>
+              <ProtectedRoute fullWidth hideFooter>
                 <MapPage />
               </ProtectedRoute>
             }

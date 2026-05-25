@@ -11,11 +11,13 @@ import { useDashboardView, DASHBOARD_VIEWS, DASHBOARD_SUBTABS } from '../context
 interface LayoutProps {
   children: ReactNode;
   fullWidth?: boolean;
+  hideFooter?: boolean;
 }
 
-const getNavLinks = (_role?: string) => [];
+interface NavLink { path: string; label: string; }
+const getNavLinks = (_role?: string): NavLink[] => [];
 
-export default function Layout({ children, fullWidth = false }: LayoutProps) {
+export default function Layout({ children, fullWidth = false, hideFooter = false }: LayoutProps) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -51,9 +53,9 @@ export default function Layout({ children, fullWidth = false }: LayoutProps) {
   const showSubTabs = onDashboard && (view === 'forecast' || view === 'planning');
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className={`bg-slate-50 flex flex-col ${hideFooter ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
       {/* Navigation Header */}
-      <header className="sticky top-0 z-[60] w-full border-b border-slate-200 bg-white/80 backdrop-blur-md">
+      <header className={`${hideFooter ? 'relative' : 'sticky top-0'} z-[60] w-full border-b border-slate-200 bg-white/80 backdrop-blur-md`}>
         <div className={`mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
           {/* Logo */}
           <Link to="/" className="flex items-center group">
@@ -213,18 +215,22 @@ export default function Layout({ children, fullWidth = false }: LayoutProps) {
       />
 
       {/* Main Content */}
-      <main className={`relative mx-auto flex w-full flex-1 flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
+      <main className={`relative mx-auto flex flex-col w-full ${fullWidth ? 'max-w-full' : 'max-w-7xl'} ${
+        hideFooter ? 'flex-1 min-h-0 overflow-hidden' : 'flex-1 gap-8 px-4 py-6 sm:px-6 lg:px-8'
+      }`}>
         {children}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white mt-auto">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          <p className="text-center text-sm text-slate-500">
-            &copy; {new Date().getFullYear()} Power Dime. All rights reserved.
-          </p>
-        </div>
-      </footer>
+      {!hideFooter && (
+        <footer className="border-t border-slate-200 bg-white mt-auto">
+          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+            <p className="text-center text-sm text-slate-500">
+              &copy; {new Date().getFullYear()} Power Dime. All rights reserved.
+            </p>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
