@@ -11,6 +11,13 @@ const TABS: { id: ProfileTab; label: string }[] = [
 
 export default function Profile() {
   const [activeTab, setActiveTab] = useState<ProfileTab>('facility');
+  const [focusFacilityId, setFocusFacilityId] = useState<string | null>(null);
+
+  const handleFacilitySaved = (facilityId: string) => {
+    setFocusFacilityId(facilityId);
+    setActiveTab('load-forecast');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -36,8 +43,12 @@ export default function Profile() {
         </nav>
       </div>
 
-      {activeTab === 'facility' && <FacilityProfile />}
-      {activeTab === 'load-forecast' && <LoadForcast />}
+      {activeTab === 'facility' && (
+        <FacilityProfile onSaved={handleFacilitySaved} initialFacilityId={focusFacilityId} />
+      )}
+      {activeTab === 'load-forecast' && (
+        <LoadForcast initialFacilityId={focusFacilityId} onFacilityChange={setFocusFacilityId} />
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 type Contract = {
   CTYPE_i: string;
@@ -35,7 +35,6 @@ type FacilityFormData = {
   ETA_PDU: string;
   P_COOL: string;
   P_FAC: string;
-  GEN_CAP: string;
   BATT_CAP: string;
   HIST_MW: File | null;
   TEMP_AMB_monthly: string;
@@ -107,7 +106,6 @@ const INITIAL_FORM: FacilityFormData = {
   ETA_PDU: '',
   P_COOL: '',
   P_FAC: '',
-  GEN_CAP: '',
   BATT_CAP: '',
   HIST_MW: null,
 
@@ -170,7 +168,6 @@ const FIELD_RULES: Partial<Record<keyof FacilityFormData, FieldRule>> = {
   ETA_PDU: { min: 50, max: 100, msg: 'PDU efficiency: 50 – 100 %' },
   P_COOL: { min: 0, max: 1000, msg: 'Cooling: 0 – 1,000 MW' },
   P_FAC: { min: 0, max: 500, msg: 'Facilities power: 0 – 500 MW' },
-  GEN_CAP: { min: 0, max: 5000, msg: 'Generation: 0 – 5,000 MW' },
   BATT_CAP: { min: 0, max: 10000, msg: 'Battery: 0 – 10,000 MWh' },
   P_IT_START: { min: 0.01, max: 1000, msg: 'IT load at commissioning: 0.01 – 1,000 MW' },
   LF_ASSUMED: { min: 1, max: 100, msg: 'Load factor: 1 – 100 %' },
@@ -187,6 +184,20 @@ const FIELD_RULES: Partial<Record<keyof FacilityFormData, FieldRule>> = {
   REC_PRICE: { min: 0, max: 200, msg: 'REC price: $0 – $200/MWh' },
   CI_GRID: { min: 0, max: 1000, msg: 'Grid CI: 0 – 1,000 gCO₂/kWh' },
 };
+
+// Tooltip body shown next to the CSV upload control for any 10-year vector
+// field (DELTA_CAP_y, PUE_y, RE_GEN_y, BATT_ADD_y).
+const CSV_TOOLTIP_YEARLY = (unit: string) =>
+  `Upload a CSV with 10 numeric values (Y1–Y10) in ${unit}. ` +
+  `Accepted layouts: one value per row, or a single comma-separated row. ` +
+  `Non-numeric tokens are ignored; extra values past Y10 are dropped.`;
+
+// Tooltip body shown next to the CSV upload control for UTIL_RAMP, which is
+// a 10-year × 12-month grid (120 values total).
+const CSV_TOOLTIP_UTIL_RAMP =
+  'Upload a CSV with a 10 × 12 grid: each row is a year (Y1–Y10) and each ' +
+  'column is a month (Jan–Dec), values in %. A flat list of 120 numeric ' +
+  'values in year-major order is also accepted. Header rows of text are ignored.';
 
 // Expand a legacy single-value UTIL_RAMP (e.g. "20") into a 120-cell linear
 // ramp matching the old calculation semantics: month m → min(cap, (m+1)*v),
@@ -242,7 +253,6 @@ function dbRowToForm(row: any): FacilityFormData {
     ETA_PDU: toStr(row.ETA_PDU),
     P_COOL: toStr(row.P_COOL),
     P_FAC: toStr(row.P_FAC),
-    GEN_CAP: toStr(row.GEN_CAP),
     BATT_CAP: toStr(row.BATT_CAP),
     HIST_MW: null,
     DELTA_CAP_y: toStr(row.DELTA_CAP_y),
@@ -274,7 +284,7 @@ function dbRowToForm(row: any): FacilityFormData {
   };
 }
 
-export default function FacilityProfile() {
+export default function FacilityProfile({ onSaved, initialFacilityId }: { onSaved?: (facilityId: string) => void; initialFacilityId?: string | null } = {}) {
   const { user } = useAuth();
   const [form, setFormRaw] = useState<FacilityFormData>(INITIAL_FORM);
   const [submitted, setSubmitted] = useState(false);
@@ -287,10 +297,11 @@ export default function FacilityProfile() {
   // can sit between the DELTA_CAP_y and UTIL_RAMP charts).
   const [utilRampVisible, setUtilRampVisible] = useState<boolean[]>(() => Array(UTIL_RAMP_YEARS).fill(true));
   const [utilRampPropagate, setUtilRampPropagate] = useState(false);
-  // Input mode for the four yearly-by-year plan fields in Section C
-  // (DELTA_CAP_y, PUE_y, RE_GEN_y, BATT_ADD_y). 'graph' uses the drag-editable
-  // curve; 'manual' renders 10 numeric inputs (Y1–Y10).
-  const [planMode, setPlanMode] = useState<'graph' | 'manual'>('graph');
+  // Input mode for the yearly-by-year plan fields in Section C. 'graph' uses
+  // the drag-editable curve; 'manual' renders per-year numeric inputs; 'csv'
+  // accepts a CSV upload whose numeric values are flattened into the same
+  // comma-separated string the other modes produce.
+  const [planMode, setPlanMode] = useState<'graph' | 'manual' | 'csv'>('manual');
 
   useEffect(() => {
     if (!user?.id) { setLoadingFacilities(false); return; }
@@ -306,12 +317,15 @@ export default function FacilityProfile() {
             row,
           }));
           setFacilities(list);
-          setActiveFacilityId(list[0].id);
-          setFormRaw(dbRowToForm(list[0].row));
+          const focus =
+            (initialFacilityId && list.find((f) => String(f.id) === String(initialFacilityId))) ||
+            list[0];
+          setActiveFacilityId(focus.id);
+          setFormRaw(dbRowToForm(focus.row));
         }
         setLoadingFacilities(false);
       });
-  }, [user?.id]);
+  }, [user?.id, initialFacilityId]);
 
   const selectFacility = (id: string | null) => {
     setActiveFacilityId(id);
@@ -327,12 +341,23 @@ export default function FacilityProfile() {
   // Auto-calculate PUE based on (p_total_facility / p_it)
   useEffect(() => {
     if (form.FACILITY_STATUS !== 'Running') return;
-    const itNum = Number(form.IT_LOAD) || 0;
+
+    const rawItNum = Number(form.IT_LOAD) || 0;
+    const etaUps = form.ETA_UPS !== '' ? Number(form.ETA_UPS) / 100 : 0.97;
+    const etaPdu = form.ETA_PDU !== '' ? Number(form.ETA_PDU) / 100 : 0.98;
+
+    let itNum = rawItNum;
+    if (form.MEASUREMENT_POINT === 'UPS Input') {
+      itNum = rawItNum * etaUps * etaPdu;
+    } else if (form.MEASUREMENT_POINT === 'PDU Input') {
+      itNum = rawItNum * etaPdu;
+    }
+
     const coolNum = Number(form.P_COOL) || 0;
     const facNum = Number(form.P_FAC) || 0;
 
     if (itNum > 0) {
-      const expectedPue = (itNum + coolNum + facNum) / itNum;
+      const expectedPue = (rawItNum + coolNum + facNum) / itNum;
       const expectedPueStr = expectedPue.toFixed(2);
       if (form.PUE !== expectedPueStr) {
         setFormRaw((prev) => ({ ...prev, PUE: expectedPueStr }));
@@ -347,7 +372,37 @@ export default function FacilityProfile() {
         setFormRaw((prev) => ({ ...prev, PUE: '' }));
       }
     }
-  }, [form.IT_LOAD, form.P_COOL, form.P_FAC, form.FACILITY_STATUS]);
+  }, [form.IT_LOAD, form.P_COOL, form.P_FAC, form.FACILITY_STATUS, form.MEASUREMENT_POINT, form.ETA_UPS, form.ETA_PDU]);
+
+  const hasValidTemps = useMemo(() => {
+    if (form.FACILITY_STATUS !== 'New') return false;
+    const parts = (form.TEMP_AMB_monthly || '').split(',').map(s => s.trim()).filter(s => s !== '');
+    return parts.length === 12 && parts.every(s => !isNaN(Number(s)));
+  }, [form.TEMP_AMB_monthly, form.FACILITY_STATUS]);
+
+  // Auto-calculate PUE_EXPECTED for New facilities based on temperature data
+  useEffect(() => {
+    if (form.FACILITY_STATUS !== 'New' || !hasValidTemps) return;
+
+    const parts = form.TEMP_AMB_monthly.split(',').map(s => Number(s.trim()));
+    const calcPPUE = (T: number) => 7.1705e-5 * T * T + 0.0041 * T + 1.0743;
+
+    let sumPue = 0;
+    for (let m = 0; m < 12; m++) {
+      sumPue += calcPPUE(parts[m]);
+    }
+    const avgPue = sumPue / 12;
+    const expectedPueStr = avgPue.toFixed(2);
+
+    if (form.PUE_EXPECTED !== expectedPueStr) {
+      setFormRaw((prev) => ({ ...prev, PUE_EXPECTED: expectedPueStr }));
+      setErrors((prev) => {
+        const n = { ...prev };
+        delete n.PUE_EXPECTED;
+        return n;
+      });
+    }
+  }, [form.TEMP_AMB_monthly, form.FACILITY_STATUS, hasValidTemps]);
 
   // Validate a single numeric field against FIELD_RULES
   const validateField = <K extends keyof FacilityFormData>(key: K, value: FacilityFormData[K]) => {
@@ -415,10 +470,22 @@ export default function FacilityProfile() {
     }
     try {
       const payload: any = { ...form, buyer_id: user?.id };
+      // HIST_MW is uploaded separately to S3 after the profile is saved (the
+      // backend's /:id/hist-mw route writes the S3 key into the DB). Other
+      // file-typed fields are still stubbed to a filename until they get
+      // their own upload routes.
+      const histMwFile: File | null = payload.HIST_MW instanceof File ? payload.HIST_MW : null;
       const fileKeys = ['HIST_MW', 'DA_PRICE', 'FWD_CURVE', 'LMP', 'TARIFF', 'TEMP', 'RE_GEN_P'];
       fileKeys.forEach((key) => {
-        if (payload[key] instanceof File) payload[key] = payload[key].name;
-        else if (payload[key] === null) delete payload[key];
+        if (key === 'HIST_MW') {
+          // Always drop the File from the JSON body; if no new file was picked,
+          // leaving the field out preserves any existing S3 key already in the DB.
+          delete payload[key];
+        } else if (payload[key] instanceof File) {
+          payload[key] = payload[key].name;
+        } else if (payload[key] === null) {
+          delete payload[key];
+        }
       });
       Object.keys(payload).forEach((key) => { if (payload[key] === '') payload[key] = null; });
       if (Array.isArray(payload.contracts)) {
@@ -440,18 +507,62 @@ export default function FacilityProfile() {
       if (!response.ok) throw new Error('Failed to save to database');
       const saved = await response.json().catch(() => ({}));
       const updatedName = payload.FAC_ID || (isEditing ? activeFacilityId! : 'New Facility');
+      let savedId: string;
       if (isEditing) {
+        savedId = activeFacilityId!;
         setFacilities((prev) =>
           prev.map((f) => f.id === activeFacilityId ? { ...f, name: updatedName, row: { ...f.row, ...payload } } : f)
         );
       } else {
         const newId = saved?.id || saved?.data?.[0]?.id || String(Date.now());
+        savedId = newId;
         const newEntry = { id: newId, name: updatedName, row: { ...payload, id: newId } };
         setFacilities((prev) => [...prev, newEntry]);
         setActiveFacilityId(newId);
       }
+
+      // After the profile row exists, push the HIST_MW CSV to S3. The backend
+      // writes the resulting S3 key into data_centers.HIST_MW itself, so we
+      // don't need to re-PUT the profile here.
+      if (histMwFile) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          const formData = new FormData();
+          formData.append('file', histMwFile);
+          const uploadRes = await fetch(`${API_URL}/datacenters/${savedId}/hist-mw`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            body: formData,
+          });
+          if (!uploadRes.ok) {
+            const err = await uploadRes.json().catch(() => ({}));
+            console.error('HIST_MW upload failed:', err);
+            alert(
+              `Facility profile saved, but historical meter data upload failed: ${err.error || 'unknown error'}. You can re-upload the CSV by editing the facility.`,
+            );
+          } else {
+            const uploadJson = await uploadRes.json().catch(() => ({}));
+            // Reflect the new S3 key in local facility state so a subsequent
+            // save without re-picking a file doesn't think it's missing.
+            setFacilities((prev) =>
+              prev.map((f) =>
+                f.id === savedId ? { ...f, row: { ...f.row, HIST_MW: uploadJson.key } } : f,
+              ),
+            );
+            setFormRaw((prev) => ({ ...prev, HIST_MW: null }));
+          }
+        } catch (uploadErr) {
+          console.error('HIST_MW upload error:', uploadErr);
+          alert(
+            'Facility profile saved, but historical meter data upload failed. You can re-upload the CSV by editing the facility.',
+          );
+        }
+      }
+
       setSubmitted(true);
       setTimeout(() => setSubmitted(false), 3000);
+      onSaved?.(savedId);
     } catch (error) {
       console.error('Submission error:', error);
       alert('Error saving facility profile');
@@ -757,16 +868,6 @@ export default function FacilityProfile() {
                 className={inputCls}
               />
             </Field>
-            <Field label="On-site generation capacity (MW)" symbol="GEN_CAP" error={errors.GEN_CAP}>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="e.g. 40.0"
-                value={form.GEN_CAP}
-                onChange={(e) => setField('GEN_CAP', e.target.value)}
-                className={inputCls}
-              />
-            </Field>
             <Field label="Battery storage capacity (MWh)" symbol="BATT_CAP" error={errors.BATT_CAP}>
               <input
                 type="number"
@@ -821,7 +922,8 @@ export default function FacilityProfile() {
                   placeholder="e.g. 1.35"
                   value={form.PUE_EXPECTED}
                   onChange={(e) => setField('PUE_EXPECTED', e.target.value)}
-                  className={inputCls}
+                  className={`${inputCls} ${hasValidTemps ? 'bg-slate-50 cursor-not-allowed' : ''}`}
+                  readOnly={hasValidTemps}
                 />
               </Field>
             </div>
@@ -836,17 +938,17 @@ export default function FacilityProfile() {
             Section C — Capacity Expansion Plans
           </h2>
           <div className="inline-flex bg-slate-100 rounded-full p-[3px] gap-[2px]">
-            {(['graph', 'manual'] as const).map((m) => (
+            {(['graph', 'manual', 'csv'] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setPlanMode(m)}
                 className={`px-3 py-1 rounded-full text-xs font-medium ${planMode === m
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
                   }`}
               >
-                {m === 'graph' ? 'Graph' : 'Manual'}
+                {m === 'graph' ? 'Graph' : m === 'manual' ? 'Manual' : 'CSV'}
               </button>
             ))}
           </div>
@@ -860,18 +962,13 @@ export default function FacilityProfile() {
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Planned IT capacity additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>ΔCAP[y]</span>
             </label>
-            {planMode === 'graph' ? (
-              <YearlyMetricCurveEditor
+            {planMode === 'csv' ? (
+              <CsvUploadInput
                 value={form.DELTA_CAP_y}
                 onChange={(s) => setField('DELTA_CAP_y', s)}
-                color="#ec4899"
-                fillColor="rgba(236, 72, 153, 0.10)"
+                expectedCount={10}
                 unit="MW"
-                step={0.1}
-                scaleType="logarithmic"
-                yMin={1}
-                yMaxAbsolute={10000}
-                userAdjustableMax
+                tooltip={CSV_TOOLTIP_YEARLY('MW')}
               />
             ) : (
               <ManualYearlyInputs
@@ -882,55 +979,72 @@ export default function FacilityProfile() {
               />
             )}
           </div>
-          <div
-            className="md:col-span-2"
-            style={{
-              border: '1px solid #e2e8f0',
-              borderRadius: 8,
-              padding: '10px 14px',
-              background: '#fff',
-              fontFamily: 'Inter, sans-serif',
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', letterSpacing: 0.4, marginBottom: 8 }}>
-              LEGEND AND CONTROLS
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', rowGap: 6 }}>
-              {Array.from({ length: UTIL_RAMP_YEARS }, (_, y) => (
-                <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
+          {planMode === 'graph' && (
+            <div
+              className="md:col-span-2"
+              style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: 8,
+                padding: '10px 14px',
+                background: '#fff',
+                fontFamily: 'Inter, sans-serif',
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', letterSpacing: 0.4, marginBottom: 8 }}>
+                LEGEND AND CONTROLS
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', rowGap: 6 }}>
+                {Array.from({ length: UTIL_RAMP_YEARS }, (_, y) => (
+                  <label key={y} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
+                    <input
+                      type="checkbox"
+                      checked={utilRampVisible[y]}
+                      onChange={() => setUtilRampVisible(prev => prev.map((v, i) => (i === y ? !v : v)))}
+                    />
+                    <span style={{ width: 12, height: 12, background: UTIL_RAMP_YEAR_COLORS[y].line, borderRadius: 2, display: 'inline-block' }} />
+                    Year {y + 1}
+                  </label>
+                ))}
+                <div style={{ width: 1, height: 22, background: '#e2e8f0' }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
                   <input
                     type="checkbox"
-                    checked={utilRampVisible[y]}
-                    onChange={() => setUtilRampVisible(prev => prev.map((v, i) => (i === y ? !v : v)))}
+                    checked={utilRampPropagate}
+                    onChange={() => setUtilRampPropagate(p => !p)}
                   />
-                  <span style={{ width: 12, height: 12, background: UTIL_RAMP_YEAR_COLORS[y].line, borderRadius: 2, display: 'inline-block' }} />
-                  Year {y + 1}
+                  Propagate Forward
+                  <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 4 }}>
+                    (apply Δ to same month in later years)
+                  </span>
                 </label>
-              ))}
-              <div style={{ width: 1, height: 22, background: '#e2e8f0' }} />
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
-                <input
-                  type="checkbox"
-                  checked={utilRampPropagate}
-                  onChange={() => setUtilRampPropagate(p => !p)}
-                />
-                Propagate Forward
-                <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 4 }}>
-                  (apply Δ to same month in later years)
-                </span>
-              </label>
+              </div>
             </div>
-          </div>
+          )}
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
               Utilisation rate of new capacity at ramp per month (%) <span style={{ color: '#94a3b8', fontWeight: 400 }}>UTIL_RAMP[y,m]</span>
             </label>
-            <UtilRampCurveEditor
-              value={form.UTIL_RAMP}
-              onChange={(s) => setField('UTIL_RAMP', s)}
-              visible={utilRampVisible}
-              propagateForward={utilRampPropagate}
-            />
+            {planMode === 'csv' ? (
+              <CsvUploadInput
+                value={form.UTIL_RAMP}
+                onChange={(s) => setField('UTIL_RAMP', s)}
+                expectedCount={120}
+                unit="%"
+                tooltip={CSV_TOOLTIP_UTIL_RAMP}
+              />
+            ) : planMode === 'manual' ? (
+              <UtilRampManualGrid
+                value={form.UTIL_RAMP}
+                onChange={(s) => setField('UTIL_RAMP', s)}
+              />
+            ) : (
+              <UtilRampCurveEditor
+                value={form.UTIL_RAMP}
+                onChange={(s) => setField('UTIL_RAMP', s)}
+                visible={utilRampVisible}
+                propagateForward={utilRampPropagate}
+              />
+            )}
           </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
@@ -947,6 +1061,14 @@ export default function FacilityProfile() {
                 yMaxAbsolute={1}
                 yTickStep={0.05}
                 userAdjustableMax
+              />
+            ) : planMode === 'csv' ? (
+              <CsvUploadInput
+                value={form.PUE_y}
+                onChange={(s) => setField('PUE_y', s)}
+                expectedCount={10}
+                unit="fraction"
+                tooltip={CSV_TOOLTIP_YEARLY('fraction')}
               />
             ) : (
               <ManualYearlyInputs
@@ -973,6 +1095,14 @@ export default function FacilityProfile() {
                 yMaxAbsolute={200}
                 userAdjustableMax
               />
+            ) : planMode === 'csv' ? (
+              <CsvUploadInput
+                value={form.RE_GEN_y}
+                onChange={(s) => setField('RE_GEN_y', s)}
+                expectedCount={10}
+                unit="MW"
+                tooltip={CSV_TOOLTIP_YEARLY('MW')}
+              />
             ) : (
               <ManualYearlyInputs
                 value={form.RE_GEN_y}
@@ -984,7 +1114,7 @@ export default function FacilityProfile() {
           </div>
           <div className="md:col-span-2">
             <label className={labelCls} style={{ display: 'block', marginBottom: 8 }}>
-              Planned battery storage additions by year (MWh) <span style={{ color: '#94a3b8', fontWeight: 400 }}>BATT_ADD[y]</span>
+              Planned battery storage additions by year (MW) <span style={{ color: '#94a3b8', fontWeight: 400 }}>BATT_ADD[y]</span>
             </label>
             {planMode === 'graph' ? (
               <YearlyMetricCurveEditor
@@ -997,6 +1127,14 @@ export default function FacilityProfile() {
                 yMaxFloor={50}
                 yMaxAbsolute={2000}
                 userAdjustableMax
+              />
+            ) : planMode === 'csv' ? (
+              <CsvUploadInput
+                value={form.BATT_ADD_y}
+                onChange={(s) => setField('BATT_ADD_y', s)}
+                expectedCount={10}
+                unit="MWh"
+                tooltip={CSV_TOOLTIP_YEARLY('MWh')}
               />
             ) : (
               <ManualYearlyInputs
@@ -1089,7 +1227,7 @@ export default function FacilityProfile() {
                   </select>
                 </Field>
                 <Field
-                  label="Contracted volume (MW or MWh)"
+                  label="Contracted volume (MW)"
                   symbol={`CV_${idx + 1}`}
                 >
                   <input
@@ -1539,6 +1677,233 @@ function Field({
       )}
       {/* Tooltip hover CSS */}
       <style>{`.tooltip-anchor:hover .tooltip-popup { opacity: 1 !important; }`}</style>
+    </div>
+  );
+}
+
+// CSV upload control for Section C yearly fields. Parses numeric tokens out of
+// the file, validates the count matches what the field expects, and writes the
+// flattened comma-separated string to form state — the same shape Graph and
+// Manual modes produce, so downstream code is mode-agnostic.
+function CsvUploadInput({
+  value,
+  onChange,
+  expectedCount,
+  unit,
+  tooltip,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  expectedCount: number;
+  unit?: string;
+  tooltip: string;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+
+  const currentCount = value
+    ? value.split(',').map((s) => s.trim()).filter((s) => s !== '' && !isNaN(Number(s))).length
+    : 0;
+
+  const handleFile = async (file: File | null) => {
+    setError(null);
+    if (!file) {
+      setFileName(null);
+      return;
+    }
+    setFileName(file.name);
+    try {
+      const text = await file.text();
+      const tokens = text
+        .split(/[,\n\r\t;]+/)
+        .map((t) => t.trim())
+        .filter((t) => t !== '');
+      const nums: number[] = [];
+      for (const tok of tokens) {
+        const n = Number(tok);
+        if (!isNaN(n)) nums.push(n);
+      }
+      if (nums.length < expectedCount) {
+        setError(`Expected ${expectedCount} numeric values, found ${nums.length}.`);
+        return;
+      }
+      onChange(nums.slice(0, expectedCount).join(', '));
+    } catch (e) {
+      setError('Could not read file.');
+    }
+  };
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          border: '1px dashed #cbd5e1',
+          borderRadius: 8,
+          padding: '12px 14px',
+          background: '#f8fafc',
+          fontFamily: 'Inter, sans-serif',
+        }}
+      >
+        <label
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            background: '#0f766e',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            padding: '6px 12px',
+            borderRadius: 6,
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+            style={{ display: 'none' }}
+          />
+          Upload CSV
+        </label>
+        <span style={{ fontSize: 12, color: '#475569', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {fileName ?? (currentCount > 0 ? `${currentCount} value${currentCount === 1 ? '' : 's'} loaded` : 'No file chosen')}
+        </span>
+        <span
+          style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+          className="tooltip-anchor"
+        >
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              background: '#e2e8f0',
+              color: '#475569',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: 'default',
+              userSelect: 'none',
+              flexShrink: 0,
+            }}
+          >
+            i
+          </span>
+          <span
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              right: 0,
+              marginBottom: 6,
+              background: '#1e293b',
+              color: '#f8fafc',
+              fontSize: 11,
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 400,
+              lineHeight: 1.5,
+              padding: '8px 12px',
+              borderRadius: 8,
+              width: 280,
+              whiteSpace: 'normal',
+              pointerEvents: 'none',
+              opacity: 0,
+              transition: 'opacity 0.15s ease',
+              zIndex: 50,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.18)',
+            }}
+            className="tooltip-popup"
+          >
+            <strong style={{ display: 'block', marginBottom: 4 }}>Expected CSV format</strong>
+            {tooltip}
+          </span>
+        </span>
+      </div>
+      {error && (
+        <p style={{ margin: '6px 0 0', fontSize: 11, color: '#ef4444', fontFamily: 'Inter, sans-serif' }}>
+          ⚠ {error}
+        </p>
+      )}
+      {unit && !error && currentCount > 0 && (
+        <div style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'Inter, sans-serif', marginTop: 6, textAlign: 'right' }}>
+          values in {unit}
+        </div>
+      )}
+      <style>{`.tooltip-anchor:hover .tooltip-popup { opacity: 1 !important; }`}</style>
+    </div>
+  );
+}
+
+// Manual 10-year × 12-month grid editor for UTIL_RAMP. Uses the same
+// year-major comma-separated serialization as UtilRampCurveEditor so all
+// three modes (graph/manual/csv) round-trip cleanly through form state.
+function UtilRampManualGrid({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const parts = value ? value.split(',').map((s) => s.trim()) : [];
+  const get = (y: number, m: number) => {
+    const v = parts[y * 12 + m];
+    return v === undefined ? '' : v;
+  };
+  const setCell = (y: number, m: number, next: string) => {
+    const arr = value ? value.split(',').map((s) => s.trim()) : [];
+    while (arr.length < 120) arr.push('');
+    arr[y * 12 + m] = next;
+    onChange(arr.join(', '));
+  };
+  return (
+    <div style={{ overflowX: 'auto', fontFamily: 'Inter, sans-serif' }}>
+      <table style={{ borderCollapse: 'separate', borderSpacing: 4, fontSize: 11 }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: 'left', color: '#94a3b8', fontWeight: 600, padding: '2px 4px' }} />
+            {MONTHS.map((m) => (
+              <th key={m} style={{ color: '#94a3b8', fontWeight: 600, padding: '2px 4px', textAlign: 'center', minWidth: 48 }}>
+                {m}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: 10 }, (_, y) => (
+            <tr key={y}>
+              <td style={{ color: '#94a3b8', fontWeight: 600, padding: '2px 6px' }}>Y{y + 1}</td>
+              {Array.from({ length: 12 }, (_, m) => (
+                <td key={m}>
+                  <input
+                    type="number"
+                    step={1}
+                    value={get(y, m)}
+                    onChange={(e) => setCell(y, m, e.target.value)}
+                    style={{
+                      width: 52,
+                      textAlign: 'center',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 6,
+                      padding: '3px 2px',
+                      fontSize: 11,
+                      outline: 'none',
+                    }}
+                  />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 6, textAlign: 'right' }}>
+        values in %
+      </div>
     </div>
   );
 }

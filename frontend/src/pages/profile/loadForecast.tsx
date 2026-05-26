@@ -204,7 +204,7 @@ function ForwardForecastChart({
 
 type FacilityEntry = { id: string; name: string; data: FacilityData };
 
-export default function LoadForcast() {
+export default function LoadForcast({ initialFacilityId, onFacilityChange }: { initialFacilityId?: string | null; onFacilityChange?: (facilityId: string) => void } = {}) {
   const [xAxisMode, setXAxisMode] = useState<XAxisMode>('months');
   const [horizon, setHorizon] = useState<Horizon>(3);
   const [scenario, setScenario] = useState<Scenario>('BASE');
@@ -221,25 +221,30 @@ export default function LoadForcast() {
 
   const { selectedSites, startYear } = useScopeContext();
 
-  // Fetch all facilities once
+  // Fetch all facilities once. If the parent passed `initialFacilityId` (set
+  // when the user just saved a facility profile), focus that facility instead
+  // of defaulting to the first one in the list.
   useEffect(() => {
     if (!user?.id) { setLoading(false); return; }
     fetchAllFacilities(user.id).then((list) => {
       setFacilities(list);
       if (list.length > 0) {
-        setActiveFacilityId(list[0].id);
-        setFacilityData(list[0].data);
-        setForecast(calculateMultiYearForecast(list[0].data));
+        const focus = (initialFacilityId && list.find(f => f.id === initialFacilityId)) || list[0];
+        setActiveFacilityId(focus.id);
+        setFacilityData(focus.data);
+        setForecast(calculateMultiYearForecast(focus.data));
+        onFacilityChange?.(focus.id);
       }
       setLoading(false);
     });
-  }, [user?.id]);
+  }, [user?.id, initialFacilityId]);
 
   // Recompute forecast when active facility changes
   const selectFacility = (fac: FacilityEntry) => {
     setActiveFacilityId(fac.id);
     setFacilityData(fac.data);
     setForecast(calculateMultiYearForecast(fac.data));
+    onFacilityChange?.(fac.id);
   };
 
   // Open-Meteo ERA5 archive: most recent completed calendar year of hourly
@@ -261,7 +266,7 @@ export default function LoadForcast() {
     return calculateHourlyForecast({
       pItMonthly: forecast.P_IT_PROJ['BASE'][0],
       pFac: facilityData.P_FAC,
-      pGen: facilityData.GEN_CAP,
+      pGen: 0,
       tempAmbHourly: tempAmbHourly ?? undefined,
       tempAmbMonthly: facilityData.TEMP_AMB_monthly,
     });

@@ -96,7 +96,7 @@ export default function YearlyMetricCurveEditor({
 
   const data = useMemo(() => {
     const parsed = parseYearly(value);
-    if (scaleType === 'logarithmic') {
+    if (scaleType === "linear") {
       // Log scale can't render 0 or negatives — floor at yMin so every point
       // is visible at the bottom of the chart and drag-clamping stays consistent.
       return parsed.map(v => (v < yMin ? yMin : v));
