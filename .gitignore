@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+**/node_modules/
 .pnp
 .pnp.js
 
@@ -8,14 +9,25 @@ coverage/
 
 # Production
 build/
+**/build/
 dist/
+**/dist/
+*.tsbuildinfo
 
-# Environment variables
+# Vite cache
+.vite/
+**/.vite/
+
+# Environment variables (contains secrets — never commit)
 .env
 .env.local
+.env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
+**/.env
+**/.env.local
+**/.env.*.local
 
 # Logs
 npm-debug.log*
@@ -35,10 +47,12 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Supabase
+# Supabase (contains credentials/migrations — keep local)
 .supabase/
-supabase/migrations/
-supabase/schema.sql
+supabase/
+
+# Scripts (contain credentials — keep local)
+scripts/
 
 # PD Module
 energy-market/config/ec2-db.json
@@ -61,9 +75,14 @@ infrastructure/**/*.tfstate.backup
 *.pem
 credentials.json
 
-# GeoJSON zone overlays — only PJM is committed; others are sourced locally
-frontend/public/*.geojson
-!frontend/public/PJM_zones.geojson
+# GeoJSON files (large / sourced locally)
+PJM_subs.geojson
+frontend/public/PJM_zones.geojson
+frontend/public/PJM_subs_priced.geojson
+frontend/public/PJM_subs_backup.geojson
+frontend/public/CAISO_zones.geojson
+frontend/public/ERCOT_zones.geojson
+frontend/public/MISO_zones.geojson
 
 # Misc
 .cache/

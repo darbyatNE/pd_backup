@@ -9,7 +9,8 @@ export type HandoffKind =
   | 'examine-fit'
   | 'capacity-risk'
   | 'contracting'
-  | 'try-on-commit';
+  | 'try-on-commit'
+  | 'transmission';
 
 interface HandoffCopy {
   icon: string;
@@ -75,6 +76,14 @@ const DEFAULT_COPY: Record<HandoffKind, HandoffCopy> = {
     body:
       "You'll be able to save this deal shape configuration and proceed to contract execution. This will include generating a term sheet preview and hand-off to the contracting module.",
     eta: 'August 2026',
+  },
+  transmission: {
+    icon: '🔌',
+    title: 'Transmission & Basis Risk — coming soon',
+    sub: 'ARR/FTR auction feed and NITS cost allocation not yet connected.',
+    body:
+      'Will surface congestion and basis exposure for each settlement node, model hedging via Auction Revenue Rights (ARRs) and Financial Transmission Rights (FTRs), and allocate annual Network Integration Transmission Service (NITS) costs by load ratio share.',
+    eta: 'Q4 2026',
   },
 };
 

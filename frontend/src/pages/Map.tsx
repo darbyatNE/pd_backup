@@ -192,14 +192,8 @@ export default function MapPage() {
     const saved = localStorage.getItem('map-legendMode');
     return saved !== null ? JSON.parse(saved) : 'gen';
   });
-  const [showGenMarkers, setShowGenMarkers] = useState(() => {
-    const saved = localStorage.getItem('map-showGenMarkers');
-    return saved !== null ? JSON.parse(saved) : true;
-  });
-  const [showLmpDots, setShowLmpDots] = useState(() => {
-    const saved = localStorage.getItem('map-showLmpDots');
-    return saved !== null ? JSON.parse(saved) : true;
-  });
+  const [showGenMarkers, setShowGenMarkers] = useState(true);
+  const [showLmpDots, setShowLmpDots] = useState(false);
 
   // LMP frames: always start from Jan 2020 (full historical range) up to scope end
   const LMP_FRAMES = useMemo(() => {
@@ -284,6 +278,12 @@ export default function MapPage() {
     // Save to localStorage
     localStorage.setItem('map-showLabels', JSON.stringify(showLabels));
   }, [showLabels]);
+
+  const showGenMarkersRef = useRef(showGenMarkers);
+  useEffect(() => { showGenMarkersRef.current = showGenMarkers; }, [showGenMarkers]);
+
+  const showLmpDotsRef = useRef(showLmpDots);
+  useEffect(() => { showLmpDotsRef.current = showLmpDots; }, [showLmpDots]);
 
   // Save other states to localStorage
   useEffect(() => {
@@ -526,6 +526,7 @@ export default function MapPage() {
           map.current!.addLayer({
             id: 'pjm-subs-dots',
             type: 'circle',
+            layout: { visibility: showLmpDotsRef.current ? 'visible' : 'none' },
             source: 'pjm-subs',
             paint: {
               'circle-radius': [
@@ -597,11 +598,9 @@ export default function MapPage() {
         // non-critical — map renders without substations layer
       }
 
-      // Double-click: select pnode dot if hit, else highlight zone
-      map.current!.on('dblclick', (e) => {
+      // Single-click: select pnode dot if hit (clears any zone selection)
+      map.current!.on('click', (e) => {
         if (!map.current) return;
-
-        // Check for pnode dot hit first
         const dotFeatures = map.current.queryRenderedFeatures(e.point, { layers: ['pjm-subs-dots'] });
         if (dotFeatures.length > 0) {
           const dp = dotFeatures[0].properties as Record<string, unknown>;
@@ -610,6 +609,19 @@ export default function MapPage() {
           setSelectedPnode(prev => (prev?.id === pid ? null : { id: pid, name }));
           zonePnodesRef.current = new Set();
           setSelectedZoneName(null);
+          const highlightSrc = map.current.getSource('pjm-highlight') as maplibregl.GeoJSONSource | undefined;
+          highlightSrc?.setData({ type: 'FeatureCollection', features: [] });
+          e.preventDefault();
+        }
+      });
+
+      // Double-click: highlight zone (pnode dots handled by single-click above)
+      map.current!.on('dblclick', (e) => {
+        if (!map.current) return;
+
+        // If a pnode dot is hit, let single-click handle it — skip zone logic
+        const dotFeatures = map.current.queryRenderedFeatures(e.point, { layers: ['pjm-subs-dots'] });
+        if (dotFeatures.length > 0) {
           e.preventDefault();
           return;
         }
@@ -636,7 +648,7 @@ export default function MapPage() {
           const bounds = featureBounds(f.geometry as { type: string; coordinates: unknown });
           if (bounds) {
             // Collect all pnode_ids in this zone — stored in ref, avg computed reactively
-            const srcFeatures = map.current.querySourceFeatures('pjm-subs', { sourceLayer: '' });
+            const srcFeatures = map.current.querySourceFeatures('pjm-subs');
             const pnodeIds = new Set<number>();
             srcFeatures.forEach((d) => {
               if (d.properties?.['pjm_zone'] === zoneName) {
@@ -666,6 +678,20 @@ export default function MapPage() {
       map.current?.remove();
       map.current = null;
     };
+  }, []);
+
+  // ESC key: clear all selections and reset map highlight
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setSelectedPnode(null);
+      setSelectedZoneName(null);
+      zonePnodesRef.current = new Set();
+      const highlightSrc = map.current?.getSource('pjm-highlight') as maplibregl.GeoJSONSource | undefined;
+      highlightSrc?.setData({ type: 'FeatureCollection', features: [] });
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Render markers imperatively using refs so data is never stale
@@ -1102,7 +1128,7 @@ export default function MapPage() {
       .catch(() => {});
   }, [lmpPrices]);
 
-  // Trigger re-render whenever data / filters change.
+  // Trigger re-render whenever data / filters change, then apply showGenMarkers visibility.
   // We no longer gate on isStyleLoaded() — that caused a race where the
   // effect sometimes fired before the style finished loading and then never
   // retried. MapLibre markers are DOM overlays; adding them before the style
@@ -1110,9 +1136,13 @@ export default function MapPage() {
   useEffect(() => {
     if (!map.current) return;
     renderMarkers();
-  }, [projects, buyerSites, visibleGenTypes, selectedSites, showLabels, renderMarkers]);
+    // Apply saved gen-marker visibility immediately after (re)render
+    markers.current.forEach((marker) => {
+      marker.getElement().style.display = showGenMarkers ? '' : 'none';
+    });
+  }, [projects, buyerSites, visibleGenTypes, selectedSites, showLabels, showGenMarkers, renderMarkers]);
 
-  // Toggle gen-type project marker visibility
+  // Toggle gen-type project marker visibility (for toggle-only changes)
   useEffect(() => {
     markers.current.forEach((marker) => {
       const el = marker.getElement();

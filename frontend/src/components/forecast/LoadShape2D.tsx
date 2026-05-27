@@ -521,7 +521,10 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
                       stroke="#ef4444"
                       strokeDasharray="4 3"
                       strokeWidth={1.5}
-                      label={{ value: `Capacity ${cap} MW (${y})`, position: 'right', fill: '#ef4444', fontSize: 10 }}
+                      label={({ viewBox }: any) => {
+                          const { x, y: ly, width } = viewBox;
+                          return <text x={x + width - 4} y={ly - 4} textAnchor="end" fill="#ef4444" fontSize={10}>{`Cap. ${cap} MW (${y})`}</text>;
+                        }}
                     />
                   )
                 })
@@ -531,7 +534,10 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
               if (!cap || cap <= 0) return null
               return (
                 <ReferenceLine y={cap} stroke="#ef4444" strokeDasharray="4 3" strokeWidth={1.5}
-                  label={{ value: `Capacity ${cap} MW`, position: 'right', fill: '#ef4444', fontSize: 10 }}
+                  label={({ viewBox }: any) => {
+                      const { x, y: ly, width } = viewBox;
+                      return <text x={x + width - 4} y={ly - 4} textAnchor="end" fill="#ef4444" fontSize={10}>{`Cap. ${cap} MW`}</text>;
+                    }}
                 />
               )
             })()}

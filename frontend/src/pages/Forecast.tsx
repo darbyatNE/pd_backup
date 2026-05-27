@@ -124,6 +124,7 @@ export default function Forecast() {
   const { subTab: activeTab } = useDashboardView()
   const navigate = useNavigate()
   const [recsDialogOpen, setRecsDialogOpen] = useState(false)
+  const [transmissionDialogOpen, setTransmissionDialogOpen] = useState(false)
   const [loadXAxis, setLoadXAxis] = useState<XAxisMode>('hours')
   const [chartYearMode, setChartYearMode] = useState<'single' | 'all'>('single')
   const [chartActiveYear, setChartActiveYear] = useState<number>(startYear)
@@ -265,6 +266,38 @@ export default function Forecast() {
             className="text-xs font-semibold px-4 py-2 rounded-md bg-slate-900 text-white hover:bg-slate-800"
           >
             Preview REC procurement module
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'transmission' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+          {transmissionDialogOpen && (
+            <ModuleHandoffDialog
+              kind="transmission"
+              onClose={() => setTransmissionDialogOpen(false)}
+              payload={
+                <div className="space-y-1">
+                  <p><span className="text-slate-500">Sites in scope:</span> <span className="font-medium">{selectedSites.length}</span></p>
+                  <p><span className="text-slate-500">Scope years:</span> <span className="font-medium">{startYear}–{endYear}</span></p>
+                </div>
+              }
+            />
+          )}
+          <p className="text-sm font-semibold text-slate-700 mb-2">Transmission &amp; Basis Risk — coming soon</p>
+          <p className="text-xs text-slate-500 max-w-lg mx-auto mb-4">
+            Will surface congestion and basis exposure for each site&apos;s settlement node, and model
+            hedging strategies via <em>Auction Revenue Rights (ARRs)</em>, <em>Financial Transmission
+            Rights (FTRs)</em>, and <em>Network Integration Transmission Service (NITS)</em> in PJM.
+            Includes historical basis spreads by zone, FTR auction cost vs. hedge value, and
+            annual NITS cost allocation by load ratio share.
+          </p>
+          <button
+            type="button"
+            onClick={() => setTransmissionDialogOpen(true)}
+            className="text-xs font-semibold px-4 py-2 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+          >
+            Preview transmission risk module
           </button>
         </div>
       )}

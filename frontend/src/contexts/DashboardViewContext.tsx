@@ -13,12 +13,13 @@ export const DASHBOARD_VIEWS: { id: DashboardView; label: string }[] = [
 
 // Sub-tab applies to the Planning and Risk views (Map ignores it).
 // Shared so toggling between Planning ↔ Risk keeps the same topic open.
-export type DashboardSubTab = 'capacity' | 'energy' | 'recs';
+export type DashboardSubTab = 'capacity' | 'energy' | 'recs' | 'transmission';
 
 export const DASHBOARD_SUBTABS: { id: DashboardSubTab; label: string }[] = [
-  { id: 'capacity', label: 'Capacity' },
-  { id: 'energy',   label: 'Energy'   },
-  { id: 'recs',     label: 'RECs'     },
+  { id: 'capacity',     label: 'Capacity'     },
+  { id: 'energy',       label: 'Energy'       },
+  { id: 'recs',         label: 'RECs'         },
+  { id: 'transmission', label: 'Transmission' },
 ];
 
 interface DashboardViewContextValue {
