@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   fetchAllFacilities,
@@ -464,25 +464,44 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
 
   const { selectedSites, startYear } = useScopeContext();
 
-  // Fetch all facilities once. If the parent passed `initialFacilityId` (set
-  // when the user just saved a facility profile), focus that facility instead
-  // of defaulting to the first one in the list.
+  // The last initialFacilityId we actually applied to local state. We compare
+  // the incoming prop against this (not the prior prop value) so that when the
+  // user clicks a tab and we echo that id back via onFacilityChange, the
+  // parent's re-render with the same id doesn't fire the focus-apply effect
+  // again. Without this guard, fast tab clicks racing the fetch caused the
+  // active tab to "randomly" snap to a previous selection.
+  const appliedFocusRef = useRef<string | null>(null);
+
+  // Fetch facilities once per signed-in user. Decoupled from initialFacilityId
+  // on purpose: changing the focus prop must not retrigger the network call,
+  // because the prop changes every time the user clicks a tab.
   useEffect(() => {
     if (!user?.id) { setLoading(false); return; }
     fetchAllFacilities(user.id).then((list) => {
       setFacilities(list);
-      if (list.length > 0) {
-        const focus = (initialFacilityId && list.find(f => f.id === initialFacilityId)) || list[0];
-        setActiveFacilityId(focus.id);
-        setFacilityData(focus.data);
-        onFacilityChange?.(focus.id);
-      }
       setLoading(false);
     });
-  }, [user?.id, initialFacilityId]);
+  }, [user?.id]);
 
-  // Recompute forecast when active facility changes
+  // Apply the focus prop (or fall back to list[0]) once facilities are loaded,
+  // and again when the parent genuinely changes the prop — e.g. user saved a
+  // different facility in the Facility Profile tab. The ref guard prevents the
+  // round-trip onFacilityChange → parent state → prop echo from re-firing.
+  useEffect(() => {
+    if (facilities.length === 0) return;
+    if (appliedFocusRef.current !== null && initialFacilityId === appliedFocusRef.current) return;
+    const focus = (initialFacilityId && facilities.find(f => f.id === initialFacilityId)) || facilities[0];
+    appliedFocusRef.current = focus.id;
+    setActiveFacilityId(focus.id);
+    setFacilityData(focus.data);
+    if (focus.id !== initialFacilityId) onFacilityChange?.(focus.id);
+  }, [facilities, initialFacilityId]);
+
+  // User-initiated tab switch. Updating appliedFocusRef *before* the parent
+  // callback ensures the prop-driven effect short-circuits when the parent
+  // echoes the new id back.
   const selectFacility = (fac: FacilityEntry) => {
+    appliedFocusRef.current = fac.id;
     setActiveFacilityId(fac.id);
     setFacilityData(fac.data);
     onFacilityChange?.(fac.id);
@@ -509,6 +528,9 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
   // Hourly P_NET for year 0 of the BASE scenario. Cooling varies hour-by-hour
   // with ambient temperature via the pPUE polynomial; P_IT is flat at the
   // monthly mean within each month. See loadCalculation.calculateHourlyForecast.
+  // pItMonthly must be raw IT (P_IT_PROJ) — calculateHourlyForecast itself adds
+  // cooling and pFac on top. Passing P_NET_AVG_MONTH here would double-count
+  // both, since that series already includes pue × IT + P_FAC.
   // Computed before any early return so hook order stays stable across renders.
   const hourly = useMemo(() => {
     if (!facilityData || !forecast || !forecast.P_IT_PROJ['BASE']) return null;
