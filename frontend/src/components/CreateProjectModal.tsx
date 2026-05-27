@@ -356,7 +356,7 @@ const SETTLEMENT_ZONES = [
 ];
 
 export default function CreateProjectModal({ isOpen, onClose, onSuccess, editProject }: CreateProjectModalProps) {
-    const { user } = useAuth();
+    const { user, session } = useAuth();
     const isEditMode = Boolean(editProject);
     const [projectType, setProjectType] = useState<'brownfield' | 'greenfield' | 'generation'>('brownfield');
     const [submitting, setSubmitting] = useState(false);
@@ -876,7 +876,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 method: method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${(await import('../services/supabase').then(m => m.supabase.auth.getSession())).data.session?.access_token}`
+                    'Authorization': `Bearer ${session?.access_token}`
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -958,7 +958,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 method: method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${(await import('../services/supabase').then(m => m.supabase.auth.getSession())).data.session?.access_token}`
+                    'Authorization': `Bearer ${session?.access_token}`
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -1030,7 +1030,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${(await import('../services/supabase').then(m => m.supabase.auth.getSession())).data.session?.access_token}`
+                    'Authorization': `Bearer ${session?.access_token}`
                 },
                 body: JSON.stringify(requestBody)
             });

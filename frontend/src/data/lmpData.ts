@@ -114,70 +114,83 @@ const HISTORICAL: Record<string, { op: HalfPeriodData; ofp: HalfPeriodData }> = 
   },
 };
 
+// ─── Date boundaries ─────────────────────────────────────────────────────────
+// Historical range: Jan 2020 – Apr 2026 (actuals)
+// Current month:   May 2026
+// Forward range:   Jun 2026 onward (projections)
+
+export const LMP_HISTORY_START = { year: 2020, month: 1 };
+export const LMP_CURRENT       = { year: 2026, month: 5 };  // update monthly
+export const LMP_FORWARD_START = { year: 2026, month: 6 };
+
+export type LmpPeriodType = 'historical' | 'current' | 'forward';
+
+export function getLmpPeriodType(year: number, month: number): LmpPeriodType {
+  if (year < LMP_CURRENT.year || (year === LMP_CURRENT.year && month < LMP_CURRENT.month)) return 'historical';
+  if (year === LMP_CURRENT.year && month === LMP_CURRENT.month) return 'current';
+  return 'forward';
+}
+
 // ─── Period builder ───────────────────────────────────────────────────────────
 
 function r2(n: number) { return parseFloat(n.toFixed(2)); }
 function r1(n: number) { return parseFloat(n.toFixed(1)); }
 
-function buildPeriods(): PeriodLMP[] {
-  const periods: PeriodLMP[] = [];
+function buildPeriod(year: number, month: number): PeriodLMP {
+  const m   = month - 1;
+  const esc = Math.pow(1.025, year - 2026);   // de-escalates for years < 2026
+  const cong = Math.max(0, (year - 2026) * 0.15);
 
-  for (let year = 2026; year <= 2030; year++) {
-    const esc      = Math.pow(1.025, year - 2026);  // energy price escalation
-    const cong     = (year - 2026) * 0.15;           // congestion growth $/MWh/yr
-
-    for (let month = 1; month <= 12; month++) {
-      const key = `${year}-${month}`;
-      const isHistorical = year === 2026 && month <= 4;
-      const m = month - 1;
-
-      if (isHistorical && HISTORICAL[key]) {
-        const h = HISTORICAL[key];
-        periods.push({ year, month, label: `${MONTH_LABELS[m]} ${year}`, isHistorical: true, onPeak: h.op, offPeak: h.ofp });
-        continue;
-      }
-
-      const whOn  = r2(BASE_WH_ON[m]  * esc);
-      const whOff = r2(BASE_WH_OFF[m] * esc);
-
-      // Congestion trend amplifies positive months only (constraints worsen, not relief)
-      const b50On  = r2(BASE_B50_ON[m]  + (BASE_B50_ON[m]  > 0 ? cong        : 0));
-      const b50Off = r2(BASE_B50_OFF[m] + (BASE_B50_OFF[m] > 0 ? cong * 0.4  : 0));
-      const b10On  = r2(BASE_B10_ON[m]  + (BASE_B10_ON[m]  > 0 ? cong * 0.3  : 0));
-      const b10Off = r2(BASE_B10_OFF[m] + (BASE_B10_OFF[m] > 0 ? cong * 0.15 : 0));
-      const b90On  = r1(BASE_B90_ON[m]  + cong * 1.1);
-      const b90Off = r1(BASE_B90_OFF[m] + cong * 0.5);
-
-      periods.push({
-        year, month,
-        label: `${MONTH_LABELS[m]} ${year}`,
-        isHistorical: false,
-        onPeak: {
-          whAvg:            whOn,
-          zoneP50:r2(whOn + b50On),
-          basisP10:         b10On,
-          basisP50:         b50On,
-          basisP90:         b90On,
-          pctPositiveBasis: Math.min(90, BASE_PCT_POS_ON[m] + Math.round(cong * 2)),
-          pctBasisGt2:      Math.min(80, BASE_GT2_ON[m]     + Math.round(cong * 3)),
-        },
-        offPeak: {
-          whAvg:            whOff,
-          zoneP50:r2(whOff + b50Off),
-          basisP10:         b10Off,
-          basisP50:         b50Off,
-          basisP90:         b90Off,
-          pctPositiveBasis: Math.min(78, BASE_PCT_POS_OFF[m] + Math.round(cong)),
-          pctBasisGt2:      Math.min(65, BASE_GT2_OFF[m]     + Math.round(cong * 2)),
-        },
-      });
-    }
+  const key = `${year}-${month}`;
+  if (year === 2026 && month <= 4 && HISTORICAL[key]) {
+    const h = HISTORICAL[key];
+    return { year, month, label: `${MONTH_LABELS[m]} ${year}`, isHistorical: true, onPeak: h.op, offPeak: h.ofp };
   }
 
+  const isHistorical = getLmpPeriodType(year, month) === 'historical';
+  const whOn  = r2(BASE_WH_ON[m]  * esc);
+  const whOff = r2(BASE_WH_OFF[m] * esc);
+  const b50On  = r2(BASE_B50_ON[m]  + (BASE_B50_ON[m]  > 0 ? cong        : 0));
+  const b50Off = r2(BASE_B50_OFF[m] + (BASE_B50_OFF[m] > 0 ? cong * 0.4  : 0));
+  const b10On  = r2(BASE_B10_ON[m]  + (BASE_B10_ON[m]  > 0 ? cong * 0.3  : 0));
+  const b10Off = r2(BASE_B10_OFF[m] + (BASE_B10_OFF[m] > 0 ? cong * 0.15 : 0));
+  const b90On  = r1(BASE_B90_ON[m]  + cong * 1.1);
+  const b90Off = r1(BASE_B90_OFF[m] + cong * 0.5);
+
+  return {
+    year, month,
+    label: `${MONTH_LABELS[m]} ${year}`,
+    isHistorical,
+    onPeak: {
+      whAvg: whOn, zoneP50: r2(whOn + b50On),
+      basisP10: b10On, basisP50: b50On, basisP90: b90On,
+      pctPositiveBasis: Math.min(90, BASE_PCT_POS_ON[m] + Math.round(cong * 2)),
+      pctBasisGt2:      Math.min(80, BASE_GT2_ON[m]     + Math.round(cong * 3)),
+    },
+    offPeak: {
+      whAvg: whOff, zoneP50: r2(whOff + b50Off),
+      basisP10: b10Off, basisP50: b50Off, basisP90: b90Off,
+      pctPositiveBasis: Math.min(78, BASE_PCT_POS_OFF[m] + Math.round(cong)),
+      pctBasisGt2:      Math.min(65, BASE_GT2_OFF[m]     + Math.round(cong * 2)),
+    },
+  };
+}
+
+function buildPeriods(fromYear: number, fromMonth: number, toYear: number, toMonth: number): PeriodLMP[] {
+  const periods: PeriodLMP[] = [];
+  for (let y = fromYear; y <= toYear; y++) {
+    const mStart = y === fromYear ? fromMonth : 1;
+    const mEnd   = y === toYear   ? toMonth   : 12;
+    for (let mo = mStart; mo <= mEnd; mo++) periods.push(buildPeriod(y, mo));
+  }
   return periods;
 }
 
-export const LMP_PERIODS: PeriodLMP[] = buildPeriods();
+/** Full historical + current + forward range: Jan 2020 – Dec 2030 */
+export const LMP_PERIODS_ALL: PeriodLMP[] = buildPeriods(2020, 1, 2030, 12);
+
+/** Legacy export — 2026–2030 only (kept for Planning page compatibility) */
+export const LMP_PERIODS: PeriodLMP[] = buildPeriods(2026, 1, 2030, 12);
 
 // ─── DOM-zone site profiles ───────────────────────────────────────────────────
 // Capacity, baseload, load factor, monthly MWh, and annual MWh all derive
@@ -329,6 +342,92 @@ export const SITE_RISK: SiteRiskSummary[] = LOAD_PROFILES.map((lp) => {
     esgComplianceRisk: fixed.esgComplianceRisk,
   };
 });
+
+// ─── Zone basis offsets ───────────────────────────────────────────────────────
+// Historical avg $/MWh differential vs PJM system price (+ = more expensive).
+// Derived from PJM published zonal LMP historical averages.
+export const PJM_ZONE_BASIS: Record<string, number> = {
+  AECO:    +2.8,
+  AEP:     -1.2,
+  APS:     -0.8,
+  BGE:     +1.5,
+  COMED:   -2.1,
+  DAY:     -1.8,
+  DEOK:    -1.5,
+  DOM:     +0.6,
+  DPL:     +2.1,
+  DUQ:     -0.5,
+  EKPC:    -2.4,
+  'FE-ATSI': -1.0,
+  JCPL:    +3.2,
+  LGE:     -2.2,
+  METED:   +1.8,
+  PECO:    +2.5,
+  PENELEC: +0.9,
+  PEPCO:   +1.2,
+  PPL:     +1.4,
+  PSEG:    +3.8,
+  RECO:    +4.1,
+  UGI:     +1.0,
+};
+
+// Zone-level congestion spread (±$/MWh max intra-zone variance).
+// High-congestion eastern zones have wider node-to-node spread.
+export const PJM_ZONE_SPREAD: Record<string, number> = {
+  AECO:    4.5,
+  AEP:     3.0,
+  APS:     3.5,
+  BGE:     4.0,
+  COMED:   3.2,
+  DAY:     2.8,
+  DEOK:    2.5,
+  DOM:     4.2,
+  DPL:     4.8,
+  DUQ:     3.1,
+  EKPC:    2.2,
+  'FE-ATSI': 3.8,
+  JCPL:    6.5,
+  LGE:     2.4,
+  METED:   4.0,
+  PECO:    5.5,
+  PENELEC: 3.6,
+  PEPCO:   4.2,
+  PPL:     4.4,
+  PSEG:    7.2,
+  RECO:    5.8,
+  UGI:     3.0,
+};
+
+// Seasonal spread multiplier — peak months have wider congestion variance.
+const SEASONAL_MULT = [0.9, 0.85, 0.8, 0.85, 1.0, 1.2, 1.4, 1.35, 1.1, 0.85, 0.9, 1.0];
+
+/**
+ * Build a synthetic LmpMap for months without DB data.
+ * Uses the system avg from LMP_PERIODS_ALL + zone basis offsets +
+ * zone-specific spread scaled by seasonal congestion multiplier.
+ */
+export function buildSimulatedLmpMap(
+  year: number,
+  month: number,
+  pnodesByZone: Record<string, number[]>,
+): Map<number, number> {
+  const period = LMP_PERIODS_ALL.find((p) => p.year === year && p.month === month);
+  const sysAvg = period ? (period.onPeak.whAvg + period.offPeak.whAvg) / 2 : 45;
+  const seasonal = SEASONAL_MULT[month - 1];
+  const result = new Map<number, number>();
+  for (const [zone, pnodeIds] of Object.entries(pnodesByZone)) {
+    const basis  = PJM_ZONE_BASIS[zone] ?? 0;
+    const spread = (PJM_ZONE_SPREAD[zone] ?? 3.0) * seasonal;
+    const zoneAvg = sysAvg + basis;
+    pnodeIds.forEach((pid, idx) => {
+      // Deterministic noise scaled to zone spread: maps pid hash → [-1, +1] range
+      const t = ((pid * 2654435761 + idx * 40503) >>> 0) / 0xFFFFFFFF; // 0..1
+      const noise = (t * 2 - 1) * spread;                               // -spread..+spread
+      result.set(pid, parseFloat((zoneAvg + noise).toFixed(2)));
+    });
+  }
+  return result;
+}
 
 // ─── Helper functions ─────────────────────────────────────────────────────────
 

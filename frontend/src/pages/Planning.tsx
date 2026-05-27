@@ -288,6 +288,52 @@ function RECsTab({
   );
 }
 
+// ─── Transmission & Basis Risk Tab (placeholder) ─────────────────────────────
+
+function TransmissionTab({
+  selectedSites,
+  startYear,
+  endYear,
+}: {
+  selectedSites: string[];
+  startYear: number;
+  endYear: number;
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+      {dialogOpen && (
+        <ModuleHandoffDialog
+          kind="transmission"
+          onClose={() => setDialogOpen(false)}
+          payload={
+            <div className="space-y-1">
+              <p><span className="text-slate-500">Sites in scope:</span> <span className="font-medium">{selectedSites.length}</span></p>
+              <p><span className="text-slate-500">Scope years:</span> <span className="font-medium">{startYear}–{endYear}</span></p>
+            </div>
+          }
+        />
+      )}
+      <p className="text-sm font-semibold text-slate-700 mb-2">Transmission &amp; Basis Risk — coming soon</p>
+      <p className="text-xs text-slate-500 max-w-lg mx-auto mb-4">
+        Will surface congestion and basis exposure for each site's settlement node, and model
+        hedging strategies via <em>Auction Revenue Rights (ARRs)</em>, <em>Financial Transmission
+        Rights (FTRs)</em>, and <em>Network Integration Transmission Service (NITS)</em> in PJM.
+        Includes historical basis spreads by zone, FTR auction cost vs. hedge value, and
+        annual NITS cost allocation by load ratio share.
+      </p>
+      <button
+        type="button"
+        onClick={() => setDialogOpen(true)}
+        className="text-xs font-semibold px-4 py-2 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+      >
+        Preview transmission risk module
+      </button>
+    </div>
+  );
+}
+
 // ─── Main Planning component ──────────────────────────────────────────────────
 
 const ALL_YEARS = [2026, 2027, 2028, 2029, 2030];
@@ -522,6 +568,9 @@ export default function Planning() {
         {/* ── RECs tab ────────────────────────────────────────────────────── */}
         {activeTab === 'recs' && <RECsTab selectedSites={selectedSites} startYear={startYear} endYear={endYear} />}
 
+        {/* ── Transmission & Basis Risk tab ───────────────────────────────── */}
+        {activeTab === 'transmission' && <TransmissionTab selectedSites={selectedSites} startYear={startYear} endYear={endYear} />}
+
         {/* ── Energy tab — risk decomposition + contracted position ───────── */}
         {activeTab === 'energy' && (<>
 
@@ -543,7 +592,7 @@ export default function Planning() {
                       Risk Metric
                     </th>
                     <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Baseline (Current P50)
+                      Unoptimized
                     </th>
                     <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-emerald-600">
                       P10 Favorable

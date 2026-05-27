@@ -1,5 +1,5 @@
 import {
-  getSiteCapacityForYear,
+  getForecastCapacityForYear,
   getScopeAvgAnnualLoadMwh,
   getEffectiveAnnualLoadMwh,
   getEffectiveLoadAt,
@@ -27,16 +27,18 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
   const isSingleYear = chartYearMode === 'single'
   const effectiveYear = isSingleYear && chartActiveYear ? chartActiveYear : endYear
 
-  // Year-specific capacity
-  const yearCapacityMw = getSiteCapacityForYear(profile, effectiveYear)
+  // Year-specific capacity — uses getForecastCapacityForYear to match Plan tab (applies growth rate when no documented capacity)
+  const yearCapacityMw = getForecastCapacityForYear(profile, effectiveYear)
 
   // Calculate year-specific baseload and peak demand using load multipliers
   // Also calculate project coverage by tier (base vs peak)
   // Overhedge is calculated hour-by-hour since energy in one hour can't offset another hour
   const getYearlyLoadStats = (year: number) => {
-    let totalBaseload = 0
-    let totalPeak = 0
-    let totalCapacity = 0
+    // Use static profile values for baseload and peak demand (matches Planning tab)
+    // These represent the design capacity characteristics, not hour-by-hour effective loads
+    const avgBaseloadMw = Math.round(profile.baseloadMw * 10) / 10
+    const avgPeakMw = Math.round(profile.peakDemandMw * 10) / 10
+
     let totalOverhedge = 0
     let totalLoad = 0
     const daysPerMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -44,14 +46,12 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
     const sitesInScope = selectedSites && selectedSites.length > 0 ? selectedSites : [profile.siteKey]
     const siteContracts = getContractsForSites(sitesInScope)
 
+    // Calculate overhedge using hour-by-hour method (this part still needs effective loads)
     for (let m = 1; m <= 12; m++) {
       const days = daysPerMonth[m - 1]
       for (let h = 0; h < 24; h++) {
         const eff = getEffectiveLoadAt(profile, h, m, year)
         const hourLoad = eff.baseloadMw + eff.peakMw
-        totalBaseload += eff.baseloadMw * days
-        totalPeak += eff.peakMw * days
-        totalCapacity += yearCapacityMw * days
         totalLoad += hourLoad * days
 
         // Calculate total contracted MW for this hour-month
@@ -69,8 +69,6 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
 
     // Convert from daily sums to average MW (divide by total hours)
     const totalHours = 365 * 24
-    const avgBaseloadMw = Math.round((totalBaseload / totalHours) * 10) / 10
-    const avgPeakMw = Math.round((totalPeak / totalHours) * 10) / 10
     const avgOverhedgeMw = Math.round((totalOverhedge / totalHours) * 10) / 10
     const avgTotalLoadMw = (totalLoad / totalHours)
 

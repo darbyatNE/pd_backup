@@ -146,12 +146,15 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const MAX_SCOPE_YEAR = 2030;
+
   const setEndDate = (year: number, month: number) => {
-    setEndYear(year);
-    setEndMonth(month);
+    const clampedYear = Math.min(year, MAX_SCOPE_YEAR);
+    setEndYear(clampedYear);
+    setEndMonth(clampedYear === MAX_SCOPE_YEAR ? 12 : month);
     // clamp start to stay <= end
-    if (year < startYear || (year === startYear && month < startMonth)) {
-      setStartYear(year);
+    if (clampedYear < startYear || (clampedYear === startYear && month < startMonth)) {
+      setStartYear(clampedYear);
       setStartMonth(month);
     }
   };
