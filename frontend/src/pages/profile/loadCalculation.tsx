@@ -390,6 +390,7 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 const p_bess_dis = 0; // BESS average discharge power (MW) — placeholder
                 const p_bess_ch = (y > 0 ? data.BATT_ADD_y?.[y - 1] : 0) || 0; // BESS charging proxied by planned battery additions for year y (MW)
                 const p_net_avg = Math.max(0, p_gross_proj_m - p_gen_avg - p_bess_dis + p_bess_ch); // Net grid import (in MW) after offsetting gross demand with onsite generation and BESS
+                console.log(p_net_avg, s, y, m, 'p_net_avg', 's', 'y', 'm')
                 results.P_NET_AVG_MONTH[s][y][m] = p_net_avg;
 
                 p_net_avg_sum += p_net_avg;

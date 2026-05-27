@@ -475,7 +475,6 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
         const focus = (initialFacilityId && list.find(f => f.id === initialFacilityId)) || list[0];
         setActiveFacilityId(focus.id);
         setFacilityData(focus.data);
-        setForecast(calculateMultiYearForecast(focus.data));
         onFacilityChange?.(focus.id);
       }
       setLoading(false);
@@ -486,9 +485,16 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
   const selectFacility = (fac: FacilityEntry) => {
     setActiveFacilityId(fac.id);
     setFacilityData(fac.data);
-    setForecast(calculateMultiYearForecast(fac.data));
     onFacilityChange?.(fac.id);
   };
+
+  // Single source of truth for forecast: any change to facilityData (initial
+  // load, facility switch, or a profile edit propagated back into this state)
+  // re-runs the multi-year calc. Without this, edits to fields like P_FAC
+  // didn't impact the displayed forecast until the user switched facilities.
+  useEffect(() => {
+    if (facilityData) setForecast(calculateMultiYearForecast(facilityData));
+  }, [facilityData]);
 
   // Open-Meteo ERA5 archive: most recent completed calendar year of hourly
   // temperatures at the facility coordinates. When the archive is unavailable
@@ -507,7 +513,7 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
   const hourly = useMemo(() => {
     if (!facilityData || !forecast || !forecast.P_IT_PROJ['BASE']) return null;
     return calculateHourlyForecast({
-      pItMonthly: forecast.P_NET_AVG_MONTH['BASE'][0],
+      pItMonthly: forecast.P_IT_PROJ['BASE'][0],
       pFac: facilityData.P_FAC,
       pGen: 0,
       tempAmbHourly: tempAmbHourly ?? undefined,
