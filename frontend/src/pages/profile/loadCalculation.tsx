@@ -80,8 +80,88 @@ function parseUtilRamp(str?: string, utilYStr?: string): number[] {
     return expanded;
 }
 
+// Coefficients for the partial-PUE quadratic pPUE(T) = a·T² + b·T + c, where
+// T is outdoor ambient temperature in °C. Defaults are the original Liebert
+// EconoPhase fit; overridden at runtime by the CSV upload in the facility
+// profile (see setPpueCoefficients). Persisted to localStorage so the override
+// survives reloads.
+const PPUE_COEFFS_DEFAULT: PpueCoefficients = { a: 7.1705e-5, b: 0.0041, c: 1.0743 };
+const PPUE_COEFFS_STORAGE_KEY = 'ppueCoefficients.v1';
+
+export interface PpueCoefficients {
+    a: number;
+    b: number;
+    c: number;
+}
+
+function loadPpueCoeffs(): PpueCoefficients {
+    if (typeof window === 'undefined' || !window.localStorage) return PPUE_COEFFS_DEFAULT;
+    try {
+        const raw = window.localStorage.getItem(PPUE_COEFFS_STORAGE_KEY);
+        if (!raw) return PPUE_COEFFS_DEFAULT;
+        const parsed = JSON.parse(raw);
+        if (typeof parsed?.a === 'number' && typeof parsed?.b === 'number' && typeof parsed?.c === 'number') {
+            return { a: parsed.a, b: parsed.b, c: parsed.c };
+        }
+    } catch {
+        // Ignore parse errors — fall through to defaults.
+    }
+    return PPUE_COEFFS_DEFAULT;
+}
+
+let ppueCoeffs: PpueCoefficients = loadPpueCoeffs();
+
+export function getPpueCoefficients(): PpueCoefficients {
+    return { ...ppueCoeffs };
+}
+
+export function setPpueCoefficients(next: PpueCoefficients) {
+    ppueCoeffs = { a: next.a, b: next.b, c: next.c };
+    if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+            window.localStorage.setItem(PPUE_COEFFS_STORAGE_KEY, JSON.stringify(ppueCoeffs));
+        } catch {
+            // localStorage may be unavailable (private mode quota, SSR, etc.) — silently keep
+            // the in-memory override; consumers in this session still see the new values.
+        }
+    }
+}
+
+export function resetPpueCoefficients() {
+    setPpueCoefficients(PPUE_COEFFS_DEFAULT);
+}
+
+// Least-squares fit of y = a·x² + b·x + c via the 3×3 normal equations. Returns
+// null when the system is degenerate (fewer than 3 distinct x values or a
+// vanishing determinant), so callers can surface a clear error instead of NaN
+// coefficients.
+export function fitQuadratic(xs: number[], ys: number[]): PpueCoefficients | null {
+    if (xs.length !== ys.length || xs.length < 3) return null;
+    let S0 = 0, S1 = 0, S2 = 0, S3 = 0, S4 = 0, T0 = 0, T1 = 0, T2 = 0;
+    for (let i = 0; i < xs.length; i++) {
+        const x = xs[i], y = ys[i];
+        if (!isFinite(x) || !isFinite(y)) return null;
+        const x2 = x * x;
+        S0 += 1;
+        S1 += x;
+        S2 += x2;
+        S3 += x2 * x;
+        S4 += x2 * x2;
+        T0 += y;
+        T1 += x * y;
+        T2 += x2 * y;
+    }
+    // Solve [[S4,S3,S2],[S3,S2,S1],[S2,S1,S0]] · [a,b,c]ᵀ = [T2,T1,T0]ᵀ via Cramer's rule.
+    const det = S4 * (S2 * S0 - S1 * S1) - S3 * (S3 * S0 - S1 * S2) + S2 * (S3 * S1 - S2 * S2);
+    if (Math.abs(det) < 1e-18) return null;
+    const detA = T2 * (S2 * S0 - S1 * S1) - S3 * (T1 * S0 - S1 * T0) + S2 * (T1 * S1 - S2 * T0);
+    const detB = S4 * (T1 * S0 - S1 * T0) - T2 * (S3 * S0 - S1 * S2) + S2 * (S3 * T0 - T1 * S2);
+    const detC = S4 * (S2 * T0 - T1 * S1) - S3 * (S3 * T0 - T1 * S2) + T2 * (S3 * S1 - S2 * S2);
+    return { a: detA / det, b: detB / det, c: detC / det };
+}
+
 function calcPPUE(T: number): number {
-    return 7.1705e-5 * T * T + 0.0041 * T + 1.0743;
+    return ppueCoeffs.a * T * T + ppueCoeffs.b * T + ppueCoeffs.c;
 }
 
 export interface HourlyForecastInputs {

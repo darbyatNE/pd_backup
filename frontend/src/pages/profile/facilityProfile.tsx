@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 type Contract = {
   CTYPE_i: string;
@@ -146,7 +146,14 @@ import UtilRampCurveEditor, { YEARS as UTIL_RAMP_YEARS, YEAR_COLORS as UTIL_RAMP
 import YearlyMetricCurveEditor from './YearlyMetricCurveEditor';
 import LocationAutocomplete from './LocationAutocomplete';
 import WeatherPanel from './WeatherPanel';
-import { toEwkbHex } from './ewkb';
+import { toEwkbHex, ewkbToPoint } from './ewkb';
+import { useHourlyArchive } from '../../hooks/useHourlyArchive';
+import {
+  fitQuadratic,
+  setPpueCoefficients,
+  getPpueCoefficients,
+  resetPpueCoefficients,
+} from './loadCalculation';
 
 const inputCls =
   'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-teal-500';
@@ -896,18 +903,33 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
           </div>
         )}
 
-        {/* Monthly ambient temperatures — drives per-month pPUE via the calcPPUE polynomial when all 12 values are filled. */}
+        {/* Monthly ambient temperatures — auto-fetched from Open-Meteo's ERA5 archive
+            for the facility's lat/lng (most recent completed calendar year, averaged
+            per month). Feeds calcPPUE in the forecast. */}
         <div className="mt-6 pt-5 border-t border-slate-100">
           <Field
             label="Monthly average outdoor temperature (°C)"
             symbol="TEMP_AMB_monthly[]"
-            tooltip="Optional. When all 12 monthly values are provided, the forecast computes a per-month partial PUE from the temperature polynomial (warmer months produce more cooling load → higher pPUE). Leave blank to use the flat baseline PUE for every month."
+            tooltip="Auto-fetched from the Open-Meteo ERA5 archive at the facility's location, averaged hour-by-hour into 12 monthly means. The forecast feeds these into the pPUE polynomial. Set the facility location above to populate."
           >
-            <MonthlyTempInputs
+            <MonthlyTempPanel
+              facilityLocation={form.facility_location}
               value={form.TEMP_AMB_monthly}
               onChange={(s) => setField('TEMP_AMB_monthly', s)}
             />
           </Field>
+
+          {/* Optional CSV upload to refit the pPUE(T) polynomial from a manufacturer's
+              cooling-performance table (e.g. Liebert EconoPhase). The fit replaces the
+              global coefficients used by calcPPUE; coefficients persist in localStorage. */}
+          <div className="mt-5">
+            <Field
+              label="pPUE curve upload (CSV)"
+              tooltip="Optional. Upload a CSV with header row including 'Outdoor Ambient' (°F) and 'pPUE' columns — we'll convert to °C and fit pPUE = a·T² + b·T + c, replacing the global coefficients used everywhere in the forecast."
+            >
+              <PpueCurveUpload />
+            </Field>
+          </div>
         </div>
       </section>
 
@@ -1573,44 +1595,223 @@ function ManualYearlyInputs({
   );
 }
 
-// 12-cell input row for monthly ambient temperatures. Stores the comma-separated
-// string in the form field so the existing CSV save/parse pipeline works unchanged;
-// renders Jan…Dec labels with one small number input per month.
-function MonthlyTempInputs({
+// Auto-fetches the 12 monthly average outdoor temperatures (°C) for the facility's
+// location from Open-Meteo's ERA5 archive (most recent completed calendar year),
+// and writes them back into the form's TEMP_AMB_monthly CSV field so the existing
+// save/parse pipeline keeps working. Read-only — the only way to refresh the
+// values is to change the facility location.
+function MonthlyTempPanel({
+  facilityLocation,
   value,
   onChange,
 }: {
+  facilityLocation: string;
   value: string;
   onChange: (csv: string) => void;
 }) {
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const parts = (value || '').split(',').map((s) => s.trim());
-  while (parts.length < 12) parts.push('');
+  // Non-leap-year hour counts per month; useHourlyArchive normalises leap years
+  // by dropping Feb 29, so the 8760 series always matches this distribution.
+  const HOURS_PER_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 744];
 
-  const setOne = (i: number, v: string) => {
-    const next = parts.slice(0, 12);
-    next[i] = v;
-    // Trim trailing empties so the CSV stays compact when the user hasn't filled all 12.
-    let lastFilled = -1;
-    for (let j = 0; j < 12; j++) if (next[j] !== '') lastFilled = j;
-    onChange(next.slice(0, lastFilled + 1).join(', '));
+  const point = useMemo(
+    () => (facilityLocation ? ewkbToPoint(facilityLocation) : null),
+    [facilityLocation],
+  );
+  const archiveYear = new Date().getUTCFullYear() - 1;
+  const { data: tempAmbHourly, loading, error } = useHourlyArchive(point, archiveYear);
+
+  // Average the 8760-pt hourly series into 12 monthly means.
+  const monthlyTemps = useMemo<number[] | null>(() => {
+    if (!tempAmbHourly || tempAmbHourly.length < 8760) return null;
+    const monthStarts = [0];
+    for (let i = 0; i < 11; i++) monthStarts.push(monthStarts[i] + HOURS_PER_MONTH[i]);
+    return HOURS_PER_MONTH.map((h, m) => {
+      let sum = 0;
+      for (let i = 0; i < h; i++) sum += tempAmbHourly[monthStarts[m] + i];
+      return sum / h;
+    });
+  }, [tempAmbHourly]);
+
+  // Push derived monthly temps back into form state. Compared as CSV string so
+  // we don't fire setField on every render. value/onChange omitted from deps to
+  // avoid a feedback loop (the effect itself is what mutates value).
+  useEffect(() => {
+    if (!monthlyTemps) return;
+    const csv = monthlyTemps.map((t) => t.toFixed(1)).join(', ');
+    if (csv !== value) onChange(csv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthlyTemps]);
+
+  // Cells display either the freshly-computed averages, the previously-saved
+  // CSV (when archive hasn't loaded yet), or '—' when neither is available.
+  const savedParts = (value || '').split(',').map((s) => s.trim());
+  const cellText = (i: number): string => {
+    if (monthlyTemps) return monthlyTemps[i].toFixed(1);
+    const v = savedParts[i];
+    if (v && !isNaN(Number(v))) return Number(v).toFixed(1);
+    return '—';
+  };
+
+  let status: { text: string; tone: 'info' | 'warn' | 'error' } = { text: '', tone: 'info' };
+  if (!point) status = { text: 'Set the facility location above to fetch temperatures.', tone: 'warn' };
+  else if (loading) status = { text: `Fetching ${archiveYear} hourly archive…`, tone: 'info' };
+  else if (error) status = { text: `Weather fetch failed: ${error}`, tone: 'error' };
+  else if (monthlyTemps) status = { text: `Averaged from Open-Meteo ERA5 archive (${archiveYear}).`, tone: 'info' };
+
+  return (
+    <div>
+      <div className="grid grid-cols-6 md:grid-cols-12 gap-2">
+        {MONTHS.map((label, i) => (
+          <div key={label} className="flex flex-col">
+            <label className="text-[10px] text-slate-500 mb-1 text-center font-medium">{label}</label>
+            <div
+              className="w-full border border-slate-200 rounded-md px-2 py-1 text-xs text-center bg-slate-50 text-slate-700"
+              style={{ fontVariantNumeric: 'tabular-nums' }}
+            >
+              {cellText(i)}
+            </div>
+          </div>
+        ))}
+      </div>
+      {status.text && (
+        <p
+          className="mt-2 text-xs"
+          style={{
+            color: status.tone === 'error' ? '#ef4444' : status.tone === 'warn' ? '#b45309' : '#64748b',
+          }}
+        >
+          {status.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Parse a manufacturer cooling-performance CSV, extract (Outdoor Ambient °F, pPUE)
+// pairs, convert temperatures to °C, and fit pPUE(T) = a·T² + b·T + c. The fitted
+// coefficients replace the module-level defaults used by calcPPUE everywhere.
+function PpueCurveUpload() {
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [coeffs, setCoeffs] = useState<{ a: number; b: number; c: number } | null>(() => {
+    const c = getPpueCoefficients();
+    return { a: c.a, b: c.b, c: c.c };
+  });
+  const [r2, setR2] = useState<number | null>(null);
+  const [nPoints, setNPoints] = useState<number | null>(null);
+
+  // Find a column whose header matches any of the provided substrings (case-insensitive,
+  // whitespace/punctuation tolerant). Returns -1 if no match.
+  const findCol = (headers: string[], needles: string[]): number => {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const nHeaders = headers.map(norm);
+    for (const needle of needles.map(norm)) {
+      const idx = nHeaders.findIndex((h) => h.includes(needle));
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
+
+  const handleFile = async (file: File | null) => {
+    setError(null);
+    if (!file) { setFileName(null); return; }
+    setFileName(file.name);
+    try {
+      const text = await file.text();
+      const rows = text.split(/\r?\n/).map((r) => r.trim()).filter((r) => r !== '');
+      if (rows.length < 2) { setError('CSV must have a header row and at least 3 data rows.'); return; }
+
+      const splitRow = (r: string) => r.split(/[,;\t]/).map((c) => c.trim());
+      const headers = splitRow(rows[0]);
+      const tempCol = findCol(headers, ['outdoorambient', 'outdoor']);
+      const ppueCol = findCol(headers, ['ppue']);
+      if (tempCol === -1) { setError("Couldn't find an 'Outdoor Ambient' column."); return; }
+      if (ppueCol === -1) { setError("Couldn't find a 'pPUE' column."); return; }
+
+      const xsC: number[] = []; // °C, for fitting
+      const ys: number[] = [];  // pPUE
+      for (let i = 1; i < rows.length; i++) {
+        const cells = splitRow(rows[i]);
+        const tF = Number(cells[tempCol]);
+        const p = Number(cells[ppueCol]);
+        if (!isFinite(tF) || !isFinite(p)) continue;
+        xsC.push((tF - 32) * (5 / 9));
+        ys.push(p);
+      }
+      if (xsC.length < 3) { setError(`Need at least 3 valid data rows; found ${xsC.length}.`); return; }
+
+      const fit = fitQuadratic(xsC, ys);
+      if (!fit) { setError('Fit failed — temperature column may be constant or data is degenerate.'); return; }
+
+      // R² of the fit, so the user can sanity-check that the curve matches their data.
+      const yMean = ys.reduce((s, v) => s + v, 0) / ys.length;
+      let ssRes = 0, ssTot = 0;
+      for (let i = 0; i < xsC.length; i++) {
+        const yHat = fit.a * xsC[i] * xsC[i] + fit.b * xsC[i] + fit.c;
+        ssRes += (ys[i] - yHat) ** 2;
+        ssTot += (ys[i] - yMean) ** 2;
+      }
+      const rSquared = ssTot > 0 ? 1 - ssRes / ssTot : 1;
+
+      setPpueCoefficients(fit);
+      setCoeffs(fit);
+      setR2(rSquared);
+      setNPoints(xsC.length);
+    } catch (e) {
+      setError(`Failed to read CSV: ${(e as Error).message}`);
+    }
+  };
+
+  const handleReset = () => {
+    resetPpueCoefficients();
+    const c = getPpueCoefficients();
+    setCoeffs({ a: c.a, b: c.b, c: c.c });
+    setR2(null);
+    setNPoints(null);
+    setFileName(null);
+    setError(null);
   };
 
   return (
-    <div className="grid grid-cols-6 md:grid-cols-12 gap-2">
-      {MONTHS.map((label, i) => (
-        <div key={label} className="flex flex-col">
-          <label className="text-[10px] text-slate-500 mb-1 text-center font-medium">{label}</label>
+    <div className="border border-slate-200 rounded-md p-3 bg-white">
+      <div className="flex items-center gap-3 flex-wrap">
+        <label
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
+          style={{ background: '#0d9488', color: '#fff' }}
+        >
+          Choose CSV
           <input
-            type="number"
-            step="0.1"
-            value={parts[i] || ''}
-            onChange={(e) => setOne(i, e.target.value)}
-            placeholder="°C"
-            className="w-full border border-slate-200 rounded-md px-2 py-1 text-xs text-center outline-none focus:border-teal-500"
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+            style={{ display: 'none' }}
           />
+        </label>
+        {fileName && (
+          <span className="text-xs text-slate-600 font-medium">{fileName}</span>
+        )}
+        <button
+          type="button"
+          onClick={handleReset}
+          className="text-xs text-slate-500 hover:text-slate-700 underline"
+        >
+          Reset to defaults
+        </button>
+      </div>
+
+      {error && (
+        <p className="mt-2 text-xs" style={{ color: '#ef4444' }}>
+          ⚠ {error}
+        </p>
+      )}
+
+      {coeffs && (
+        <div className="mt-3 text-xs text-slate-600 font-mono">
+          <div>pPUE(T) = {coeffs.a.toExponential(4)} · T² + {coeffs.b.toExponential(4)} · T + {coeffs.c.toFixed(4)}</div>
+          <div className="text-slate-400 mt-1">T in °C.{nPoints !== null && r2 !== null && (<> Fit from {nPoints} rows · R² = {r2.toFixed(4)}</>)}</div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
