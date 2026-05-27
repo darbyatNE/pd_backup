@@ -4,6 +4,7 @@ import {
   fetchAllFacilities,
   calculateMultiYearForecast,
   calculateHourlyForecast,
+  calculateContractCoverage,
   type FacilityData,
   type ForecastResult,
   type Scenario,
@@ -97,7 +98,15 @@ function PillToggle<T extends string | number>({
 
 // ─── Load Shape Bar Chart ────────────────────────────────────────────────────
 
-function LoadShapePlot({ profile, xAxisMode }: { profile: SiteLoadProfile; xAxisMode: XAxisMode }) {
+function LoadShapePlot({
+  profile,
+  xAxisMode,
+  peakOverlayMw,
+}: {
+  profile: SiteLoadProfile;
+  xAxisMode: XAxisMode;
+  peakOverlayMw?: number; // Annual P_NET_PEAK_PROJ[BASE][0] — when present, drawn as a horizontal reference line above the baseload+peak bars.
+}) {
   const data = xAxisMode === 'hours'
     ? profile.loadShape.filter(pt => pt.month === 1).map(pt => ({
       label: `${pt.hour + 1}h`,
@@ -137,6 +146,22 @@ function LoadShapePlot({ profile, xAxisMode }: { profile: SiteLoadProfile; xAxis
         <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
         <Bar dataKey="baseloadMw" stackId="load" fill={LOAD_COLORS.base} stroke={LOAD_COLORS.base} strokeWidth={0} name="Baseload" isAnimationActive={false} />
         <Bar dataKey="peakMw" stackId="load" fill={LOAD_COLORS.peak} stroke={LOAD_COLORS.peak} strokeWidth={0} name="Peak" isAnimationActive={false} />
+        {peakOverlayMw != null && peakOverlayMw > 0 && (
+          <ReferenceLine
+            y={peakOverlayMw}
+            stroke="#f59e0b"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            ifOverflow="extendDomain"
+            label={{
+              value: `P_NET_PEAK_PROJ ${peakOverlayMw.toFixed(1)} MW`,
+              position: 'insideTopRight',
+              fill: '#f59e0b',
+              fontSize: 10,
+              fontFamily: 'Inter',
+            }}
+          />
+        )}
       </BarChart>
     </ResponsiveContainer>
   );
@@ -482,12 +507,26 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
   const hourly = useMemo(() => {
     if (!facilityData || !forecast || !forecast.P_IT_PROJ['BASE']) return null;
     return calculateHourlyForecast({
-      pItMonthly: forecast.P_IT_PROJ['BASE'][0],
+      pItMonthly: forecast.P_NET_AVG_MONTH['BASE'][0],
       pFac: facilityData.P_FAC,
       pGen: 0,
       tempAmbHourly: tempAmbHourly ?? undefined,
+      pNetPeakAnnual: forecast.P_NET_PEAK_PROJ['BASE']?.[0] ?? 0,
     });
   }, [facilityData, forecast, tempAmbHourly]);
+
+  // Monthly contract-coverage ratio for year 0 BASE: pNet vs the sum of all contracts'
+  // CV_i active in that hour, aggregated up to per-month coverage %. Flat contracts only
+  // for now (see calculateContractCoverage). Anchored at startYear so contract date
+  // windows (CS_i / CE_i) are checked against the correct calendar year.
+  const coverage = useMemo(() => {
+    if (!hourly || !facilityData) return null;
+    return calculateContractCoverage({
+      pNet: hourly.pNet,
+      contracts: facilityData.contracts,
+      year: startYear,
+    });
+  }, [hourly, facilityData, startYear]);
 
   // Threshold (MW) is the chosen percentile of the 8760-point pNet series.
   // Hours at or below it become baseload; the excess becomes peak.
@@ -627,6 +666,7 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
             />
           </div>
         </div>
+        {/* Peak overlay temporarily hidden — restore by passing `peakOverlayMw={hourly?.pNetPeakAnnual}`. */}
         <LoadShapePlot profile={profile} xAxisMode={xAxisMode} />
       </div>
 
@@ -738,6 +778,45 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
               scenario={scenario}
               contractedMw={contractedMw}
             />
+
+            {/* Monthly Contract Coverage Ratio strip (year 0 BASE, hour-resolved internally).
+                Temporarily hidden — flip the `false &&` to re-enable. The `coverage` useMemo
+                still runs so the data is ready to display when re-enabled. */}
+            {false && coverage && (
+              <div style={{ marginTop: 20 }}>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px 0' }}>
+                  Monthly Coverage Ratio — {startYear}
+                </p>
+                <p style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'Inter, sans-serif', margin: '0 0 8px 0' }}>
+                  Σ min(pNet, contracted) ÷ Σ pNet per month, hour-by-hour. Green ≥ 90%, amber 70–90%, red &lt; 70%.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 4 }}>
+                  {MONTH_LABELS.map((label, m) => {
+                    const pct = coverage.ccrMonthly[m] ?? 0;
+                    const bg = pct >= 90 ? '#dcfce7' : pct >= 70 ? '#fef3c7' : '#fee2e2';
+                    const fg = pct >= 90 ? '#166534' : pct >= 70 ? '#92400e' : '#991b1b';
+                    return (
+                      <div
+                        key={label}
+                        title={`${label}: ${pct.toFixed(1)}% covered`}
+                        style={{
+                          background: bg,
+                          color: fg,
+                          borderRadius: 6,
+                          padding: '8px 4px',
+                          textAlign: 'center',
+                          fontFamily: 'Inter, sans-serif',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        <div style={{ fontSize: 10, fontWeight: 500, opacity: 0.75 }}>{label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{pct.toFixed(0)}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}

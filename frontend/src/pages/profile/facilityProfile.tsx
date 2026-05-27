@@ -835,7 +835,7 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
                 className={inputCls}
               />
             </Field>
-            <Field label="Battery storage capacity (MWh)" symbol="BATT_CAP" error={errors.BATT_CAP}>
+            <Field label="Battery storage capacity (MW)" symbol="BATT_CAP" error={errors.BATT_CAP}>
               <input
                 type="number"
                 step="0.01"

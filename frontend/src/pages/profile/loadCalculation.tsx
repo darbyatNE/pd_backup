@@ -4,8 +4,10 @@ import { supabase } from '../../services/supabase';
 export type Scenario = 'BASE' | 'HIGH' | 'LOW';
 
 interface Contract {
-    CV_i: number; // Contract Volume
-    // other fields as needed
+    CV_i: number;        // Contract volume (MW). Coerced via Number() when reading; form may store as string.
+    CS_i?: string;       // Contract start date (YYYY-MM-DD). Missing/malformed → no lower-bound constraint.
+    CE_i?: string;       // Contract end date (YYYY-MM-DD, inclusive). Missing/malformed → no upper-bound constraint.
+    C_SHAPE_i?: string;  // Shape token ('Flat', 'Solar', 'Wind', 'Block', ...). Only 'Flat' is honored by calculateContractCoverage today; shaped profiles are a follow-up.
 }
 
 export interface FacilityData {
@@ -90,6 +92,7 @@ export interface HourlyForecastInputs {
     pGen?: number;                // Flat onsite generation capacity, MW.
     tempAmbHourly?: number[];     // 8760 °C — preferred when available (e.g. Open-Meteo archive).
     pGenHourly?: number[];        // Optional 8760 MW generation profile, overrides pGen per hour.
+    pNetPeakAnnual?: number;      // Annual peak from forecast.P_NET_PEAK_PROJ[BASE][0]. Carried through to the result so callers can overlay it on hourly/monthly load-shape charts without recomputing.
 }
 
 export interface HourlyForecastResult {
@@ -99,6 +102,7 @@ export interface HourlyForecastResult {
     pGross: number[];     // 8760
     pGen: number[];       // 8760
     pNet: number[];       // 8760
+    pNetPeakAnnual: number; // Echoes inputs.pNetPeakAnnual (or 0 if absent). The annual P_NET_PEAK_PROJ from the multi-year forecast, intended as a horizontal-overlay reference on the load-shape chart in both hourly and monthly views.
 }
 
 // Hourly forecast of net grid import for a single (scenario, year) given that
@@ -143,7 +147,91 @@ export function calculateHourlyForecast(inputs: HourlyForecastInputs): HourlyFor
         }
     }
 
-    return { pIt, ppue, pCooling, pGross, pGen, pNet };
+    return { pIt, ppue, pCooling, pGross, pGen, pNet, pNetPeakAnnual: inputs.pNetPeakAnnual ?? 0 };
+}
+
+export interface ContractCoverageInputs {
+    pNet: number[];           // 8760-pt net grid import (MW) — typically calculateHourlyForecast(...).pNet
+    contracts: Contract[];    // Contracts to check for coverage; flat-only today (CV_i × active-window mask)
+    year: number;             // Calendar year for the analysis; used to test each hour against CS_i / CE_i windows
+}
+
+export interface ContractCoverageResult {
+    contracted: number[];        // CONTRACTED[h] — 8760-pt sum of active contract volumes (MW)
+    uncontExp: number[];         // UNCONT_EXP[h] = max(0, pNet[h] − CONTRACTED[h]) (MW)
+    contractedSpare: number[];   // CONTRACTED_SPARE[h] = max(0, CONTRACTED[h] − pNet[h]) (MW)
+    eUncont: number;             // E_UNCONT = Σ uncontExp[h] × Δt; with Δt = 1 hour this is MWh
+    ccrMonthly: number[];        // CCR[m] = Σ_h_in_m min(pNet, CONTRACTED) / Σ_h_in_m pNet × 100 (12-pt %)
+}
+
+// Single-year, single-scenario contract-coverage analysis at hour resolution.
+// Currently treats every contract as flat (CV_i held constant across every hour the contract
+// is active); SHAPE_i support for solar/wind/block contracts is a follow-up because we don't
+// yet have an hourly shape profile dataset wired into the engine.
+export function calculateContractCoverage(inputs: ContractCoverageInputs): ContractCoverageResult {
+    const { pNet, contracts, year } = inputs;
+    const totalHours = HOURS_PER_MONTH.reduce((s, v) => s + v, 0); // 8760
+
+    // CONTRACTED[h]: walk each contract once, mark every hour in its active window with CV_i.
+    // Hour-of-year → epoch ms via Jan 1 00:00 UTC + h × 3600 s, so the active-window check is a
+    // straightforward range test against the contract's CS_i / CE_i.
+    const contracted = new Array<number>(totalHours).fill(0);
+    const yearStartMs = Date.UTC(year, 0, 1);
+    const hourMs = 3600 * 1000;
+
+    for (const c of contracts || []) {
+        const cv = Number(c.CV_i) || 0; // Form stores CV_i as string; coerce defensively.
+        if (cv === 0) continue;
+
+        const csParsed = c.CS_i ? Date.parse(c.CS_i) : NaN;
+        const ceParsed = c.CE_i ? Date.parse(c.CE_i) : NaN;
+        // Missing or malformed bounds → no constraint on that side (contract treated as always active).
+        const startMs = Number.isFinite(csParsed) ? csParsed : -Infinity;
+        // CE_i is inclusive of the end date: a contract ending 2026-12-31 should be active through
+        // Dec 31 23:59. Date.parse('2026-12-31') yields midnight Dec 31 — add 24h so the half-open
+        // [start, end) range below covers the full final day.
+        const endMs = Number.isFinite(ceParsed) ? ceParsed + 86_400_000 : Infinity;
+
+        for (let h = 0; h < totalHours; h++) {
+            const hMs = yearStartMs + h * hourMs;
+            if (hMs >= startMs && hMs < endMs) {
+                contracted[h] += cv;
+            }
+        }
+    }
+
+    // UNCONT_EXP, CONTRACTED_SPARE, E_UNCONT in a single pass over the 8760 hours.
+    const uncontExp = new Array<number>(totalHours);
+    const contractedSpare = new Array<number>(totalHours);
+    let eUncont = 0;
+    for (let h = 0; h < totalHours; h++) {
+        const p = pNet[h] || 0;
+        const c = contracted[h];
+        uncontExp[h] = Math.max(0, p - c);
+        contractedSpare[h] = Math.max(0, c - p);
+        eUncont += uncontExp[h]; // Δt = 1 hour → MWh
+    }
+
+    // CCR[m]: per-month coverage ratio. SUM(min(pNet, contracted)) / SUM(pNet) × 100.
+    // Falls back to 0 when SUM(pNet) is 0 (no demand → coverage undefined; rendering as 0% is
+    // safer than NaN/Infinity downstream).
+    const ccrMonthly = new Array<number>(12).fill(0);
+    let hCursor = 0;
+    for (let m = 0; m < 12; m++) {
+        const hoursInMonth = HOURS_PER_MONTH[m];
+        let sumMin = 0;
+        let sumPNet = 0;
+        for (let i = 0; i < hoursInMonth; i++) {
+            const p = pNet[hCursor + i] || 0;
+            const c = contracted[hCursor + i];
+            sumMin += Math.min(p, c);
+            sumPNet += p;
+        }
+        ccrMonthly[m] = sumPNet > 0 ? (sumMin / sumPNet) * 100 : 0;
+        hCursor += hoursInMonth;
+    }
+
+    return { contracted, uncontExp, contractedSpare, eUncont, ccrMonthly };
 }
 
 export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
@@ -171,18 +259,23 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         }
         // Case A (PDU Output / Rack): pit_val passes through unchanged.
 
-        const pue = data.PUE || 1.0; // Effective PUE for a running facility (user-entered; defaults to 1.0)
+        const pue = data.PUE || 1.0; // Effective PUE for a running facility (user-entered; defaults to 1.0). Form computes it as (IT + P_COOL + P_FAC)/IT, so it already includes the P_FAC contribution at year-0 IT.
+        const p_other = data.P_FAC || 0; // Lighting/general facilities load (MW), held flat across years and months.
         P_IT = Array(12).fill(pit_val);
 
-        // Temp-aware path: per-month effective PUE driven by ambient temperature when the operator has supplied 12 monthly temps.
+        // PUE_CALC stores the *cooling-only* PUE (no aux). Phase 2 multiplies p_it_proj × PUE_CALC and
+        // adds P_FAC back as a flat additive term — this keeps the aux load constant across forecast
+        // years instead of scaling with IT growth (which happens when P_FAC is baked into PUE_CALC).
+        // P_GROSS at year 0 still equals pit_val × cooling_pue + P_FAC, so year-0 numbers are unchanged.
         const hasMonthlyTemps = !!(data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12);
         if (hasMonthlyTemps && pit_val > 0) {
-            const p_other = data.P_FAC || 0; // Lighting/general facilities load (MW), held flat across months
             P_GROSS = data.TEMP_AMB_monthly!.map(T => pit_val * calcPPUE(T) + p_other); // pPUE(T) drives cooling; constant aux added on top
-            PUE_CALC = P_GROSS.map(g => g / pit_val); // Effective monthly PUE = gross / IT (matches form.PUE definition)
+            PUE_CALC = data.TEMP_AMB_monthly!.map(T => calcPPUE(T)); // Pure pPUE(T) — aux excluded so Phase 2 can re-add it flat
         } else {
             P_GROSS = Array(12).fill(pit_val * pue);
-            PUE_CALC = Array(12).fill(pue);
+            // pue_no_aux = form-PUE minus the share that came from P_FAC. Guarded for pit_val == 0.
+            const pue_no_aux = pit_val > 0 ? pue - p_other / pit_val : pue;
+            PUE_CALC = Array(12).fill(pue_no_aux);
         }
     } else {
         // Greenfield / New Facility
@@ -191,16 +284,18 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         P_IT = Array(12).fill(pit_start); // Monthly profile of initial IT load (flat baseline in MW)
 
         const assumed_pue = data.PUE_EXPECTED || 1.0; // Assumed design Power Usage Effectiveness (PUE) at commissioning
+        const p_other = data.P_FAC || 0; // Operator-entered aux load (greenfield form usually leaves this empty → 0).
 
-        // Temp-aware path: per-month effective PUE driven by ambient temperature when the operator has supplied 12 monthly temps.
+        // Same aux-load discipline as the Running branch: PUE_CALC excludes P_FAC; Phase 2 adds it
+        // back as a flat additive term so it doesn't scale with IT growth across forecast years.
         const hasMonthlyTemps = !!(data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12);
         if (hasMonthlyTemps && pit_start > 0) {
-            const p_other = data.P_FAC || 0;
             P_GROSS = data.TEMP_AMB_monthly!.map(T => pit_start * calcPPUE(T) + p_other);
-            PUE_CALC = P_GROSS.map(g => g / pit_start);
+            PUE_CALC = data.TEMP_AMB_monthly!.map(T => calcPPUE(T));
         } else {
             P_GROSS = Array(12).fill(pit_start * assumed_pue);
-            PUE_CALC = Array(12).fill(assumed_pue);
+            const pue_no_aux = pit_start > 0 ? assumed_pue - p_other / pit_start : assumed_pue;
+            PUE_CALC = Array(12).fill(pue_no_aux);
         }
     }
 
@@ -277,10 +372,15 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 // Step 6: Forecast PUE
                 // Formula: PUE[m] = SUM(P_FACILITY[h] * delta_t) / SUM(P_IT[h] * delta_t)
                 const pue_eff_improve = y > 0 ? (data.PUE_y?.[y - 1] || 0) : 0; // PUE efficiency improvement rate for the current year (from scenario/inputs)
-                base_pue_proj[y][m] = 1 + (PUE_CALC[m] - 1) * (1 - pue_eff_improve);
+                base_pue_proj[y][m] = 1 + (PUE_CALC[m] - 1) * (1 - pue_eff_improve); // Cooling-only PUE adjusted for year-y efficiency improvement
 
-                const pue_proj_m = base_pue_proj[y][m];           // Forecast PUE for (scenario s, year y, month m)
-                const p_gross_proj_m = p_it_proj_m * pue_proj_m;  // Gross facility draw (MW) before onsite gen / BESS netting
+                // Apply cooling PUE to IT, then add the flat aux load P_FAC separately so it stays
+                // constant across forecast years instead of scaling with IT growth. Effective PUE
+                // reported back to consumers is gross / IT, which naturally decreases as IT grows
+                // (a fixed P_FAC contributes a smaller relative share at higher IT loads).
+                const p_other_proj = data.P_FAC || 0;
+                const p_gross_proj_m = p_it_proj_m * base_pue_proj[y][m] + p_other_proj; // Gross facility draw (MW) before onsite gen / BESS netting
+                const pue_proj_m = p_it_proj_m > 0 ? p_gross_proj_m / p_it_proj_m : base_pue_proj[y][m]; // Effective PUE including aux contribution
 
                 results.PUE_PROJ[s][y][m] = pue_proj_m;
                 results.P_GROSS_PROJ[s][y][m] = p_gross_proj_m;
