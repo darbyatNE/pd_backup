@@ -3,7 +3,7 @@ import { supabase } from '../../services/supabase';
 
 export type Scenario = 'BASE' | 'HIGH' | 'LOW';
 
-export interface Contract {
+interface Contract {
     CV_i: number; // Contract Volume
     // other fields as needed
 }
@@ -31,8 +31,7 @@ export interface FacilityData {
     RE_GEN_y: number[]; // Planned on-site renewable additions by year (MW) — replaces the old single-value GEN_CAP
     BATT_ADD_y: number[]; // Planned battery storage additions by year (MWh)
     g_IT: number; // Organic growth rate
-    TEMP_AMB_monthly?: number[]; // Monthly average outdoor temp °C (12 values)
-
+    TEMP_AMB_monthly?: number[]; // Operator-entered 12 monthly average ambient temperatures (°C). When present and length=12, Phase 1 derives a per-month effective PUE from calcPPUE(T) + P_FAC/IT instead of broadcasting the flat form.PUE.
 
     C_MAX: number; // Grid capacity
     COV_MIN: number;
@@ -51,9 +50,9 @@ export interface ForecastResult {
     ALERTS: string[];
 }
 
-const MULT_HIGH = 1.25;
-const MULT_LOW = 0.75;
-const HOURS_PER_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 744]; // standard non-leap year
+const MULT_HIGH = 1.25; // HIGH-scenario growth multiplier (+25% on g_IT and DELTA_CAP)
+const MULT_LOW = 0.75;  // LOW-scenario growth multiplier (−25% on g_IT and DELTA_CAP)
+const HOURS_PER_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 744]; // standard non-leap year, sums to 8760
 
 // Parse UTIL_RAMP from the DB. New rows store 120 comma-separated cumulative-
 // utilisation values (10 yrs × 12 mo). Legacy rows store a single monthly-
@@ -62,127 +61,21 @@ const HOURS_PER_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 
 // equivalent until the user re-saves with a chart-edited curve.
 function parseUtilRamp(str?: string, utilYStr?: string): number[] {
     if (!str) return [];
-    const parts = str.split(',').map(s => s.trim()).filter(s => s !== '');
+    const parts = str.split(',').map(s => s.trim()).filter(s => s !== ''); // Non-empty comma-separated tokens from the raw DB string
     if (parts.length === 0) return [];
-    const nums = parts.map(s => Number(s));
+    const nums = parts.map(s => Number(s)); // Numeric form of each token (NaN preserved for non-numerics)
     if (nums.length !== 1) return nums;
-    const v = nums[0];
+    const v = nums[0]; // Single legacy monthly-increment value to expand into 120 cells
     if (isNaN(v)) return [];
-    const utilY = utilYStr ? utilYStr.split(',').map(s => Number(s.trim())) : [];
-    const expanded: number[] = [];
+    const utilY = utilYStr ? utilYStr.split(',').map(s => Number(s.trim())) : []; // Legacy per-year utilisation caps (% by year, optional)
+    const expanded: number[] = []; // 120-cell linear ramp (10 yrs × 12 mo) built below
     for (let y = 0; y < 10; y++) {
-        const cap = !isNaN(utilY[y]) ? utilY[y] : 100;
+        const cap = !isNaN(utilY[y]) ? utilY[y] : 100; // Year-y utilisation ceiling (% — defaults to 100 if missing)
         for (let m = 0; m < 12; m++) {
             expanded.push(Math.min(cap, (m + 1) * v));
         }
     }
     return expanded;
-}
-
-export interface HourlyLoadPoint {
-    totalMw: number;
-    baseloadMw: number;
-    peakMw: number;
-    superPeakMw: number;
-}
-
-/**
- * currentLoadDemand()
- * Computes the current (Year 0) load demand snapshot from user-entered IT_LOAD and PUE.
- *
- * @param it_load  - IT load in MW (from form field IT_LOAD)
- * @param pue      - Power Usage Effectiveness (from form field PUE, e.g. 1.4)
- * @param gen_cap  - On-site generation capacity in MW (optional, defaults to 0)
- * @param lf       - Load factor as decimal (optional, defaults to 0.82)
- * @returns        - Object with current gross, net, cooling, and peak demand values
- */
-
-export function currentLoadDemand(
-    data: FacilityData,
-    lf: number = 0.82
-): {
-    p_it: number;
-    p_cooling: number;
-    p_cooling_monthly: number[]; // Monthly cooling power (MW), 12 values
-    p_gross: number;
-    p_gross_monthly: number[];   // Monthly gross facility draw (MW), 12 values
-    p_net_avg_current: number;
-    p_net_peak_current: number;
-    p_total_facility: number;
-} {
-    const isNew = data.FACILITY_STATUS === 'New';
-
-    let it_load = 0;
-    if (isNew) {
-        it_load = data.P_IT_START || 0;
-    } else {
-        const raw_it = data.IT_LOAD || 0;
-        let eta_ups = data.ETA_UPS ? data.ETA_UPS / 100 : 0.97;
-        let eta_pdu = data.ETA_PDU ? data.ETA_PDU / 100 : 0.98;
-        if (data.MEASUREMENT_POINT === 'UPS Input') {
-            it_load = raw_it * eta_ups * eta_pdu;
-        } else if (data.MEASUREMENT_POINT === 'PDU Input') {
-            it_load = raw_it * eta_pdu;
-        } else {
-            it_load = raw_it;
-        }
-    }
-
-    const pue = isNew ? (data.PUE_EXPECTED || 1.0) : (data.PUE || 1.0);
-    // RE_GEN_y is indexed for Y1..Y10; the current year (Y0) has no planned additions.
-    const gen_cap = 0;
-    const p_other = data.P_FAC || 0;
-
-    const p_it = it_load; // IT load (MW)
-
-    let p_cooling_monthly: number[];
-    let p_gross_monthly: number[];
-
-    if (data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
-        p_cooling_monthly = data.TEMP_AMB_monthly.map(T => it_load * (calcPPUE(T) - 1));
-        p_gross_monthly = data.TEMP_AMB_monthly.map((_, m) => it_load + p_cooling_monthly[m] + p_other);
-    } else {
-        const p_cooling_flat = it_load * (pue - 1);
-        const p_gross_flat = it_load + p_cooling_flat + p_other; // Total facility draw
-        p_cooling_monthly = Array(12).fill(p_cooling_flat);
-        p_gross_monthly = Array(12).fill(p_gross_flat);
-    }
-
-    // Annual averages (used by callers that only need a single scalar)
-    const p_cooling = p_cooling_monthly.reduce((a, b) => a + b, 0) / 12;
-    const p_gross = p_gross_monthly.reduce((a, b) => a + b, 0) / 12;
-
-    const p_net_avg_current = Math.max(0, p_gross - gen_cap); // Net grid import after on-site gen
-    const p_net_peak_current = p_net_avg_current / lf;        // Peak demand from load factor
-    const p_total_facility = p_it + (data.P_COOL || 0) + (data.P_FAC || 0);
-
-    return { p_it, p_cooling, p_cooling_monthly, p_gross, p_gross_monthly, p_net_avg_current, p_net_peak_current, p_total_facility };
-}
-
-export function calculateHourlyLoad(monthlyNetLoad: number[], lf_assumed: number = 0.85): HourlyLoadPoint[] {
-    const hourlyLoad: HourlyLoadPoint[] = [];
-    for (let m = 0; m < 12; m++) {
-        const hoursInMonth = HOURS_PER_MONTH[m];
-        const avgNetLoad = monthlyNetLoad[m] || 0;
-
-        // Step 2: Peak Demand (P_NET_PEAK)
-        const peakDemand = avgNetLoad / lf_assumed;
-
-        // Step 3: Baseload and Super-Peak Thresholds
-        const baseloadThresh = peakDemand * 0.76;
-        const superPeakThresh = peakDemand * 1.05;
-
-        // Synthesize Hourly Values (assuming flat shape for now, but keeping peak ranges)
-        for (let h = 0; h < hoursInMonth; h++) {
-            hourlyLoad.push({
-                totalMw: peakDemand, // Representing the peak potential
-                baseloadMw: baseloadThresh,
-                peakMw: Math.max(0, peakDemand - baseloadThresh), // Swing range above baseload
-                superPeakMw: superPeakThresh
-            });
-        }
-    }
-    return hourlyLoad;
 }
 
 function calcPPUE(T: number): number {
@@ -196,7 +89,6 @@ export interface HourlyForecastInputs {
     pFac?: number;                // Flat facility/aux load, MW.
     pGen?: number;                // Flat onsite generation capacity, MW.
     tempAmbHourly?: number[];     // 8760 °C — preferred when available (e.g. Open-Meteo archive).
-    tempAmbMonthly?: number[];    // 12 °C — fallback if hourly absent; expanded across each month.
     pGenHourly?: number[];        // Optional 8760 MW generation profile, overrides pGen per hour.
 }
 
@@ -214,38 +106,33 @@ export interface HourlyForecastResult {
 // monthly mean; cooling varies hour-by-hour with ambient temperature through
 // the pPUE polynomial. BESS dispatch is 0 to match calculateMultiYearForecast.
 export function calculateHourlyForecast(inputs: HourlyForecastInputs): HourlyForecastResult {
-    const totalHours = HOURS_PER_MONTH.reduce((s, v) => s + v, 0); // 8760
+    const totalHours = HOURS_PER_MONTH.reduce((s, v) => s + v, 0); // 8760 — total hours in a non-leap year
 
-    const monthStarts: number[] = [0];
+    const monthStarts: number[] = [0]; // Hour-of-year index at which each month begins (Jan=0, Feb=744, …)
     for (let i = 0; i < 11; i++) monthStarts.push(monthStarts[i] + HOURS_PER_MONTH[i]);
 
-    const pFac = inputs.pFac ?? 0;
-    const pGenFlat = inputs.pGen ?? 0;
-    const hasHourlyTemp = !!(inputs.tempAmbHourly && inputs.tempAmbHourly.length >= totalHours);
-    const hasMonthlyTemp = !!(inputs.tempAmbMonthly && inputs.tempAmbMonthly.length === 12);
+    const pFac = inputs.pFac ?? 0;     // Flat facility/aux load applied every hour (MW)
+    const pGenFlat = inputs.pGen ?? 0; // Flat onsite generation fallback when no hourly profile (MW)
+    const hasHourlyTemp = !!(inputs.tempAmbHourly && inputs.tempAmbHourly.length >= totalHours); // True iff the 8760-pt temperature archive is available
 
-    const pIt = new Array<number>(totalHours);
-    const ppue = new Array<number>(totalHours);
-    const pCooling = new Array<number>(totalHours);
-    const pGross = new Array<number>(totalHours);
-    const pGen = new Array<number>(totalHours);
-    const pNet = new Array<number>(totalHours);
+    const pIt = new Array<number>(totalHours);      // 8760-pt IT load series (MW)
+    const ppue = new Array<number>(totalHours);     // 8760-pt partial PUE per hour
+    const pCooling = new Array<number>(totalHours); // 8760-pt cooling power (MW)
+    const pGross = new Array<number>(totalHours);   // 8760-pt gross facility draw (MW)
+    const pGen = new Array<number>(totalHours);     // 8760-pt onsite generation (MW)
+    const pNet = new Array<number>(totalHours);     // 8760-pt net grid import (MW)
 
     for (let m = 0; m < 12; m++) {
-        const pItM = inputs.pItMonthly[m] || 0;
-        const hours = HOURS_PER_MONTH[m];
+        const pItM = inputs.pItMonthly[m] || 0; // IT load for month m (MW), held flat within the month
+        const hours = HOURS_PER_MONTH[m];       // Hours in month m (744/720/etc.)
         for (let i = 0; i < hours; i++) {
-            const h = monthStarts[m] + i;
-            const T = hasHourlyTemp
-                ? inputs.tempAmbHourly![h]
-                : hasMonthlyTemp
-                    ? inputs.tempAmbMonthly![m]
-                    : 0;
-            const ppueH = calcPPUE(T);
-            const coolH = pItM * (ppueH - 1);
-            const grossH = pItM + coolH + pFac;
-            const genH = inputs.pGenHourly?.[h] ?? pGenFlat;
-            const netH = Math.max(0, grossH - genH);
+            const h = monthStarts[m] + i;                              // Absolute hour-of-year index
+            const T = hasHourlyTemp ? inputs.tempAmbHourly![h] : 0;    // Ambient temp at hour h (°C); 0 fallback when archive absent
+            const ppueH = calcPPUE(T);                                 // Partial PUE for this hour from temperature polynomial
+            const coolH = pItM * (ppueH - 1);                          // Cooling power: IT × (pPUE − 1)
+            const grossH = pItM + coolH + pFac;                        // Gross facility draw: IT + cooling + aux
+            const genH = inputs.pGenHourly?.[h] ?? pGenFlat;           // Onsite generation: per-hour profile if provided, else flat fallback
+            const netH = Math.max(0, grossH - genH);                   // Net grid import, clamped at 0 (no export modelled)
 
             pIt[h] = pItM;
             ppue[h] = ppueH;
@@ -281,44 +168,21 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         } else if (data.MEASUREMENT_POINT === 'PDU Input') {
             // Case B
             pit_val = pit_val * eta_pdu;
-        } else {
-            // Case A (PDU Output / Rack)
-            pit_val = pit_val;
         }
+        // Case A (PDU Output / Rack): pit_val passes through unchanged.
+
+        const pue = data.PUE || 1.0; // Effective PUE for a running facility (user-entered; defaults to 1.0)
         P_IT = Array(12).fill(pit_val);
 
-        if (data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
-            // Temperature-aware path: derive monthly P_GROSS and PUE_CALC from calcPPUE polynomial
-            for (let m = 0; m < 12; m++) {
-                const T = data.TEMP_AMB_monthly[m];
-                const ppue = calcPPUE(T);
-                const p_cool_m = pit_val * (ppue - 1);
-                const p_other = data.P_FAC || 0;
-                P_GROSS[m] = pit_val + p_cool_m + p_other;
-                PUE_CALC[m] = pit_val > 0 ? P_GROSS[m] / pit_val : ppue;
-            }
+        // Temp-aware path: per-month effective PUE driven by ambient temperature when the operator has supplied 12 monthly temps.
+        const hasMonthlyTemps = !!(data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12);
+        if (hasMonthlyTemps && pit_val > 0) {
+            const p_other = data.P_FAC || 0; // Lighting/general facilities load (MW), held flat across months
+            P_GROSS = data.TEMP_AMB_monthly!.map(T => pit_val * calcPPUE(T) + p_other); // pPUE(T) drives cooling; constant aux added on top
+            PUE_CALC = P_GROSS.map(g => g / pit_val); // Effective monthly PUE = gross / IT (matches form.PUE definition)
         } else {
-            const baseGross = pit_val * (data.PUE || 1);
-            P_GROSS = Array(12).fill(baseGross);
-
-            // Formula: PUE[m] = SUM(P_FACILITY[h] * delta_t) / SUM(P_IT[h] * delta_t)
-            for (let m = 0; m < 12; m++) {
-                const hoursInMonth = HOURS_PER_MONTH[m];
-                const delta_t = 1.0; // 1-hour interval duration
-
-                let sum_facility_dt = 0;
-                let sum_it_dt = 0;
-
-                for (let h = 0; h < hoursInMonth; h++) {
-                    const p_facility_h = P_GROSS[m]; // P_FACILITY[h] is P_GROSS[m] (constant hourly load for the month)
-                    const p_it_h = P_IT[m];           // P_IT[h] is P_IT[m] (constant hourly IT load for the month)
-
-                    sum_facility_dt += p_facility_h * delta_t;
-                    sum_it_dt += p_it_h * delta_t;
-                }
-
-                PUE_CALC[m] = sum_it_dt > 0 ? sum_facility_dt / sum_it_dt : (data.PUE || 1.0);
-            }
+            P_GROSS = Array(12).fill(pit_val * pue);
+            PUE_CALC = Array(12).fill(pue);
         }
     } else {
         // Greenfield / New Facility
@@ -326,34 +190,26 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 
         P_IT = Array(12).fill(pit_start); // Monthly profile of initial IT load (flat baseline in MW)
 
-        let p_gross_arr = Array(12).fill(0);
-        let pue_calc_arr = Array(12).fill(0);
+        const assumed_pue = data.PUE_EXPECTED || 1.0; // Assumed design Power Usage Effectiveness (PUE) at commissioning
 
-        if (data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
-            for (let m = 0; m < 12; m++) {
-                const T = data.TEMP_AMB_monthly[m];
-                const ppue = calcPPUE(T);
-                const p_cool = pit_start * (ppue - 1);
-                const p_other = data.P_FAC || 0;
-                p_gross_arr[m] = pit_start + p_cool + p_other;
-                pue_calc_arr[m] = pit_start > 0 ? p_gross_arr[m] / pit_start : 1.0;
-            }
+        // Temp-aware path: per-month effective PUE driven by ambient temperature when the operator has supplied 12 monthly temps.
+        const hasMonthlyTemps = !!(data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12);
+        if (hasMonthlyTemps && pit_start > 0) {
+            const p_other = data.P_FAC || 0;
+            P_GROSS = data.TEMP_AMB_monthly!.map(T => pit_start * calcPPUE(T) + p_other);
+            PUE_CALC = P_GROSS.map(g => g / pit_start);
         } else {
-            const assumed_pue = data.PUE_EXPECTED || 1.0; // Assumed design Power Usage Effectiveness (PUE) at commissioning
-            p_gross_arr = Array(12).fill(pit_start * assumed_pue);
-            pue_calc_arr = Array(12).fill(assumed_pue);
+            P_GROSS = Array(12).fill(pit_start * assumed_pue);
+            PUE_CALC = Array(12).fill(assumed_pue);
         }
-
-        P_GROSS = p_gross_arr;
-        PUE_CALC = pue_calc_arr;
     }
 
     // ---------------------------------------------------------
     // Phase 2: Forward Forecasting (y=1 to 10)
     // ---------------------------------------------------------
-    const scenarios: Scenario[] = ['BASE', 'HIGH', 'LOW'];
+    const scenarios: Scenario[] = ['BASE', 'HIGH', 'LOW']; // Three scenarios computed side-by-side and returned as record-keyed arrays
 
-    const results: ForecastResult = {
+    const results: ForecastResult = { // Accumulator populated below, returned to the caller
         P_IT_PROJ: {} as Record<Scenario, number[][]>,
         PUE_PROJ: {} as Record<Scenario, number[][]>,
         P_GROSS_PROJ: {} as Record<Scenario, number[][]>,
@@ -365,7 +221,7 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         ALERTS: []
     };
 
-    const totalContractVol = (data.contracts || []).reduce((acc, c) => acc + (Number(c.CV_i) || 0), 0);
+    const totalContractVol = (data.contracts || []).reduce((acc, c) => acc + (Number(c.CV_i) || 0), 0); // Sum of contracted capacity across all contracts (MW); compared against projected peaks for coverage
 
     scenarios.forEach(s => {
         results.P_IT_PROJ[s] = [];
@@ -385,16 +241,10 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         const g_IT_s = (data.g_IT || 0) / 100 * mult; // IT load growth rate for the scenario, adjusted by multiplier and converted to decimal
         const delta_cap_s = (data.DELTA_CAP_y || []).map(val => val * mult); // Array of yearly new capacities for the scenario, adjusted by scenario multiplier
 
-        const base_pue_proj: number[][] = [];
-
-        // Compute IT_SHAPE[m] from year-0 monthly P_IT:
-        //   P_IT_AVG[0] = SUM_m( P_IT[0,m] × HOURS[m] ) / 8760
-        //   IT_SHAPE[m] = P_IT[0,m] / P_IT_AVG[0]
-        // Captures how each month's IT load deviates from the annual
-        // hour-weighted average. Reduces to 1.0 for every month when P_IT is flat.
-        const total_pit_hours_0 = P_IT.reduce((sum, p, m) => sum + p * HOURS_PER_MONTH[m], 0);
-        const total_hours_per_year = HOURS_PER_MONTH.reduce((s, h) => s + h, 0); // 8760
-        const p_it_avg_0 = total_hours_per_year > 0 ? total_pit_hours_0 / total_hours_per_year : 0;
+        const base_pue_proj: number[][] = []; // [year][month] PUE projection before any further hour-level adjustments
+        const total_pit_hours_0 = P_IT.reduce((sum, p, m) => sum + p * HOURS_PER_MONTH[m], 0); // Year-0 IT energy: Σ P_IT[m] × hours[m] (MW·h)
+        const total_hours_per_year = HOURS_PER_MONTH.reduce((s, h) => s + h, 0); // 8760 — total hours per year
+        const p_it_avg_0 = total_hours_per_year > 0 ? total_pit_hours_0 / total_hours_per_year : 0; // Hour-weighted average year-0 IT load (MW), used as IT_SHAPE denominator
         IT_SHAPE = P_IT.map(p => (p_it_avg_0 > 0 ? p / p_it_avg_0 : 1.0));
         for (let y = 0; y <= 10; y++) {
             base_pue_proj[y] = [];
@@ -408,7 +258,7 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 
             for (let m = 0; m < 12; m++) {
                 // Step 5: Forecast IT Load
-                const rampArr = data.UTIL_RAMP || [];
+                const rampArr = data.UTIL_RAMP || []; // 120-cell util ramp (Y1-Y10 × 12 months), in %
                 let capacity_sum = 0;
                 for (let j = 1; j <= y; j++) {
                     const delta_cap_j = y > 0 ? (delta_cap_s[j - 1] || 0) : 0; // adjusted capacity added in year j
@@ -417,9 +267,9 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                     // capacity-addition year j (always 120-cell after parsing). When j == y the
                     // capacity is still ramping at month m; when j < y it sits at the December
                     // value of year j's curve (the steady-state captured by the chart's last point).
-                    const idx = (j - 1) * 12 + (j < y ? 11 : m);
-                    const v = rampArr[idx];
-                    const util_j_y_m = (v === undefined || isNaN(v)) ? 0 : v / 100;
+                    const idx = (j - 1) * 12 + (j < y ? 11 : m); // Ramp index: live month m for the in-flight year, Dec steady-state for prior years
+                    const v = rampArr[idx];                       // Cumulative utilisation % at that (year, month) cell
+                    const util_j_y_m = (v === undefined || isNaN(v)) ? 0 : v / 100; // Utilisation as decimal (0 when cell missing/NaN)
                     capacity_sum += delta_cap_j * util_j_y_m;
                 }
                 let p_it_proj_m = (P_IT[m] * Math.pow(1 + g_IT_s, y)) + IT_SHAPE[m] * capacity_sum;
@@ -429,34 +279,8 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 const pue_eff_improve = y > 0 ? (data.PUE_y?.[y - 1] || 0) : 0; // PUE efficiency improvement rate for the current year (from scenario/inputs)
                 base_pue_proj[y][m] = 1 + (PUE_CALC[m] - 1) * (1 - pue_eff_improve);
 
-                const hoursInMonth = HOURS_PER_MONTH[m];
-                let pue_proj_m = 0;
-                let p_gross_proj_m = 0;
-
-                // Fix 2: temp-aware PUE path now applies to ALL facilities when TEMP_AMB_monthly is present
-                if (data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12) {
-                    const T = data.TEMP_AMB_monthly[m];
-                    const ppue = calcPPUE(T);
-                    const pue_eff_improve = y > 0 ? (data.PUE_y?.[y - 1] || 0) : 0;
-                    const improved_ppue = 1 + (ppue - 1) * (1 - pue_eff_improve);
-
-                    const p_cool_proj_m = p_it_proj_m * (improved_ppue - 1);
-                    const p_other = data.P_FAC || 0;
-                    p_gross_proj_m = p_it_proj_m + p_cool_proj_m + p_other;
-                    pue_proj_m = p_it_proj_m > 0 ? p_gross_proj_m / p_it_proj_m : improved_ppue;
-                } else {
-                    const delta_t = 1.0;
-                    let sum_facility_dt = 0;
-                    let sum_it_dt = 0;
-                    for (let h = 0; h < hoursInMonth; h++) {
-                        const p_it_h = p_it_proj_m;
-                        const p_facility_h = p_it_h * base_pue_proj[y][m];
-                        sum_facility_dt += p_facility_h * delta_t;
-                        sum_it_dt += p_it_h * delta_t;
-                    }
-                    pue_proj_m = sum_it_dt > 0 ? sum_facility_dt / sum_it_dt : base_pue_proj[y][m];
-                    p_gross_proj_m = p_it_proj_m * pue_proj_m;
-                }
+                const pue_proj_m = base_pue_proj[y][m];           // Forecast PUE for (scenario s, year y, month m)
+                const p_gross_proj_m = p_it_proj_m * pue_proj_m;  // Gross facility draw (MW) before onsite gen / BESS netting
 
                 results.PUE_PROJ[s][y][m] = pue_proj_m;
                 results.P_GROSS_PROJ[s][y][m] = p_gross_proj_m;
@@ -477,13 +301,23 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
             results.E_ANNUAL_PROJ[s][y] = e_annual_y;
 
             // Step 10: Forecast Peak Demand
-            const lf = data.LF_ASSUMED ? data.LF_ASSUMED / 100 : 0.82; // Using 82% LF as default
-            const p_net_avg_proj_y = p_net_avg_sum / 12;
+            // When LF_ASSUMED is supplied, each month's avg is inflated to a peak as avg/lf, and the
+            // annual peak is the max of those. When LF_ASSUMED is missing, we don't have a basis to
+            // inflate within-month — so the annual peak is taken as the highest monthly average, and
+            // the effective load factor falls out as lf = annual_avg / annual_peak.
+            const annual_avg = p_net_avg_sum / 12; // Annual mean of monthly net imports (MW)
+            const monthly_avgs = results.P_NET_AVG_MONTH[s][y]; // 12 monthly net-import averages
+            const max_monthly_avg = monthly_avgs.length > 0 ? Math.max(...monthly_avgs) : 0; // Highest of the 12 monthly averages (MW)
 
-            // Calculate Annual Peak as the maximum of the Monthly Peaks
-            const monthly_peaks = results.P_NET_AVG_MONTH[s][y].map(avg => avg / lf);
-            const p_net_peak_proj_y = Math.max(...monthly_peaks);
-
+            let lf: number;          // Effective load factor used for this year (decimal)
+            let p_net_peak_proj_y: number; // Annual peak demand (MW)
+            if (data.LF_ASSUMED) {
+                lf = data.LF_ASSUMED / 100;
+                p_net_peak_proj_y = lf > 0 ? max_monthly_avg / lf : max_monthly_avg;
+            } else {
+                p_net_peak_proj_y = max_monthly_avg;
+                lf = p_net_peak_proj_y > 0 ? annual_avg / p_net_peak_proj_y : 0; // Derived: lf = annual_avg / annual_peak
+            }
             results.P_NET_PEAK_PROJ[s][y] = p_net_peak_proj_y;
 
             // Tracking log to debug P_NET_PEAK_PROJ
@@ -500,24 +334,24 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
             // ---------------------------------------------------------
             // Capacity Alert
             if (data.C_MAX && p_net_peak_proj_y > data.C_MAX) {
-                const alertMsg = `Alert A1: Projected peak demand (${p_net_peak_proj_y.toFixed(2)} MW) exceeds contracted capacity (${data.C_MAX} MW) in Year ${y} (Scenario: ${s})`;
+                const alertMsg = `Alert A1: Projected peak demand (${p_net_peak_proj_y.toFixed(2)} MW) exceeds contracted capacity (${data.C_MAX} MW) in Year ${y} (Scenario: ${s})`; // Capacity-breach alert text (deduped by string match below)
                 if (!results.ALERTS.includes(alertMsg)) {
                     results.ALERTS.push(alertMsg);
                 }
             }
 
             // Uncontracted Exposure
-            const uncont_exp = Math.max(0, p_net_peak_proj_y - totalContractVol);
+            const uncont_exp = Math.max(0, p_net_peak_proj_y - totalContractVol); // Peak demand uncovered by existing contracts (MW); floored at 0
             results.UNCONT_EXP_PROJ[s][y] = uncont_exp;
 
             // Coverage Ratio
-            const ccr = p_net_peak_proj_y > 0 ? totalContractVol / p_net_peak_proj_y : 1;
+            const ccr = p_net_peak_proj_y > 0 ? totalContractVol / p_net_peak_proj_y : 1; // Contract coverage ratio (decimal); 1.0 fallback when peak is zero to avoid div/0 and false-positive shortfall alerts
             results.CCR_ANNUAL_PROJ[s][y] = ccr * 100;
 
 
-            const cov_min = data.COV_MIN || 70;
+            const cov_min = data.COV_MIN || 70; // Minimum acceptable coverage % from facility settings (defaults to 70% when unset)
             if ((ccr * 100) < cov_min) {
-                const alertMsg = `Alert: Coverage Ratio drops below minimum ${cov_min}% in Year ${y} (Scenario: ${s})`;
+                const alertMsg = `Alert: Coverage Ratio drops below minimum ${cov_min}% in Year ${y} (Scenario: ${s})`; // Coverage-shortfall alert text
                 if (!results.ALERTS.includes(alertMsg)) {
                     results.ALERTS.push(alertMsg);
                 }
@@ -531,6 +365,7 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 export async function fetchAllFacilities(
     buyerId: string
 ): Promise<{ id: string; name: string; data: FacilityData }[]> {
+    // Supabase returns either an array of rows or an error; never both meaningfully populated.
     const { data, error } = await supabase
         .from('data_centers')
         .select('*')
@@ -541,10 +376,10 @@ export async function fetchAllFacilities(
         return [];
     }
 
-    const parseNumArray = (str?: string) => {
+    const parseNumArray = (str?: string) => { // Parse a comma-separated DB string into number[]; blank cells become undefined so downstream `[i] || 0` works
         if (!str) return [];
         return str.split(',').map(s => {
-            const trimmed = s.trim();
+            const trimmed = s.trim(); // Token with surrounding whitespace stripped
             return trimmed === '' ? undefined : Number(trimmed);
         }) as number[];
     };
@@ -567,34 +402,3 @@ export async function fetchAllFacilities(
     }));
 }
 
-export async function fetchFacilityData(buyerId: string): Promise<FacilityData | null> {
-    const { data, error } = await supabase
-        .from('data_centers')
-        .select('*')
-        .eq('buyer_id', buyerId)
-        .maybeSingle();
-
-    if (error || !data) {
-        console.error('Failed to fetch from data_centers:', error);
-        return null;
-    }
-
-    const parseNumArray = (str?: string) => {
-        if (!str) return [];
-        return str.split(',').map(s => {
-            const trimmed = s.trim();
-            return trimmed === '' ? undefined : Number(trimmed);
-        }) as number[];
-    };
-
-    return {
-        ...data,
-        DELTA_CAP_y: parseNumArray(data.DELTA_CAP_y),
-        UTIL_RAMP: parseUtilRamp(data.UTIL_RAMP, data.UTIL_y),
-        PUE_y: parseNumArray(data.PUE_y),
-        RE_GEN_y: parseNumArray(data.RE_GEN_y),
-        BATT_ADD_y: parseNumArray(data.BATT_ADD_y),
-        TEMP_AMB_monthly: parseNumArray(data.TEMP_AMB_monthly),
-        contracts: typeof data.contracts === 'string' ? JSON.parse(data.contracts) : (data.contracts || [])
-    } as FacilityData;
-}

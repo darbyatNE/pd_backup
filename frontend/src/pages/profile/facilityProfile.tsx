@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 
 type Contract = {
   CTYPE_i: string;
@@ -37,7 +37,7 @@ type FacilityFormData = {
   P_FAC: string;
   BATT_CAP: string;
   HIST_MW: File | null;
-  TEMP_AMB_monthly: string;
+  TEMP_AMB_monthly: string; // CSV of 12 monthly avg ambient temps (°C). Optional; when all 12 are filled, the forecast computes per-month pPUE from the polynomial.
 
   // Section C — Capacity Expansion Plans
   DELTA_CAP_y: string;
@@ -108,6 +108,7 @@ const INITIAL_FORM: FacilityFormData = {
   P_FAC: '',
   BATT_CAP: '',
   HIST_MW: null,
+  TEMP_AMB_monthly: '',
 
   DELTA_CAP_y: '',
   UTIL_RAMP: '',
@@ -116,8 +117,6 @@ const INITIAL_FORM: FacilityFormData = {
   BATT_ADD_y: '',
   g_IT: '',
   SCENARIO: 'Base',
-  TEMP_AMB_monthly: '',
-
 
   contracts: [{ ...EMPTY_CONTRACT }],
 
@@ -255,10 +254,10 @@ function dbRowToForm(row: any): FacilityFormData {
     P_FAC: toStr(row.P_FAC),
     BATT_CAP: toStr(row.BATT_CAP),
     HIST_MW: null,
+    TEMP_AMB_monthly: toStr(row.TEMP_AMB_monthly),
     DELTA_CAP_y: toStr(row.DELTA_CAP_y),
     UTIL_RAMP: expandLegacyUtilRamp(toStr(row.UTIL_RAMP), toStr(row.UTIL_y)),
     PUE_y: toStr(row.PUE_y),
-    TEMP_AMB_monthly: toStr(row.TEMP_AMB_monthly),
     RE_GEN_y: toStr(row.RE_GEN_y),
     BATT_ADD_y: toStr(row.BATT_ADD_y),
     g_IT: toStr(row.g_IT),
@@ -374,36 +373,6 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
     }
   }, [form.IT_LOAD, form.P_COOL, form.P_FAC, form.FACILITY_STATUS, form.MEASUREMENT_POINT, form.ETA_UPS, form.ETA_PDU]);
 
-  const hasValidTemps = useMemo(() => {
-    if (form.FACILITY_STATUS !== 'New') return false;
-    const parts = (form.TEMP_AMB_monthly || '').split(',').map(s => s.trim()).filter(s => s !== '');
-    return parts.length === 12 && parts.every(s => !isNaN(Number(s)));
-  }, [form.TEMP_AMB_monthly, form.FACILITY_STATUS]);
-
-  // Auto-calculate PUE_EXPECTED for New facilities based on temperature data
-  useEffect(() => {
-    if (form.FACILITY_STATUS !== 'New' || !hasValidTemps) return;
-
-    const parts = form.TEMP_AMB_monthly.split(',').map(s => Number(s.trim()));
-    const calcPPUE = (T: number) => 7.1705e-5 * T * T + 0.0041 * T + 1.0743;
-
-    let sumPue = 0;
-    for (let m = 0; m < 12; m++) {
-      sumPue += calcPPUE(parts[m]);
-    }
-    const avgPue = sumPue / 12;
-    const expectedPueStr = avgPue.toFixed(2);
-
-    if (form.PUE_EXPECTED !== expectedPueStr) {
-      setFormRaw((prev) => ({ ...prev, PUE_EXPECTED: expectedPueStr }));
-      setErrors((prev) => {
-        const n = { ...prev };
-        delete n.PUE_EXPECTED;
-        return n;
-      });
-    }
-  }, [form.TEMP_AMB_monthly, form.FACILITY_STATUS, hasValidTemps]);
-
   // Validate a single numeric field against FIELD_RULES
   const validateField = <K extends keyof FacilityFormData>(key: K, value: FacilityFormData[K]) => {
     const rule = FIELD_RULES[key];
@@ -428,12 +397,10 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
   };
 
   // Unified setter that also validates
-  const setForm = <K extends keyof FacilityFormData>(key: K, value: FacilityFormData[K]) => {
+  const setField = <K extends keyof FacilityFormData>(key: K, value: FacilityFormData[K]) => {
     setFormRaw((prev) => ({ ...prev, [key]: value }));
     validateField(key, value);
   };
-
-  const setField = setForm;
 
   const setContractField = (
     idx: number,
@@ -922,13 +889,26 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
                   placeholder="e.g. 1.35"
                   value={form.PUE_EXPECTED}
                   onChange={(e) => setField('PUE_EXPECTED', e.target.value)}
-                  className={`${inputCls} ${hasValidTemps ? 'bg-slate-50 cursor-not-allowed' : ''}`}
-                  readOnly={hasValidTemps}
+                  className={inputCls}
                 />
               </Field>
             </div>
           </div>
         )}
+
+        {/* Monthly ambient temperatures — drives per-month pPUE via the calcPPUE polynomial when all 12 values are filled. */}
+        <div className="mt-6 pt-5 border-t border-slate-100">
+          <Field
+            label="Monthly average outdoor temperature (°C)"
+            symbol="TEMP_AMB_monthly[]"
+            tooltip="Optional. When all 12 monthly values are provided, the forecast computes a per-month partial PUE from the temperature polynomial (warmer months produce more cooling load → higher pPUE). Leave blank to use the flat baseline PUE for every month."
+          >
+            <MonthlyTempInputs
+              value={form.TEMP_AMB_monthly}
+              onChange={(s) => setField('TEMP_AMB_monthly', s)}
+            />
+          </Field>
+        </div>
       </section>
 
       {/* Section C */}
@@ -1589,6 +1569,48 @@ function ManualYearlyInputs({
           values in {unit}
         </div>
       )}
+    </div>
+  );
+}
+
+// 12-cell input row for monthly ambient temperatures. Stores the comma-separated
+// string in the form field so the existing CSV save/parse pipeline works unchanged;
+// renders Jan…Dec labels with one small number input per month.
+function MonthlyTempInputs({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (csv: string) => void;
+}) {
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const parts = (value || '').split(',').map((s) => s.trim());
+  while (parts.length < 12) parts.push('');
+
+  const setOne = (i: number, v: string) => {
+    const next = parts.slice(0, 12);
+    next[i] = v;
+    // Trim trailing empties so the CSV stays compact when the user hasn't filled all 12.
+    let lastFilled = -1;
+    for (let j = 0; j < 12; j++) if (next[j] !== '') lastFilled = j;
+    onChange(next.slice(0, lastFilled + 1).join(', '));
+  };
+
+  return (
+    <div className="grid grid-cols-6 md:grid-cols-12 gap-2">
+      {MONTHS.map((label, i) => (
+        <div key={label} className="flex flex-col">
+          <label className="text-[10px] text-slate-500 mb-1 text-center font-medium">{label}</label>
+          <input
+            type="number"
+            step="0.1"
+            value={parts[i] || ''}
+            onChange={(e) => setOne(i, e.target.value)}
+            placeholder="°C"
+            className="w-full border border-slate-200 rounded-md px-2 py-1 text-xs text-center outline-none focus:border-teal-500"
+          />
+        </div>
+      ))}
     </div>
   );
 }
