@@ -1,7 +1,11 @@
 import express from 'express';
 import { supabase } from '../services/supabase.js';
+import { authenticate } from '../middleware/auth.js';
+import { createS3Upload } from '../services/s3.js';
 
 const router = express.Router();
+
+const uploadHistMw = createS3Upload('historical-interval-meter', 50);
 
 router.post('/submit', async (req, res) => {
     try {
@@ -49,6 +53,39 @@ router.put('/:id', async (req, res) => {
     } catch (err) {
         console.error('Internal server error:', err);
         res.status(500).json({ error: 'Failed to update datacenter details' });
+    }
+});
+
+router.post('/:id/hist-mw', authenticate, uploadHistMw.single('file'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const { data, error } = await supabase
+            .from('data_centers')
+            .update({ HIST_MW: file.key })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('HIST_MW DB update error:', error);
+            return res.status(500).json({ error: error.message });
+        }
+
+        res.status(200).json({
+            message: 'Historical interval meter CSV uploaded successfully',
+            key: file.key,
+            location: file.location,
+            data,
+        });
+    } catch (err) {
+        console.error('HIST_MW upload error:', err);
+        res.status(500).json({ error: err.message || 'Failed to upload historical meter CSV' });
     }
 });
 
