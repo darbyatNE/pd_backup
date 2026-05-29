@@ -1806,12 +1806,6 @@ function PpueCurveUpload() {
         </p>
       )}
 
-      {coeffs && (
-        <div className="mt-3 text-xs text-slate-600 font-mono">
-          <div>pPUE(T) = {coeffs.a.toExponential(4)} · T² + {coeffs.b.toExponential(4)} · T + {coeffs.c.toFixed(4)}</div>
-          <div className="text-slate-400 mt-1">T in °C.{nPoints !== null && r2 !== null && (<> Fit from {nPoints} rows · R² = {r2.toFixed(4)}</>)}</div>
-        </div>
-      )}
     </div>
   );
 }
