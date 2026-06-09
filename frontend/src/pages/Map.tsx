@@ -188,10 +188,7 @@ export default function MapPage() {
   const pnodesByZoneRef = useRef<Record<string, number[]>>({});
   const [selectedPnode, setSelectedPnode] = useState<{ id: number; name: string } | null>(null);
   const lmpPricesRef = useRef<LmpMap>(new Map());
-  const [legendMode, setLegendMode] = useState<'gen' | 'lmp'>(() => {
-    const saved = localStorage.getItem('map-legendMode');
-    return saved !== null ? JSON.parse(saved) : 'gen';
-  });
+  const [legendMode, setLegendMode] = useState<'gen' | 'lmp'>('gen');
   const [showGenMarkers, setShowGenMarkers] = useState(true);
   const [showLmpDots, setShowLmpDots] = useState(false);
 
