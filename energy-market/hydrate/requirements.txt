@@ -1,0 +1,25 @@
+# PowerDime Hydrate Connectors
+# pip install -r requirements.txt
+
+# HTTP Client
+requests>=2.31.0
+
+# PostgreSQL Database
+psycopg2-binary>=2.9.9
+SQLAlchemy>=2.0.23
+
+# SSH Tunnel for AWS RDS via EC2
+sshtunnel>=0.4.0
+paramiko>=3.4.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+
+# Legacy Supabase (for migration)
+supabase>=2.0.0
+
+# Date/Time
+python-dateutil>=2.8.2
+
+# Data Processing (optional but useful)
+# pandas>=2.1.0
