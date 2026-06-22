@@ -21,6 +21,21 @@ export interface User {
 
 // Generation types (matches database constraint)
 export type GenerationType = 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hydro' | 'Hybrid' | 'Combined Cycle' | 'Peaker';
+
+// BTM (Behind The Meter) Asset types - custom build options for load sites
+export type BTMAssetType = 'BESS' | 'NG_Peaker' | 'NG_Combined_Cycle';
+
+export interface BTMAsset {
+  id: string;
+  site_id: string;
+  asset_type: BTMAssetType;
+  capacity_mw: number;
+  duration_hours?: number; // For BESS
+  status: 'option' | 'installed' | 'planned';
+  configuration?: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
 export type ProjectStatus = 'draft' | 'published' | 'unpublished' | 'active' | 'inactive' | 'sold';
 
 // Generic metadata type to replace 'any'

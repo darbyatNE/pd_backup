@@ -90,3 +90,6 @@ temp/
 tmp/
 .gstack/
 ss
+# Excel source files (EIA caches, etc.)
+*.xls
+*.xlsx

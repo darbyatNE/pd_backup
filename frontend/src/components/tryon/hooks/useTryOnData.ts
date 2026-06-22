@@ -9,6 +9,7 @@ import {
   getContractsForSites,
   contractMwForHourAvgInYear,
   contractMwForMonthInYear,
+  getGenerationTypeOrder,
 } from '../../../data/linkedContracts';
 import type { LinkedContract } from '../../../data/linkedContracts';
 import { r1 } from '../utils';
@@ -38,6 +39,9 @@ export function useTryOnData({
   xAxis,
   startMonth = 1,
   endMonth = 12,
+  bessDischargeHours,
+  bessChargeHours,
+  bessEfficiency,
 }: {
   project: Project;
   previewSites: string[];
@@ -48,6 +52,9 @@ export function useTryOnData({
   xAxis: XAxisMode;
   startMonth?: number;
   endMonth?: number;
+  bessDischargeHours?: number[];
+  bessChargeHours?: number[];
+  bessEfficiency?: number;
 }) {
   // Aggregate profile for PREVIEW sites
   const aggregateProfile = useMemo(() => {
@@ -59,9 +66,14 @@ export function useTryOnData({
     return aggregateProfiles(profiles);
   }, [previewSites]);
 
-  // Existing contracts for preview sites
+  // Existing contracts for preview sites — sorted same as LoadShape2D
   const existingContracts = useMemo(() => {
-    return getContractsForSites(previewSites);
+    return getContractsForSites(previewSites).sort((a, b) => {
+      const orderA = getGenerationTypeOrder(a.generationType);
+      const orderB = getGenerationTypeOrder(b.generationType);
+      if (orderA !== orderB) return orderA - orderB;
+      return b.mwCovered - a.mwCovered;
+    });
   }, [previewSites]);
 
   // Try-on contract derived from project — only for preview sites
@@ -94,8 +106,14 @@ export function useTryOnData({
           mwCovered: ((project.capacity_mw || 0) * scale * (splits[k] || 0)) / 100,
         }))
         .filter((s) => s.mwCovered > 0),
+      // BESS configuration — only for Battery projects
+      ...(project.generation_type === 'Battery' ? {
+        bessDischargeHours,
+        bessChargeHours,
+        bessEfficiency,
+      } : {}),
     };
-  }, [project, splits, previewSites, startYear, capacityPct]);
+  }, [project, splits, previewSites, startYear, capacityPct, bessDischargeHours, bessChargeHours, bessEfficiency]);
 
   // Build a row with existing contracts + try-on, computing tiered coverage
   const buildRow = (

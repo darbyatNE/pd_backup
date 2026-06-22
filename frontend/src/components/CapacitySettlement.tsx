@@ -217,9 +217,11 @@ export function buildCapacityOptions(forecastMw: number, state: string): Capacit
 export function SiteCapacityCard({
   profile,
   endYear,
+  onExamineFit,
 }: {
   profile: SiteLoadProfile;
   endYear: number;
+  onExamineFit?: () => void;
 }) {
   const meta = SITE_CAPACITY_META[profile.siteKey] ?? { projectType: 'greenfield' as const, state: 'VA' };
   // Use unified forecast calculation (documented capacity or 5% growth from 2026)
@@ -361,22 +363,33 @@ export function SiteCapacityCard({
                       )}
                     </td>
                     <td className="px-3 py-3 align-top text-right">
-                      <button
-                        type="button"
-                        disabled={!opt.eligible}
-                        onClick={() => {
-                          if (!opt.eligible) return;
-                          if (opt.cta === 'Solicit RFQ') setDialogKind('rfq');
-                          else if (opt.cta === 'View document') setTariffOpen(true);
-                        }}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${
-                          opt.eligible
-                            ? 'bg-slate-900 text-white hover:bg-slate-800'
-                            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                        }`}
-                      >
-                        {opt.cta}
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        {opt.eligible && (opt.description.toLowerCase().includes('battery') || opt.path.toLowerCase().includes('bess')) && onExamineFit && (
+                          <button
+                            type="button"
+                            onClick={onExamineFit}
+                            className="text-xs font-semibold px-2 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                          >
+                            ▶ Examine Fit
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={!opt.eligible}
+                          onClick={() => {
+                            if (!opt.eligible) return;
+                            if (opt.cta === 'Solicit RFQ') setDialogKind('rfq');
+                            else if (opt.cta === 'View document') setTariffOpen(true);
+                          }}
+                          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${
+                            opt.eligible
+                              ? 'bg-slate-900 text-white hover:bg-slate-800'
+                              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                          }`}
+                        >
+                          {opt.cta}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

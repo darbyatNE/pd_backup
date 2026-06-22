@@ -10,11 +10,14 @@ import {
 import type { SiteLoadProfile } from '../data/loadProfile'
 import { getContractsForSites } from '../data/linkedContracts'
 import type { LinkedContract } from '../data/linkedContracts'
+import { getSuggestedBessMw } from '../utils/capacity'
 import { useScopeContext } from '../contexts/ScopeContext'
 import { useDashboardView } from '../contexts/DashboardViewContext'
 import { SiteCapacityCard, CapacityRollup } from '../components/CapacitySettlement'
 import CapacityCoverageChart from '../components/CapacityCoverageChart'
 import ModuleHandoffDialog from '../components/ModuleHandoffDialog'
+import TryOnOverlay from '../components/TryOnOverlay'
+import type { Project } from '../types'
 import {
   CapacityBox,
   LoadForecastChart,
@@ -39,7 +42,7 @@ const TIER_STYLES: Record<string, string> = {
   peak:     'bg-amber-50 text-amber-700 border-amber-200',
 }
 
-function HedgeContractsTable({ contracts }: { contracts: LinkedContract[] }) {
+function HedgeContractsTable({ contracts, onExamineFit }: { contracts: LinkedContract[]; onExamineFit?: (contract: LinkedContract) => void }) {
   if (contracts.length === 0) {
     return (
       <p className="text-sm text-slate-400 italic px-2">
@@ -60,6 +63,7 @@ function HedgeContractsTable({ contracts }: { contracts: LinkedContract[] }) {
             <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Shape</th>
             <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Term Start</th>
             <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Term End</th>
+            <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Action</th>
           </tr>
         </thead>
         <tbody>
@@ -96,6 +100,16 @@ function HedgeContractsTable({ contracts }: { contracts: LinkedContract[] }) {
               <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
                 {new Date(c.endYear, c.endMonth - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
               </td>
+              <td className="py-2.5 px-3">
+                {c.generationType === 'Battery' && onExamineFit && (
+                  <button
+                    onClick={() => onExamineFit(c)}
+                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-semibold rounded transition-colors"
+                  >
+                    ▶ Examine Fit
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -128,6 +142,8 @@ export default function Forecast() {
   const [loadXAxis, setLoadXAxis] = useState<XAxisMode>('hours')
   const [chartYearMode, setChartYearMode] = useState<'single' | 'all'>('single')
   const [chartActiveYear, setChartActiveYear] = useState<number>(startYear)
+  const [tryOnProject, setTryOnProject] = useState<Project | null>(null)
+  const [tryOnSite, setTryOnSite] = useState<string | undefined>(undefined)
 
   const profiles = selectedSites
     .map((k) => LOAD_PROFILE_MAP[k])
@@ -179,7 +195,35 @@ export default function Forecast() {
             </div>
           ) : (
             profiles.map((p) => (
-              <SiteCapacityCard key={p.siteKey} profile={p} endYear={endYear} />
+              <SiteCapacityCard 
+                key={p.siteKey} 
+                profile={p} 
+                endYear={endYear} 
+                onExamineFit={() => {
+                  // Use shared utility to calculate suggested BESS size
+                  const suggestedMw = getSuggestedBessMw(p, startYear, endYear);
+                  console.log(`[ExamineFit] Site: ${p.siteKey}, Years: ${startYear}-${endYear}, Suggested BESS: ${suggestedMw}MW`);
+                  
+                  // Create synthetic BESS project for this site's profile
+                  const bessProject: Project = {
+                    id: `bess-capacity-${p.siteKey}`,
+                    seller_id: 'capacity-tab',
+                    name: `BESS - ${p.siteKey}`,
+                    generation_type: 'Battery',
+                    capacity_mw: suggestedMw,
+                    location: '',
+                    status: 'published',
+                    expected_cod: new Date(startYear + 1, 0).toISOString(),
+                    delivery_term_years: 15,
+                    metadata: {
+                      isBTMOption: true,
+                      btmAssetType: 'BESS',
+                    }
+                  };
+                  setTryOnProject(bessProject);
+                  setTryOnSite(p.siteKey); // Set the specific site for scope
+                }}
+              />
             ))
           )}
         </div>
@@ -232,7 +276,32 @@ export default function Forecast() {
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">All contracted positions linked to sites in scope</p>
             </div>
-            <HedgeContractsTable contracts={contracts} />
+            <HedgeContractsTable 
+              contracts={contracts} 
+              onExamineFit={(contract) => {
+                // Convert LinkedContract to Project for TryOn
+                const isBess = contract.generationType === 'Battery';
+                const tryOnProject: Project = {
+                  id: `tryon-contract-${contract.projectName}`,
+                  seller_id: 'contract-list',
+                  name: contract.projectName,
+                  generation_type: contract.generationType,
+                  capacity_mw: contract.mwCovered,
+                  location: '',
+                  status: 'published',
+                  expected_cod: new Date(contract.startYear, contract.startMonth - 1).toISOString(),
+                  delivery_term_years: contract.endYear - contract.startYear,
+                  metadata: isBess ? {
+                    isBTMOption: true,
+                    btmAssetType: 'BESS',
+                    bessDischargeHours: contract.bessDischargeHours,
+                    bessChargeHours: contract.bessChargeHours,
+                    bessEfficiency: contract.bessEfficiency,
+                  } : undefined
+                };
+                setTryOnProject(tryOnProject);
+              }}
+            />
           </div>
           <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[380px]">
             <RiskAlerts />
@@ -300,6 +369,18 @@ export default function Forecast() {
             Preview transmission risk module
           </button>
         </div>
+      )}
+      
+      {tryOnProject && (
+        <TryOnOverlay
+          project={tryOnProject}
+          onClose={() => {
+            setTryOnProject(null);
+            setTryOnSite(undefined);
+          }}
+          scopeSite={tryOnSite}
+          initialYear={chartActiveYear}
+        />
       )}
     </div>
   )

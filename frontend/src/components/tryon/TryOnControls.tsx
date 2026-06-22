@@ -19,6 +19,7 @@ interface TryOnControlsProps {
   setActiveYear: (v: number) => void;
   yearOptions: number[];
   onCommit?: () => void;
+  isBTM?: boolean;
 }
 
 export function TryOnControls({
@@ -39,6 +40,7 @@ export function TryOnControls({
   setActiveYear,
   yearOptions,
   onCommit,
+  isBTM,
 }: TryOnControlsProps) {
   return (
     <>
@@ -72,9 +74,10 @@ export function TryOnControls({
         </div>
       </div>
 
-      {/* Site split controls */}
-      <div className="border border-slate-200 rounded-lg p-2">
-        <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Allocate project across sites</h3>
+      {/* Site split controls - Hidden for BTM assets (single site only) */}
+      {!isBTM && (
+        <div className="border border-slate-200 rounded-lg p-2">
+          <h3 className="text-sm font-semibold text-slate-900 mb-1.5">Allocate project across sites</h3>
         <div className="space-y-1.5">
           {ALL_SITE_KEYS.map((key) => {
             const isInScope = selectedSites.includes(key);
@@ -141,6 +144,7 @@ export function TryOnControls({
           </button>
         </div>
       </div>
+      )}
 
       {/* Chart controls */}
       <div className="flex items-center justify-between">

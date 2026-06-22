@@ -29,6 +29,7 @@ export interface SiteLoadProfile {
   averageMw: number;
   loadFactorPct: number;
   loadShape: LoadShapePoint[];  // 288 points: 24 h × 12 mo
+  lda?: string; // Load Distribution Area for capacity qualification
   // Sparse map of documented capacity by absolute calendar year. Sites can
   // expand or contract over time (data-center build-outs, hyperscale phases),
   // and the Capacity tab needs to size each year's bar to the value clearing
@@ -169,7 +170,7 @@ function buildProfile(
   const averageMw = r1(loadShape.reduce((s, p) => s + p.totalMw, 0) / loadShape.length);
   const loadFactorPct = Math.round((averageMw / capacityMw) * 100);
 
-  return { siteKey, name, location, settlementZone, capacityMw, baseloadMw, peakDemandMw, averageMw, loadFactorPct, loadShape };
+  return { siteKey, name, location, settlementZone, capacityMw, baseloadMw, peakDemandMw, averageMw, loadFactorPct, loadShape, lda: settlementZone };
 }
 
 // ─── Exported profiles ────────────────────────────────────────────────────────

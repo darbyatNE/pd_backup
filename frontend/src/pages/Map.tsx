@@ -5,7 +5,9 @@ import { getZoneCoords } from '../utils/pjmZones';
 import TryOnOverlay from '../components/TryOnOverlay';
 import { useScopeContext } from '../contexts/ScopeContext';
 import { getLmpPeriodType, LMP_HISTORY_START, LMP_PERIODS_ALL, buildSimulatedLmpMap } from '../data/lmpData';
-import type { Project, GenerationType } from '../types';
+import { LOAD_PROFILES, getForecastCapacityForYear } from '../data/loadProfile';
+import { getSuggestedBessMw } from '../utils/capacity';
+import type { Project, GenerationType, BTMAssetType } from '../types';
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
   version: 8,
@@ -137,7 +139,7 @@ const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct',
 type LmpMap = Map<number, number>;
 
 export default function MapPage() {
-  const { selectedSites, endYear, endMonth, setEndDate } = useScopeContext();
+  const { selectedSites, startYear, endYear, endMonth, setEndDate, addSite } = useScopeContext();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<Map<string, maplibregl.Marker>>(new Map());
@@ -152,10 +154,10 @@ export default function MapPage() {
 
   // Keep latest scope values reachable from popup click handlers without
   // forcing marker re-creation every time the scope changes.
-  const scopeRef = useRef({ endYear, endMonth, setEndDate });
+  const scopeRef = useRef({ startYear, endYear, endMonth, setEndDate });
   useEffect(() => {
-    scopeRef.current = { endYear, endMonth, setEndDate };
-  }, [endYear, endMonth, setEndDate]);
+    scopeRef.current = { startYear, endYear, endMonth, setEndDate };
+  }, [startYear, endYear, endMonth, setEndDate]);
 
   const [projects, setProjects] = useState<MappedProject[]>([]);
   const [buyerSites, setBuyerSites] = useState<BuyerSite[]>([]);
@@ -175,10 +177,11 @@ export default function MapPage() {
     return new Set(ALL_GEN_TYPES);
   });
   const [tryOnProject, setTryOnProject] = useState<MappedProject | null>(null);
+  const [tryOnSite, setTryOnSite] = useState<string | undefined>(undefined);
   // Load persisted states from localStorage
   const [showLabels, setShowLabels] = useState(() => {
     const saved = localStorage.getItem('map-showLabels');
-    return saved !== null ? JSON.parse(saved) : true;
+    return saved !== null ? JSON.parse(saved) : false;
   });
   const [lmpPrices, setLmpPrices] = useState<LmpMap>(new Map());
   const [selectedZoneName, setSelectedZoneName] = useState<string | null>(null);
@@ -191,6 +194,9 @@ export default function MapPage() {
   const [legendMode, setLegendMode] = useState<'gen' | 'lmp'>('gen');
   const [showGenMarkers, setShowGenMarkers] = useState(true);
   const [showLmpDots, setShowLmpDots] = useState(false);
+  
+  // BTM (Behind The Meter) Assets state - custom build options for load sites
+  const [selectedBTMOption, setSelectedBTMOption] = useState<{siteId: string; assetType: BTMAssetType} | null>(null);
 
   // LMP frames: always start from Jan 2020 (full historical range) up to scope end
   const LMP_FRAMES = useMemo(() => {
@@ -1084,17 +1090,168 @@ export default function MapPage() {
       markerContainer.appendChild(inner);
 
       el.appendChild(markerContainer);
-      const capacityStr = site.target_capacity_mw ? `${site.target_capacity_mw} MW target` : '';
-      const popup = new maplibregl.Popup({ offset: 12, closeButton: true })
-        .setHTML(`
-          <div style="font-family:system-ui,sans-serif;min-width:180px">
-            <div style="font-weight:600;font-size:14px;margin-bottom:4px">${site.name}</div>
-            <div style="color:#64748b;font-size:12px;margin-bottom:2px">Load Site · ${site.project_type}</div>
-            <div style="color:#64748b;font-size:12px;margin-bottom:2px">${site.location}</div>
-            ${capacityStr ? `<div style="font-size:12px;font-weight:500;color:#6366f1">${capacityStr}</div>` : ''}
-            ${site.settlement_zone ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">${site.settlement_zone}</div>` : ''}
-          </div>
-        `);
+      
+      // Get capacity data from LOAD_PROFILES (same source as capacity tab)
+      // Match by site name since DB names may differ from LOAD_PROFILES keys
+      const profile = LOAD_PROFILES.find(p => 
+        site.name.toLowerCase().includes(p.siteKey.split('-')[0]) || 
+        p.name.toLowerCase().includes(site.name.toLowerCase().split(' ')[0]) ||
+        site.name.toLowerCase().replace(/\s+/g, '-') === p.siteKey
+      );
+      const { startYear: sy, endYear: ey } = scopeRef.current;
+      
+      // Calculate capacity range across scope years
+      let capacityStr = '';
+      if (profile) {
+        const capacities: number[] = [];
+        for (let y = sy; y <= ey; y++) {
+          capacities.push(getForecastCapacityForYear(profile, y));
+        }
+        const minCap = Math.min(...capacities);
+        const maxCap = Math.max(...capacities);
+        if (minCap === maxCap) {
+          capacityStr = `${minCap} MW target`;
+        } else {
+          capacityStr = `${minCap}–${maxCap} MW target`;
+        }
+      }
+      
+      // Calculate suggested BESS size based on minimum unhedged capacity
+      const suggestedBessMw = profile ? getSuggestedBessMw(profile, sy, ey) : 75;
+      const suggestedMwh = Math.round(suggestedBessMw * 6); // 6-hour duration typical for capacity hedge
+      
+      // Build popup content with BTM Assets section
+      const popupContent = document.createElement('div');
+      popupContent.style.cssText = 'font-family:system-ui,sans-serif;min-width:220px;max-width:260px;';
+      
+      // Site info section
+      popupContent.innerHTML = `
+        <div style="font-weight:600;font-size:14px;margin-bottom:4px">${site.name}</div>
+        <div style="color:#64748b;font-size:12px;margin-bottom:2px">Load Site · ${site.project_type}</div>
+        <div style="color:#64748b;font-size:12px;margin-bottom:2px">${site.location}</div>
+        ${capacityStr ? `<div style="font-size:12px;font-weight:500;color:#6366f1">${capacityStr}</div>` : ''}
+        ${site.settlement_zone ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">LDA: ${site.settlement_zone}</div>` : ''}
+      `;
+      
+      // BTM Assets Section
+      const btmSection = document.createElement('div');
+      btmSection.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;';
+      
+      // Section header with label distinction
+      const btmHeader = document.createElement('div');
+      btmHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;';
+      btmHeader.innerHTML = `
+        <span style="font-size:11px;font-weight:600;color:#0f172a;">BTM Assets</span>
+        <span style="font-size:9px;color:#64748b;background:#f1f5f9;padding:2px 6px;border-radius:4px;">Options</span>
+      `;
+      btmSection.appendChild(btmHeader);
+      
+      // BTM Asset options container
+      const btmOptions = document.createElement('div');
+      btmOptions.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+      
+      // BESS Option Button
+      const bessBtn = document.createElement('button');
+      bessBtn.style.cssText = `
+        display:flex;align-items:center;gap:8px;padding:8px 10px;
+        background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;
+        cursor:pointer;transition:all 0.15s;font-size:11px;text-align:left;
+      `;
+      bessBtn.innerHTML = `
+        <span style="font-size:14px;">🔋</span>
+        <div style="flex:1;">
+          <div style="font-weight:500;color:#0f172a;">BESS</div>
+          <div style="font-size:10px;color:#64748b;">${suggestedBessMw}MW / ${suggestedMwh}MWh</div>
+        </div>
+        <span style="color:#10b981;font-size:11px;">+</span>
+      `;
+      bessBtn.onmouseenter = () => { bessBtn.style.background = '#f1f5f9'; bessBtn.style.borderColor = '#cbd5e1'; };
+      bessBtn.onmouseleave = () => { bessBtn.style.background = '#f8fafc'; bessBtn.style.borderColor = '#e2e8f0'; };
+      bessBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Create synthetic BESS project for TryOn - cast as MappedProject with coords
+        const bessProject: MappedProject = {
+          id: `bess-${site.id}`,
+          seller_id: 'btm-option',
+          name: `${site.name} - BESS`,
+          generation_type: 'Battery',
+          capacity_mw: suggestedBessMw,
+          location: site.location,
+          status: 'published',
+          expected_cod: new Date(new Date().getFullYear(), 0, 1).toISOString(),
+          delivery_term_years: 15,
+          coords: site.coords,
+          metadata: {
+            isBTMOption: true,
+            btmAssetType: 'BESS',
+            parentSiteId: site.id,
+            dischargeHours: [15, 16, 17, 18],
+          }
+        };
+        // Add site to scope if not already present
+        // Use the matching LOAD_PROFILES siteKey (not derived from DB name)
+        const siteKey = profile ? profile.siteKey : site.name.toLowerCase().replace(/\s+/g, '-');
+        addSite(siteKey);
+        // Open TryOn overlay scoped to this specific site
+        setTryOnSite(siteKey);
+        setTryOnProjectRef.current(bessProject);
+        popup.remove();
+      };
+      btmOptions.appendChild(bessBtn);
+      
+      // NG Peaker Option Button
+      const ngPeakerBtn = document.createElement('button');
+      ngPeakerBtn.style.cssText = `
+        display:flex;align-items:center;gap:8px;padding:8px 10px;
+        background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;
+        cursor:pointer;transition:all 0.15s;font-size:11px;text-align:left;
+      `;
+      ngPeakerBtn.innerHTML = `
+        <span style="font-size:14px;">🔥</span>
+        <div style="flex:1;">
+          <div style="font-weight:500;color:#0f172a;">NG Peaker</div>
+          <div style="font-size:10px;color:#64748b;">100MW Fast-Start</div>
+        </div>
+        <span style="color:#10b981;font-size:11px;">+</span>
+      `;
+      ngPeakerBtn.onmouseenter = () => { ngPeakerBtn.style.background = '#f1f5f9'; ngPeakerBtn.style.borderColor = '#cbd5e1'; };
+      ngPeakerBtn.onmouseleave = () => { ngPeakerBtn.style.background = '#f8fafc'; ngPeakerBtn.style.borderColor = '#e2e8f0'; };
+      ngPeakerBtn.onclick = () => {
+        setSelectedBTMOption({ siteId: site.id, assetType: 'NG_Peaker' });
+        console.log('Selected NG Peaker for site:', site.name);
+        // TODO: Open BTM asset configuration modal
+      };
+      btmOptions.appendChild(ngPeakerBtn);
+      
+      // NG Combined Cycle Option Button
+      const ngCCBtn = document.createElement('button');
+      ngCCBtn.style.cssText = `
+        display:flex;align-items:center;gap:8px;padding:8px 10px;
+        background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;
+        cursor:pointer;transition:all 0.15s;font-size:11px;text-align:left;
+      `;
+      ngCCBtn.innerHTML = `
+        <span style="font-size:14px;">⚡</span>
+        <div style="flex:1;">
+          <div style="font-weight:500;color:#0f172a;">NG Combined Cycle</div>
+          <div style="font-size:10px;color:#64748b;">500MW Baseload</div>
+        </div>
+        <span style="color:#10b981;font-size:11px;">+</span>
+      `;
+      ngCCBtn.onmouseenter = () => { ngCCBtn.style.background = '#f1f5f9'; ngCCBtn.style.borderColor = '#cbd5e1'; };
+      ngCCBtn.onmouseleave = () => { ngCCBtn.style.background = '#f8fafc'; ngCCBtn.style.borderColor = '#e2e8f0'; };
+      ngCCBtn.onclick = () => {
+        setSelectedBTMOption({ siteId: site.id, assetType: 'NG_Combined_Cycle' });
+        console.log('Selected NG Combined Cycle for site:', site.name);
+        // TODO: Open BTM asset configuration modal
+      };
+      btmOptions.appendChild(ngCCBtn);
+      
+      btmSection.appendChild(btmOptions);
+      popupContent.appendChild(btmSection);
+      
+      const popup = new maplibregl.Popup({ offset: 12, closeButton: true }).setDOMContent(popupContent);
       const siteOffset = getOffset(site.name);
       markers.current.set(site.id,
         new maplibregl.Marker({ element: el }).setLngLat([site.coords[0] + siteOffset[0], site.coords[1] + siteOffset[1]]).setPopup(popup).addTo(map.current!)
@@ -1205,7 +1362,11 @@ export default function MapPage() {
       {tryOnProject && (
         <TryOnOverlay
           project={tryOnProject}
-          onClose={() => setTryOnProject(null)}
+          onClose={() => {
+            setTryOnProject(null);
+            setTryOnSite(undefined);
+          }}
+          scopeSite={tryOnSite}
         />
       )}
       {/* Sidebar */}
@@ -1299,7 +1460,24 @@ export default function MapPage() {
                       <span className="text-sm font-medium text-slate-800 truncate">{site.name}</span>
                     </div>
                     <div className="text-xs text-slate-500 mt-0.5 ml-4.5 capitalize">
-                      {site.project_type}{site.target_capacity_mw ? ` · ${site.target_capacity_mw} MW target` : ''}
+                      {(() => {
+                        const siteKey = site.name.toLowerCase().replace(/\s+/g, '-');
+                        const profile = LOAD_PROFILES.find(p => p.siteKey === siteKey);
+                        if (profile) {
+                          const capacities: number[] = [];
+                          for (let y = startYear; y <= endYear; y++) {
+                            capacities.push(getForecastCapacityForYear(profile, y));
+                          }
+                          const minCap = Math.min(...capacities);
+                          const maxCap = Math.max(...capacities);
+                          if (minCap === maxCap) {
+                            return `${site.project_type} · ${minCap} MW target`;
+                          } else {
+                            return `${site.project_type} · ${minCap}–${maxCap} MW target`;
+                          }
+                        }
+                        return site.project_type;
+                      })()}
                     </div>
                     <div className="text-xs text-slate-400 ml-4.5 truncate">{site.location}</div>
                   </button>

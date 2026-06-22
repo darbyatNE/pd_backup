@@ -237,6 +237,17 @@ export function TryOnChart({
           isAnimationActive={false}
         />
 
+        {/* BESS Charge - Additional Load (shown in amber for distinction) */}
+        <Bar
+          dataKey="tryon_bess_charge"
+          stackId="load"
+          fill="#f59e0b"
+          stroke="#d97706"
+          strokeWidth={0.5}
+          name="BESS Charge (Load)"
+          isAnimationActive={false}
+        />
+
         <Bar
           dataKey="overhedge"
           stackId="load"

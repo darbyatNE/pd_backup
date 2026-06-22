@@ -5,6 +5,7 @@
 
 import { LOAD_PROFILE_MAP, getLoadMultiplierForYearMonth, type SiteLoadProfile } from './loadProfile';
 import { supabase } from '../services/supabase';
+import { canDeliverCapacity } from './ldaData';
 
 // Buyer project from database
 interface BuyerProject {
@@ -38,25 +39,55 @@ export interface SiteFacilityInfo {
   targetCOD: string | null; // ISO date string
 }
 
+// Contract component types - each contract can have one or more components
+export type ContractComponentType = 'capacity' | 'energy' | 'rec' | 'ancillary';
+
+export interface ContractComponent {
+  type: ContractComponentType;
+  mwCovered: number;       // MW covered for this component
+  pricePerMwh?: number;    // Component-specific price ($/MWh) - optional for REC
+  pricePerMwYear?: number; // Capacity-specific price ($/MW-year) - for capacity component
+  shape?: ContractShape;   // Delivery profile - only for energy component
+  tier?: ContractTier;     // Load tier - only for energy component
+  lda?: string;            // Load Distribution Area - for capacity qualification
+}
+
 export interface LinkedContract {
   projectName: string;
   generationType: 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hybrid' | 'Combined Cycle' | 'Peaker' | 'Hydro';
-  mwCovered: number;       // contracted MW (cap)
-  pricePerMwh: number;     // blended contract price ($/MWh)
-  shape: ContractShape;    // delivery profile
-  tier: ContractTier;      // baseload tier (teal) vs peak tier (amber)
+  
+  // Legacy fields for backward compatibility - deprecated in favor of components
+  mwCovered: number;       // total contracted MW (legacy)
+  pricePerMwh: number;     // blended energy price ($/MWh) (legacy)
+  shape: ContractShape;    // energy delivery profile (legacy)
+  tier: ContractTier;      // energy load tier (legacy)
+  
+  // New component-based system (optional for backward compatibility)
+  components?: ContractComponent[];
+  
+  // LDA (Load Distribution Area) for capacity qualification
+  lda?: string;            // Load Distribution Area - required for PPAs to qualify for capacity
+  
+  // Visual styling
   pattern: 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag';
+  
   // Active term: contract delivers from (startYear, startMonth) through
   // (endYear, endMonth) inclusive. Outside the term it contributes 0 MW.
   startYear: number;
   startMonth: number;      // 1–12
   endYear: number;
   endMonth: number;        // 1–12
+  
   // Set on merged contracts coming out of `getContractsForSites`. Records
   // each hedged site and its MW share, so year/month load multipliers can be
   // applied per-site (a +25% bump on Manassas grows only the share that
   // hedges Manassas, not the whole contract). Absent on raw fixture entries.
-  perSiteMw?: Array<{ siteKey: string; mwCovered: number }>;
+  perSiteMw?: Array<{ siteKey: string; mwCovered: number; components?: ContractComponent[] }>;
+  
+  // BESS-specific configuration (only used for Battery generation type)
+  bessDischargeHours?: number[];
+  bessChargeHours?: number[];
+  bessEfficiency?: number; // round-trip efficiency percentage (0-100)
 }
 
 /** True if a contract is in delivery for the given calendar year + month. */
@@ -66,6 +97,153 @@ export function isContractActiveAt(c: LinkedContract, year: number, month: numbe
   const after =
     year > c.endYear || (year === c.endYear && month > c.endMonth);
   return !before && !after;
+}
+
+// ─── Component-based contract utilities ─────────────────────────────────────
+
+/** Get the total MW covered for a specific component type across multiple contracts */
+export function getComponentMwCovered(
+  contracts: LinkedContract[], 
+  componentType: ContractComponentType,
+  year?: number
+): number {
+  return contracts.reduce((total, contract) => {
+    // Filter by year if specified
+    if (year && !isContractActiveAt(contract, year, 6)) return total;
+    
+    // Ensure contract has components
+    const normalizedContract = ensureContractComponents(contract);
+    
+    // Find the component (components is guaranteed to exist after ensureContractComponents)
+    const component = normalizedContract.components!.find(c => c.type === componentType);
+    return total + (component?.mwCovered || 0);
+  }, 0);
+}
+
+/** Get the total MW covered for capacity components that are LDA-qualified */
+export function getQualifiedCapacityMwCovered(
+  contracts: LinkedContract[], 
+  loadLda: string,
+  year?: number
+): number {
+  console.log(`[getQualifiedCapacityMwCovered] loadLda=${loadLda}, year=${year}, total contracts=${contracts.length}`);
+  
+  return contracts.reduce((total, contract) => {
+    // Filter by year if specified
+    if (year && !isContractActiveAt(contract, year, 6)) {
+      console.log(`[getQualifiedCapacityMwCovered] Contract ${contract.projectName} - not active in year ${year}`);
+      return total;
+    }
+    
+    // Ensure contract has components
+    const normalizedContract = ensureContractComponents(contract);
+    
+    // Find capacity components
+    const capacityComponents = normalizedContract.components!.filter(c => c.type === 'capacity');
+    
+    console.log(`[getQualifiedCapacityMwCovered] Contract ${contract.projectName} - capacity components=${capacityComponents.length}`);
+    
+    for (const component of capacityComponents) {
+      // Check LDA qualification - use contract LDA if component LDA not specified
+      const genLda = component.lda || contract.lda;
+      
+      console.log(`[getQualifiedCapacityMwCovered] Component: genLda=${genLda}, loadLda=${loadLda}, mwCovered=${component.mwCovered}`);
+      
+      if (genLda && canDeliverCapacity(genLda, loadLda)) {
+        console.log(`[getQualifiedCapacityMwCovered] ✓ LDA qualified - adding ${component.mwCovered}MW`);
+        total += component.mwCovered;
+      } else {
+        console.log(`[getQualifiedCapacityMwCovered] ✗ LDA not qualified - genLda=${genLda}, loadLda=${loadLda}`);
+      }
+    }
+    
+    return total;
+  }, 0);
+}
+
+/** Get all contracts that have a specific component type */
+export function getContractsWithComponent(
+  contracts: LinkedContract[], 
+  componentType: ContractComponentType,
+  year?: number
+): LinkedContract[] {
+  return contracts.filter(contract => {
+    if (year && !isContractActiveAt(contract, year, 6)) return false;
+    return contract.components?.some(c => c.type === componentType) || false;
+  });
+}
+
+/** Ensure contract has components (backward compatibility) */
+export function ensureContractComponents(contract: LinkedContract): LinkedContract {
+  if (contract.components && contract.components.length > 0) {
+    return contract; // Already has components
+  }
+  
+  // Create default energy component from legacy fields
+  return {
+    ...contract,
+    components: [
+      {
+        type: 'energy',
+        mwCovered: contract.mwCovered,
+        pricePerMwh: contract.pricePerMwh,
+        shape: contract.shape,
+        tier: contract.tier
+      }
+    ]
+  };
+}
+
+/** Get capacity component MW for a contract (backward compatibility) */
+export function getContractCapacityMw(contract: LinkedContract): number {
+  // Ensure contract has components
+  const normalizedContract = ensureContractComponents(contract);
+  
+  // Try new component system first (components is guaranteed to exist after ensureContractComponents)
+  const capacityComponent = normalizedContract.components!.find(c => c.type === 'capacity');
+  if (capacityComponent) return capacityComponent.mwCovered;
+  
+  // Fall back to legacy field (for energy-only contracts, capacity = 0)
+  return 0;
+}
+
+/** Get energy component MW for a contract (backward compatibility) */
+export function getContractEnergyMw(contract: LinkedContract): number {
+  // Ensure contract has components
+  const normalizedContract = ensureContractComponents(contract);
+  
+  // Try new component system first (components is guaranteed to exist after ensureContractComponents)
+  const energyComponent = normalizedContract.components!.find(c => c.type === 'energy');
+  if (energyComponent) return energyComponent.mwCovered;
+  
+  // Fall back to legacy field
+  return contract.mwCovered;
+}
+
+/** Get energy shape for a contract (backward compatibility) */
+export function getContractEnergyShape(contract: LinkedContract): ContractShape {
+  // Ensure contract has components
+  const normalizedContract = ensureContractComponents(contract);
+  
+  // Try new component system first (components is guaranteed to exist after ensureContractComponents)
+  const energyComponent = normalizedContract.components!.find(c => c.type === 'energy');
+  if (energyComponent?.shape) return energyComponent.shape;
+  
+  // Fall back to legacy field
+  return contract.shape;
+}
+
+/** Get energy tier for a contract (backward compatibility) */
+export function getContractEnergyTier(contract: LinkedContract): ContractTier {
+  // Ensure contract has components
+  const normalizedContract = ensureContractComponents(contract);
+  
+  // Try new component system first (components is guaranteed to exist after ensureContractComponents)
+  const energyComponent = normalizedContract.components!.find(c => c.type === 'energy');
+  if (energyComponent?.tier) return energyComponent.tier;
+  
+  // Fall back to legacy field
+  return contract.tier;
 }
 
 // Standard load-tier colors used by the chart backgrounds.
@@ -139,9 +317,9 @@ export const SITE_FACILITIES: Record<string, SiteFacilityInfo> = {
   'sterling-hyperscale': {
     siteKey: 'sterling-hyperscale',
     facilityType: 'greenfield', // Under construction
-    annualMWh: 131400, // 15 MW * 8760 hours
-    peakMWh: 65700,
-    offPeakMWh: 21900,
+    annualMWh: 657000, // 75 MW * 8760 hours
+    peakMWh: 328500, // ~50% peak
+    offPeakMWh: 109500, // ~16.7% off-peak
     targetCOD: '2027-03-01', // Future COD
   },
   'richmond-edge': {
@@ -350,6 +528,15 @@ function mapBuyerProjectToContract(project: BuyerProject, siteKey: string): Link
     startMonth: 1,
     endYear,
     endMonth: 12,
+    components: [
+      {
+        type: 'energy',
+        mwCovered: Math.round(mw * 10) / 10,
+        pricePerMwh,
+        shape,
+        tier
+      }
+    ]
   };
 }
 
@@ -414,16 +601,38 @@ export const LINKED_CONTRACTS: Record<string, LinkedContract[]> = {
   'sterling-hyperscale': [
     // Bigger Susquehanna slice — Jan 2027 online with Sterling's allocation
     { projectName: 'Susquehanna SMR',         generationType: 'Nuclear',        mwCovered: 30, pricePerMwh: 35, shape: 'flat',    tier: 'base', pattern: getPatternForGenerationType('Nuclear'),
-      startYear: 2027, startMonth: 1,  endYear: 2033, endMonth: 12 },
+      startYear: 2027, startMonth: 1,  endYear: 2033, endMonth: 12,
+      components: [
+        { type: 'energy', mwCovered: 30, pricePerMwh: 35, shape: 'flat', tier: 'base' }
+      ]},
     // Long-term hybrid for evening peaks
     { projectName: 'Hudson Co. Hybrid',       generationType: 'Hybrid',         mwCovered: 8,  pricePerMwh: 45, shape: 'evening', tier: 'peak', pattern: getPatternForGenerationType('Hybrid'),
-      startYear: 2026, startMonth: 1,  endYear: 2032, endMonth: 12 },
+      startYear: 2026, startMonth: 1,  endYear: 2032, endMonth: 12,
+      components: [
+        { type: 'energy', mwCovered: 8, pricePerMwh: 45, shape: 'evening', tier: 'peak' }
+      ]},
     // Wind expires end of 2028 — last month of scope
     { projectName: 'Garrett Ridge Wind',      generationType: 'Wind',           mwCovered: 12, pricePerMwh: 31, shape: 'wind',    tier: 'peak', pattern: getPatternForGenerationType('Wind'),
-      startYear: 2026, startMonth: 1,  endYear: 2028, endMonth: 12 },
+      startYear: 2026, startMonth: 1,  endYear: 2028, endMonth: 12,
+      components: [
+        { type: 'energy', mwCovered: 12, pricePerMwh: 31, shape: 'wind', tier: 'peak' }
+      ]},
     // CCGT — comes online Apr 2027 (mid-quarter)
     { projectName: 'Marcus Hook CCGT II',     generationType: 'Combined Cycle', mwCovered: 10, pricePerMwh: 42, shape: 'flat',    tier: 'base', pattern: getPatternForGenerationType('Combined Cycle'),
-      startYear: 2027, startMonth: 4,  endYear: 2034, endMonth: 3  },
+      startYear: 2027, startMonth: 4,  endYear: 2034, endMonth: 3,
+      components: [
+        { type: 'energy', mwCovered: 10, pricePerMwh: 42, shape: 'flat', tier: 'base' }
+      ]},
+    // NEW: Bundled contract example - BESS with both capacity and energy components
+    // NOTE: Sterling BESS Bundle is only a try-on, not a signed contract
+    // { projectName: 'Sterling BESS Bundle',    generationType: 'Battery',        mwCovered: 75, pricePerMwh: 55, shape: 'flat',    tier: 'base', pattern: getPatternForGenerationType('Battery'),
+    //   startYear: 2026, startMonth: 1,  endYear: 2035, endMonth: 12,
+    //   lda: 'DOM', // Sterling is in Dominion LDA
+    //   components: [
+    //     { type: 'capacity', mwCovered: 75, pricePerMwYear: 150000, lda: 'DOM' }, // $150,000 per MW-year for capacity
+    //     { type: 'energy',   mwCovered: 75, pricePerMwh: 55, shape: 'flat', tier: 'base' }, // $55/MWh for energy
+    //     { type: 'rec',      mwCovered: 75, pricePerMwh: 15 } // $15/MWh for RECs
+    //   ]},
   ],
 };
 
@@ -463,6 +672,21 @@ const MONTH_FACTOR: Record<ContractShape, number[]> = {
 
 /** MW delivered by a contract at a given hour-of-day and month. */
 export function contractMwAtHour(c: LinkedContract, hour: number, month: number): number {
+  // BESS special handling - configurable charge/discharge
+  if (c.generationType === 'Battery') {
+    const dischargeHours = c.bessDischargeHours || [15, 16, 17, 18];
+    const chargeHours = c.bessChargeHours || [0, 1, 2, 3, 4, 5, 24];
+    const efficiency = (c.bessEfficiency || 85) / 100;
+    
+    if (dischargeHours.includes(hour)) {
+      return c.mwCovered; // Full discharge capacity during discharge hours
+    }
+    if (chargeHours.includes(hour)) {
+      // Charge requires more input due to efficiency loss
+      return -c.mwCovered / efficiency; 
+    }
+    return 0; // Idle during other hours
+  }
   const h = SHAPE_HOUR[c.shape][hour] ?? 0;
   const m = MONTH_FACTOR[c.shape][month - 1] ?? 1;
   return Math.max(0, Math.min(c.mwCovered, c.mwCovered * h * m));
