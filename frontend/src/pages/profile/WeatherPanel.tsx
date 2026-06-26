@@ -39,6 +39,12 @@ type ChartPoint = {
 
 type WeatherPanelProps = {
   facilityLocation: string;
+  // Coordinates derived from the Country/State/City dropdowns. When present
+  // these drive the forecast (so changing the city/state refetches weather);
+  // the geocoded facilityLocation address is only used when no City/State/
+  // Country has been selected.
+  cascadeLat?: number | null;
+  cascadeLng?: number | null;
   facilityStatus: string;
   itLoadMw: number | null;        // IT_LOAD (Running facility, MW)
   pItStartMw: number | null;      // P_IT_START (Greenfield, MW)
@@ -112,6 +118,8 @@ function computeYear0PIT(props: {
 
 export default function WeatherPanel({
   facilityLocation,
+  cascadeLat,
+  cascadeLng,
   facilityStatus,
   itLoadMw,
   pItStartMw,
@@ -119,7 +127,15 @@ export default function WeatherPanel({
   etaUpsPct,
   etaPduPct,
 }: WeatherPanelProps) {
-  const point = useMemo(() => ewkbToPoint(facilityLocation), [facilityLocation]);
+  // The Country/State/City selection drives the forecast: whenever the city or
+  // state changes, cascadeLat/cascadeLng change and the effect below refetches.
+  // The geocoded address is only used when no dropdown selection exists.
+  const point = useMemo(() => {
+    if (cascadeLat != null && cascadeLng != null) {
+      return { lat: cascadeLat, lng: cascadeLng };
+    }
+    return ewkbToPoint(facilityLocation);
+  }, [facilityLocation, cascadeLat, cascadeLng]);
   const [unit, setUnit] = useState<Unit>('celsius');
   const [metric, setMetric] = useState<Metric>('temp');
   const [data, setData] = useState<ForecastResponse | null>(null);
@@ -279,7 +295,7 @@ export default function WeatherPanel({
 
       {!point && (
         <div className="text-sm text-slate-500 py-8 text-center">
-          Set a facility location above to see the local temperature forecast.
+          Set a facility address — or pick a country, state &amp; city — above to see the local temperature forecast.
         </div>
       )}
 

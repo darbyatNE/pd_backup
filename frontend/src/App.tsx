@@ -26,7 +26,7 @@ function App() {
           <Route
             path="/dashboard"
             element={
-              <ProtectedRoute fullWidth>
+              <ProtectedRoute fullWidth requireOnboarding>
                 <Dashboard />
               </ProtectedRoute>
             }
@@ -70,7 +70,7 @@ function App() {
           <Route
             path="/planning"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute requireOnboarding>
                 <Planning />
               </ProtectedRoute>
             }

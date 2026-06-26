@@ -31,6 +31,7 @@ interface Props {
   onChange: (ewkb: string) => void;
   className?: string;
   placeholder?: string;
+  defaultText?: string; // shown when value (EWKB) is empty — e.g. "City, State, Country"
 }
 
 export default function LocationAutocomplete({
@@ -38,6 +39,7 @@ export default function LocationAutocomplete({
   onChange,
   className,
   placeholder = 'Type an address…',
+  defaultText,
 }: Props) {
   const [displayText, setDisplayText] = useState('');
   const [suggestions, setSuggestions] = useState<NominatimResult[]>([]);
@@ -48,6 +50,11 @@ export default function LocationAutocomplete({
   // a user's freshly-typed input when the parent re-renders with the same value.
   const lastResolvedRef = useRef<string>('');
 
+  // When defaultText changes and there are no coordinates, show the text label.
+  useEffect(() => {
+    if (!value) setDisplayText(defaultText ?? '');
+  }, [defaultText, value]);
+
   // When the EWKB value changes externally (initial load, facility tab switch),
   // decode it and reverse-geocode for a human-readable address. While Nominatim
   // is in flight (or if it fails), fall back to showing the raw coordinates so
@@ -56,7 +63,7 @@ export default function LocationAutocomplete({
     if (value === lastResolvedRef.current) return;
     lastResolvedRef.current = value;
     if (!value) {
-      setDisplayText('');
+      setDisplayText(defaultText ?? '');
       return;
     }
     const point = ewkbToPoint(value);

@@ -1,8 +1,14 @@
 // Power Dime TypeScript Types
-import type { Session } from '@supabase/supabase-js';
 
 // Re-export PPA/VPPA types
 export * from './ppa';
+
+export interface AppSession {
+  access_token: string;         // Cognito IdToken — sent as Bearer on every request
+  cognito_access_token: string; // Cognito AccessToken — needed only for logout
+  refresh_token?: string;
+  expires_in?: number;
+}
 
 export type UserRole = 'buyer' | 'seller' | 'admin';
 
@@ -108,11 +114,11 @@ export interface Document {
 
 export interface AuthContextType {
   user: User | null;
-  session: Session | null;
+  session: AppSession | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string; title?: string }) => Promise<any>;
+  signUp: (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string; title?: string; company_name?: string }) => Promise<{ userId: string }>;
 }
 
 // Technical Documents

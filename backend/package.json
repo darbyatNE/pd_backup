@@ -9,16 +9,19 @@
     "start": "node src/server.js"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.933.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.933.0",
     "@aws-sdk/client-s3": "^3.927.0",
     "@aws-sdk/client-ses": "^3.1042.0",
     "@aws-sdk/s3-request-presigner": "^3.927.0",
-    "@supabase/supabase-js": "^2.74.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0",
     "multer": "^2.0.2",
-    "multer-s3": "^3.0.1"
+    "multer-s3": "^3.0.1",
+    "pg": "^8.13.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

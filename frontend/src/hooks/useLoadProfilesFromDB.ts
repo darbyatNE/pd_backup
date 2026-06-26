@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../services/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import type { SiteLoadProfile, LoadShapePoint } from '../data/loadProfile';
 import { 
   HOUR_SHAPE_DC, HOUR_SHAPE_IND, HOUR_SHAPE_HP,
@@ -37,6 +37,7 @@ interface DataCenterRow {
  * This replaces the hardcoded LOAD_PROFILES with real database data
  */
 export function useLoadProfilesFromDB() {
+  const { user } = useAuth();
   const [profiles, setProfiles] = useState<SiteLoadProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,9 +47,6 @@ export function useLoadProfilesFromDB() {
     setError(null);
 
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      
       if (!user) {
         setError('No authenticated user');
         setLoading(false);

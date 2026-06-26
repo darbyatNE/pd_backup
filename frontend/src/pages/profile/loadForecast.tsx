@@ -443,7 +443,7 @@ function UncontractedPowerChart({
 
 type FacilityEntry = { id: string; name: string; data: FacilityData };
 
-export default function LoadForcast({ initialFacilityId, onFacilityChange }: { initialFacilityId?: string | null; onFacilityChange?: (facilityId: string) => void } = {}) {
+export default function LoadForcast({ initialFacilityId, facilityId, onFacilityChange }: { initialFacilityId?: string | null; facilityId?: string | null; onFacilityChange?: (facilityId: string) => void } = {}) {
   const [xAxisMode, setXAxisMode] = useState<XAxisMode>('months');
   const [horizon, setHorizon] = useState<Horizon>(3);
   const [scenario, setScenario] = useState<Scenario>('BASE');
@@ -472,48 +472,59 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
   // active tab to "randomly" snap to a previous selection.
   const appliedFocusRef = useRef<string | null>(null);
 
-  // Fetch facilities once per signed-in user. Decoupled from initialFacilityId
-  // on purpose: changing the focus prop must not retrigger the network call,
-  // because the prop changes every time the user clicks a tab.
+  // Re-fetch DCs whenever the outer facility selection changes.
+  // Selects the first DC immediately inside the same .then() so facilityData
+  // is never null after loading completes (avoids the "no profile found" flash).
+  // If no DCs are linked to the facility yet, falls back to all buyer DCs.
   useEffect(() => {
     if (!user?.id) { setLoading(false); return; }
-    fetchAllFacilities(user.id).then((list) => {
-      setFacilities(list);
-      setLoading(false);
-    });
-  }, [user?.id]);
+    setLoading(true);
+    appliedFocusRef.current = null;
+    fetchAllFacilities(user.id, facilityId)
+      .then((list) => (list.length > 0 || !facilityId) ? list : fetchAllFacilities(user.id))
+      .then((list) => {
+        setFacilities(list);
+        const first = list[0] ?? null;
+        setActiveFacilityId(first?.id ?? null);
+        setFacilityData(first?.data ?? null);
+        if (first) appliedFocusRef.current = first.id;
+        setLoading(false);
+      });
+  }, [user?.id, facilityId]);
 
-  // Apply the focus prop (or fall back to list[0]) once facilities are loaded,
-  // and again when the parent genuinely changes the prop — e.g. user saved a
-  // different facility in the Facility Profile tab. The ref guard prevents the
-  // round-trip onFacilityChange → parent state → prop echo from re-firing.
-  useEffect(() => {
-    if (facilities.length === 0) return;
-    if (appliedFocusRef.current !== null && initialFacilityId === appliedFocusRef.current) return;
-    const focus = (initialFacilityId && facilities.find(f => f.id === initialFacilityId)) || facilities[0];
-    appliedFocusRef.current = focus.id;
-    setActiveFacilityId(focus.id);
-    setFacilityData(focus.data);
-    if (focus.id !== initialFacilityId) onFacilityChange?.(focus.id);
-  }, [facilities, initialFacilityId]);
-
-  // User-initiated tab switch. Updating appliedFocusRef *before* the parent
-  // callback ensures the prop-driven effect short-circuits when the parent
-  // echoes the new id back.
-  const selectFacility = (fac: FacilityEntry) => {
-    appliedFocusRef.current = fac.id;
-    setActiveFacilityId(fac.id);
-    setFacilityData(fac.data);
-    onFacilityChange?.(fac.id);
-  };
 
   // Single source of truth for forecast: any change to facilityData (initial
   // load, facility switch, or a profile edit propagated back into this state)
   // re-runs the multi-year calc. Without this, edits to fields like P_FAC
   // didn't impact the displayed forecast until the user switched facilities.
   useEffect(() => {
-    if (facilityData) setForecast(calculateMultiYearForecast(facilityData));
+    if (!facilityData) return;
+    const result = calculateMultiYearForecast(facilityData);
+    setForecast(result); console.log(result, "forecast result");
+
+    // Persist to datacenters_forecast (fire-and-forget, non-blocking)
+    if (!activeFacilityId || !user?.id) return;
+    const API_URL = import.meta.env.VITE_API_URL || '/api';
+    fetch(`${API_URL}/datacenters-forecast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        datacenter_id: activeFacilityId,
+        buyer_id: user.id,
+        p_it_proj: result.P_IT_PROJ,
+        pue_proj: result.PUE_PROJ,
+        p_gross_proj: result.P_GROSS_PROJ,
+        p_net_avg_month: result.P_NET_AVG_MONTH,
+        e_annual_proj: result.E_ANNUAL_PROJ,
+        p_net_peak_proj: result.P_NET_PEAK_PROJ,
+        uncont_exp_proj: result.UNCONT_EXP_PROJ,
+        ccr_annual_proj: result.CCR_ANNUAL_PROJ,
+        alerts: result.ALERTS,
+      }),
+    }).catch(() => { });
   }, [facilityData]);
+
+  console.log(facilityData, 'facilityData')
 
   // Open-Meteo ERA5 archive: most recent completed calendar year of hourly
   // temperatures at the facility coordinates. When the archive is unavailable
@@ -524,6 +535,45 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
   );
   const archiveYear = new Date().getUTCFullYear() - 1;
   const { data: tempAmbHourly } = useHourlyArchive(facilityPoint, archiveYear);
+
+  // Persist hourly forecast for all 10 years × 3 scenarios once the ERA5 archive
+  // has loaded. Skipped when tempAmbHourly is null (avoids storing T=0 fallback data).
+  // Debounced 600 ms: when dependencies change rapidly (facilityData → forecast →
+  // tempAmbHourly all settling on first load), only the final stable state is sent.
+  useEffect(() => {
+    if (!forecast || !facilityData || !activeFacilityId || !user?.id || !tempAmbHourly) return;
+
+    const timer = setTimeout(() => {
+      const API_URL = import.meta.env.VITE_API_URL || '/api';
+      const SCENARIOS = ['BASE', 'HIGH', 'LOW'] as const;
+
+      const hourlyPayload: Record<string, { p_it: number[][], ppue: number[][], p_gross: number[][], p_net: number[][] }> = {};
+      for (const scenario of SCENARIOS) {
+        hourlyPayload[scenario] = { p_it: [], ppue: [], p_gross: [], p_net: [] };
+        for (let y = 0; y < 10; y++) {
+          const h = calculateHourlyForecast({
+            pItMonthly: forecast.P_IT_PROJ[scenario][y],
+            pFac: facilityData.P_FAC,
+            pGen: 0,
+            tempAmbHourly: tempAmbHourly,
+          });
+          // Round to 4 dp to keep the JSON payload compact
+          hourlyPayload[scenario].p_it.push(Array.from(h.pIt, v => Math.round(v * 1e4) / 1e4));
+          hourlyPayload[scenario].ppue.push(Array.from(h.ppue, v => Math.round(v * 1e4) / 1e4));
+          hourlyPayload[scenario].p_gross.push(Array.from(h.pGross, v => Math.round(v * 1e4) / 1e4));
+          hourlyPayload[scenario].p_net.push(Array.from(h.pNet, v => Math.round(v * 1e4) / 1e4));
+        }
+      }
+
+      fetch(`${API_URL}/datacenters-forecast/${activeFacilityId}/hourly`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hourly: hourlyPayload }),
+      }).catch(() => {});
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [forecast, facilityData, tempAmbHourly, activeFacilityId, user?.id]);
 
   // Hourly P_NET for year 0 of the BASE scenario. Cooling varies hour-by-hour
   // with ambient temperature via the pPUE polynomial; P_IT is flat at the
@@ -609,35 +659,34 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
   return (
     <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
-      {/* ── Facility Tab Bar ── */}
-      {facilities.length > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: 16 }}>
-          <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'Inter, sans-serif', marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-            Facility
+      {/* ── DC selector ── */}
+      {facilities.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', fontFamily: 'Inter, sans-serif', whiteSpace: 'nowrap' }}>
+            Data Center
           </span>
-          {facilities.map((fac) => (
-            <button
-              key={fac.id}
-              id={`forecast-facility-tab-${fac.id}`}
-              type="button"
-              onClick={() => selectFacility(fac)}
-              style={{
-                padding: '5px 16px',
-                borderRadius: '9999px',
-                border: activeFacilityId === fac.id ? '1.5px solid #0d9488' : '1.5px solid #e2e8f0',
-                background: activeFacilityId === fac.id ? '#f0fdfa' : '#ffffff',
-                color: activeFacilityId === fac.id ? '#0d9488' : '#64748b',
-                fontSize: 13,
-                fontWeight: activeFacilityId === fac.id ? 600 : 400,
-                fontFamily: 'Inter, sans-serif',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                boxShadow: activeFacilityId === fac.id ? '0 1px 6px rgba(13,148,136,0.12)' : 'none',
-              }}
-            >
-              {fac.name || 'Unnamed'}
-            </button>
-          ))}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {facilities.map(f => (
+              <button
+                key={f.id}
+                onClick={() => { setActiveFacilityId(f.id); setFacilityData(f.data); }}
+                style={{
+                  padding: '4px 14px',
+                  borderRadius: 9999,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontFamily: 'Inter, sans-serif',
+                  fontWeight: 500,
+                  background: activeFacilityId === f.id ? '#0f766e' : '#f1f5f9',
+                  color: activeFacilityId === f.id ? '#ffffff' : '#475569',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {f.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -911,3 +960,4 @@ export default function LoadForcast({ initialFacilityId, onFacilityChange }: { i
     </div>
   );
 }
+

@@ -1,5 +1,4 @@
 // Phase 1 through 4 logic implementation for load forecasting
-import { supabase } from '../../services/supabase';
 
 export type Scenario = 'BASE' | 'HIGH' | 'LOW';
 
@@ -347,7 +346,11 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
         // adds P_FAC back as a flat additive term — this keeps the aux load constant across forecast
         // years instead of scaling with IT growth (which happens when P_FAC is baked into PUE_CALC).
         // P_GROSS at year 0 still equals pit_val × cooling_pue + P_FAC, so year-0 numbers are unchanged.
-        const hasMonthlyTemps = !!(data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12);
+        const hasMonthlyTemps = !!(
+            data.TEMP_AMB_monthly &&
+            data.TEMP_AMB_monthly.length === 12 &&
+            (data.TEMP_AMB_monthly as unknown[]).every(t => Number.isFinite(t as number))
+        );
         if (hasMonthlyTemps && pit_val > 0) {
             P_GROSS = data.TEMP_AMB_monthly!.map(T => pit_val * calcPPUE(T) + p_other); // pPUE(T) drives cooling; constant aux added on top
             PUE_CALC = data.TEMP_AMB_monthly!.map(T => calcPPUE(T)); // Pure pPUE(T) — aux excluded so Phase 2 can re-add it flat
@@ -368,7 +371,11 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 
         // Same aux-load discipline as the Running branch: PUE_CALC excludes P_FAC; Phase 2 adds it
         // back as a flat additive term so it doesn't scale with IT growth across forecast years.
-        const hasMonthlyTemps = !!(data.TEMP_AMB_monthly && data.TEMP_AMB_monthly.length === 12);
+        const hasMonthlyTemps = !!(
+            data.TEMP_AMB_monthly &&
+            data.TEMP_AMB_monthly.length === 12 &&
+            (data.TEMP_AMB_monthly as unknown[]).every(t => Number.isFinite(t as number))
+        );
         if (hasMonthlyTemps && pit_start > 0) {
             P_GROSS = data.TEMP_AMB_monthly!.map(T => pit_start * calcPPUE(T) + p_other);
             PUE_CALC = data.TEMP_AMB_monthly!.map(T => calcPPUE(T));
@@ -451,8 +458,9 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 results.P_IT_PROJ[s][y][m] = p_it_proj_m;
                 // Step 6: Forecast PUE
                 // Formula: PUE[m] = SUM(P_FACILITY[h] * delta_t) / SUM(P_IT[h] * delta_t)
-                const pue_eff_improve = y > 0 ? (data.PUE_y?.[y - 1] || 0) : 0; // PUE efficiency improvement rate for the current year (from scenario/inputs)
-                base_pue_proj[y][m] = 1 + (PUE_CALC[m] - 1) * (1 - pue_eff_improve); // Cooling-only PUE adjusted for year-y efficiency improvement
+                const pue_eff_improve = y > 0 ? (data.PUE_y?.[y - 1] || 0) : 0;
+                const pue_calc_m = Number.isFinite(PUE_CALC[m]) ? PUE_CALC[m] : 1.0;
+                base_pue_proj[y][m] = 1 + (pue_calc_m - 1) * (1 - pue_eff_improve);
 
                 // Apply cooling PUE to IT, then add the flat aux load P_FAC separately so it stays
                 // constant across forecast years instead of scaling with IT growth. Effective PUE
@@ -469,8 +477,8 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
                 const p_gen_avg = (y > 0 ? data.RE_GEN_y?.[y - 1] : 0) || 0; // Planned on-site renewable generation for year y (MW)
                 const p_bess_dis = 0; // BESS average discharge power (MW) — placeholder
                 const p_bess_ch = (y > 0 ? data.BATT_ADD_y?.[y - 1] : 0) || 0; // BESS charging proxied by planned battery additions for year y (MW)
-                const p_net_avg = Math.max(0, p_gross_proj_m - p_gen_avg - p_bess_dis + p_bess_ch); // Net grid import (in MW) after offsetting gross demand with onsite generation and BESS
-                console.log(p_net_avg, s, y, m, 'p_net_avg', 's', 'y', 'm')
+                const p_net_avg_raw = p_gross_proj_m - p_gen_avg - p_bess_dis + p_bess_ch;
+                const p_net_avg = Number.isFinite(p_net_avg_raw) ? Math.max(0, p_net_avg_raw) : 0;
                 results.P_NET_AVG_MONTH[s][y][m] = p_net_avg;
 
                 p_net_avg_sum += p_net_avg;
@@ -544,25 +552,41 @@ export function calculateMultiYearForecast(data: FacilityData): ForecastResult {
 }
 
 export async function fetchAllFacilities(
-    buyerId: string
+    buyerId: string,
+    facilityId?: string | null,
 ): Promise<{ id: string; name: string; data: FacilityData }[]> {
-    // Supabase returns either an array of rows or an error; never both meaningfully populated.
-    const { data, error } = await supabase
-        .from('data_centers')
-        .select('*')
-        .eq('buyer_id', buyerId);
+    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+    let url = `${API_URL}/datacenters?buyer_id=${buyerId}`;
+    if (facilityId) url += `&facility_id=${facilityId}`;
+
+    let data: any[] | null = null;
+    let error = null;
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch from backend');
+        const json = await response.json();
+        data = json.data;
+    } catch (err) {
+        error = err;
+    }
 
     if (error || !data) {
         console.error('Failed to fetch facilities:', error);
         return [];
     }
 
-    const parseNumArray = (str?: string) => { // Parse a comma-separated DB string into number[]; blank cells become undefined so downstream `[i] || 0` works
+    const parseNumArray = (str?: string | number[] | null) => {
         if (!str) return [];
-        return str.split(',').map(s => {
-            const trimmed = s.trim(); // Token with surrounding whitespace stripped
-            return trimmed === '' ? undefined : Number(trimmed);
-        }) as number[];
+        // Already a number array (e.g. returned as a PostgreSQL array by pg)
+        if (Array.isArray(str)) return (str as unknown[]).map(v => (v == null ? NaN : Number(v)));
+        const s = String(str).trim();
+        // Strip surrounding brackets in case the value was serialised as JSON array ("[ ]")
+        const clean = s.startsWith('[') && s.endsWith(']') ? s.slice(1, -1) : s;
+        return clean.split(',').map(tok => {
+            const trimmed = tok.trim();
+            return trimmed === '' ? NaN : Number(trimmed);
+        });
     };
 
     return data.map((row: any) => ({
@@ -570,6 +594,20 @@ export async function fetchAllFacilities(
         name: row.FAC_ID || `Facility ${row.id}`,
         data: {
             ...row,
+            P_IT_START: Number(row.P_IT_START) || 0,
+            LF_ASSUMED: Number(row.LF_ASSUMED) || 0,
+            PUE_EXPECTED: Number(row.PUE_EXPECTED) || 0,
+            IT_LOAD: Number(row.IT_LOAD) || 0,
+            IT_CAP: Number(row.IT_CAP) || 0,
+            PUE: Number(row.PUE) || 0,
+            ETA_UPS: Number(row.ETA_UPS) || 0,
+            ETA_PDU: Number(row.ETA_PDU) || 0,
+            P_COOL: Number(row.P_COOL) || 0,
+            P_FAC: Number(row.P_FAC) || 0,
+            BATT_CAP: Number(row.BATT_CAP) || 0,
+            g_IT: Number(row.g_IT) || 0,
+            C_MAX: Number(row.C_MAX) || 0,
+            COV_MIN: Number(row.COV_MIN) || 0,
             DELTA_CAP_y: parseNumArray(row.DELTA_CAP_y),
             UTIL_RAMP: parseUtilRamp(row.UTIL_RAMP, row.UTIL_y),
             PUE_y: parseNumArray(row.PUE_y),

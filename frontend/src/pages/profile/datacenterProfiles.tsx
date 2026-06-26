@@ -39,6 +39,15 @@ type FacilityFormData = {
   HIST_MW: File | null;
   TEMP_AMB_monthly: string; // CSV of 12 monthly avg ambient temps (°C). Optional; when all 12 are filled, the forecast computes per-month pPUE from the polynomial.
 
+  // Section BESS — Battery Energy Storage System
+  BESS_FILL_RATE_MAX: string;   // MW
+  BESS_DRAW_RATE_MAX: string;   // MW
+  BESS_RT_LOSS_PCT: string;     // % round-trip loss
+  BESS_CAPACITY_MW: string;     // MW
+  BESS_MAX_STORAGE_MWH: string; // MWh
+  BESS_YEARS_REMAINING: string; // years
+  BTM: boolean;                 // auto: true if any BESS field is filled
+
   // Section C — Capacity Expansion Plans
   DELTA_CAP_y: string;
   UTIL_RAMP: string;
@@ -110,6 +119,14 @@ const INITIAL_FORM: FacilityFormData = {
   HIST_MW: null,
   TEMP_AMB_monthly: '',
 
+  BESS_FILL_RATE_MAX: '',
+  BESS_DRAW_RATE_MAX: '',
+  BESS_RT_LOSS_PCT: '',
+  BESS_CAPACITY_MW: '',
+  BESS_MAX_STORAGE_MWH: '',
+  BESS_YEARS_REMAINING: '',
+  BTM: false,
+
   DELTA_CAP_y: '',
   UTIL_RAMP: '',
   PUE_y: '',
@@ -141,12 +158,11 @@ const INITIAL_FORM: FacilityFormData = {
 };
 
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../services/supabase';
 import UtilRampCurveEditor, { YEARS as UTIL_RAMP_YEARS, YEAR_COLORS as UTIL_RAMP_YEAR_COLORS } from './UtilRampCurveEditor';
 import YearlyMetricCurveEditor from './YearlyMetricCurveEditor';
 import LocationAutocomplete from './LocationAutocomplete';
 import WeatherPanel from './WeatherPanel';
-import { toEwkbHex, ewkbToPoint } from './ewkb';
+import { toEwkbHex, ewkbToPoint, pointToEWKB } from './ewkb';
 import { useHourlyArchive } from '../../hooks/useHourlyArchive';
 import {
   fitQuadratic,
@@ -175,6 +191,12 @@ const FIELD_RULES: Partial<Record<keyof FacilityFormData, FieldRule>> = {
   P_COOL: { min: 0, max: 1000, msg: 'Cooling: 0 – 1,000 MW' },
   P_FAC: { min: 0, max: 500, msg: 'Facilities power: 0 – 500 MW' },
   BATT_CAP: { min: 0, max: 10000, msg: 'Battery: 0 – 10,000 MWh' },
+  BESS_FILL_RATE_MAX: { min: 0, max: 5000, msg: 'Fill rate: 0 – 5,000 MW' },
+  BESS_DRAW_RATE_MAX: { min: 0, max: 5000, msg: 'Draw rate: 0 – 5,000 MW' },
+  BESS_RT_LOSS_PCT: { min: 0, max: 100, msg: 'R/T loss: 0 – 100 %' },
+  BESS_CAPACITY_MW: { min: 0, max: 5000, msg: 'Capacity: 0 – 5,000 MW' },
+  BESS_MAX_STORAGE_MWH: { min: 0, max: 100000, msg: 'Max storage: 0 – 100,000 MWh' },
+  BESS_YEARS_REMAINING: { min: 0, max: 50, msg: 'Years remaining: 0 – 50' },
   P_IT_START: { min: 0.01, max: 1000, msg: 'IT load at commissioning: 0.01 – 1,000 MW' },
   LF_ASSUMED: { min: 1, max: 100, msg: 'Load factor: 1 – 100 %' },
   PUE_EXPECTED: { min: 1.0, max: 4.0, msg: 'Expected PUE: 1.0 – 4.0' },
@@ -262,6 +284,13 @@ function dbRowToForm(row: any): FacilityFormData {
     BATT_CAP: toStr(row.BATT_CAP),
     HIST_MW: null,
     TEMP_AMB_monthly: toStr(row.TEMP_AMB_monthly),
+    BESS_FILL_RATE_MAX: toStr(row.BESS_FILL_RATE_MAX),
+    BESS_DRAW_RATE_MAX: toStr(row.BESS_DRAW_RATE_MAX),
+    BESS_RT_LOSS_PCT: toStr(row.BESS_RT_LOSS_PCT),
+    BESS_CAPACITY_MW: toStr(row.BESS_CAPACITY_MW),
+    BESS_MAX_STORAGE_MWH: toStr(row.BESS_MAX_STORAGE_MWH),
+    BESS_YEARS_REMAINING: toStr(row.BESS_YEARS_REMAINING),
+    BTM: row.BTM === true || row.BTM === 'true',
     DELTA_CAP_y: toStr(row.DELTA_CAP_y),
     UTIL_RAMP: expandLegacyUtilRamp(toStr(row.UTIL_RAMP), toStr(row.UTIL_y)),
     PUE_y: toStr(row.PUE_y),
@@ -290,7 +319,7 @@ function dbRowToForm(row: any): FacilityFormData {
   };
 }
 
-export default function FacilityProfile({ onSaved, initialFacilityId }: { onSaved?: (facilityId: string) => void; initialFacilityId?: string | null } = {}) {
+export default function FacilityProfile({ onSaved, initialFacilityId, facilityId }: { onSaved?: (facilityId: string) => void; initialFacilityId?: string | null; facilityId?: string | null } = {}) {
   const { user } = useAuth();
   const [form, setFormRaw] = useState<FacilityFormData>(INITIAL_FORM);
   const [submitted, setSubmitted] = useState(false);
@@ -299,6 +328,10 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
   const [facilities, setFacilities] = useState<{ id: string; name: string; row: any }[]>([]);
   const [activeFacilityId, setActiveFacilityId] = useState<string | null>(null);
   const [loadingFacilities, setLoadingFacilities] = useState(true);
+  // Selected outer facility record — drives Section A pre-fill
+  const [facilityRecord, setFacilityRecord] = useState<any>(null);
+  // Resolved lat/lng for the outer facility (PostGIS or forward-geocoded text location)
+  const [facilityCoords, setFacilityCoords] = useState<{ lat: number; lng: number } | null>(null);
   // UTIL_RAMP chart legend/control state (lifted out of the chart so the legend
   // can sit between the DELTA_CAP_y and UTIL_RAMP charts).
   const [utilRampVisible, setUtilRampVisible] = useState<boolean[]>(() => Array(UTIL_RAMP_YEARS).fill(true));
@@ -311,38 +344,124 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
 
   useEffect(() => {
     if (!user?.id) { setLoadingFacilities(false); return; }
-    supabase
-      .from('data_centers')
-      .select('*')
-      .eq('buyer_id', user.id)
+    setLoadingFacilities(true);
+    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+    let url = `${API_URL}/datacenters?buyer_id=${user.id}`;
+    if (facilityId) url += `&facility_id=${facilityId}`;
+    fetch(url)
+      .then(r => r.ok ? r.json() : { data: [] })
       .then(({ data }) => {
         if (data && data.length > 0) {
           const list = data.map((row: any) => ({
             id: row.id,
-            name: row.FAC_ID || `Facility ${row.id}`,
+            name: row.FAC_ID || `Data Center ${row.id}`,
             row,
           }));
           setFacilities(list);
           const focus =
-            (initialFacilityId && list.find((f) => String(f.id) === String(initialFacilityId))) ||
+            (initialFacilityId && list.find((f: any) => String(f.id) === String(initialFacilityId))) ||
             list[0];
           setActiveFacilityId(focus.id);
           setFormRaw(dbRowToForm(focus.row));
+        } else {
+          setFacilities([]);
+          setActiveFacilityId(null);
+          setFormRaw(INITIAL_FORM);
         }
         setLoadingFacilities(false);
-      });
-  }, [user?.id, initialFacilityId]);
+      })
+      .catch(() => setLoadingFacilities(false));
+  }, [user?.id, initialFacilityId, facilityId]);
+
+  // Fetch the outer facility's record and resolve coordinates whenever facilityId changes.
+  // Coordinates are resolved regardless of which DC tab is active so WeatherPanel
+  // always has a location to work with even when the DC itself has no saved coords.
+  useEffect(() => {
+    if (!facilityId) { setFacilityRecord(null); setFacilityCoords(null); return; }
+    const API_URL = (import.meta as any).env?.VITE_API_URL || '/api';
+    fetch(`${API_URL}/facilities/${facilityId}`)
+      .then(r => r.ok ? r.json() : { data: null })
+      .then(({ data }) => {
+        setFacilityRecord(data ?? null);
+        if (!data) { setFacilityCoords(null); return; }
+        // Prefer the stored PostGIS point
+        const ewkb = toEwkbHex(data.facility_location);
+        if (ewkb) { setFacilityCoords(ewkbToPoint(ewkb)); return; }
+        // Fall back to forward-geocoding the text address
+        const query = [data.city, data.state, data.country].filter(Boolean).join(', ');
+        if (!query) { setFacilityCoords(null); return; }
+        fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+          { headers: { 'Accept-Language': 'en' } },
+        )
+          .then(r => r.ok ? r.json() : [])
+          .then((results: { lat: string; lon: string }[]) => {
+            if (results.length > 0) {
+              setFacilityCoords({ lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) });
+            } else {
+              setFacilityCoords(null);
+            }
+          })
+          .catch(() => setFacilityCoords(null));
+      })
+      .catch(() => { setFacilityRecord(null); setFacilityCoords(null); });
+  }, [facilityId]);
+
+  // When the outer facility changes while in "new DC" mode, update Section A.
+  // facilityCoords is already resolved by the fetch effect above.
+  // NOTE: loadingFacilities is in the dependency array intentionally — the data_centers
+  // fetch calls setFormRaw(INITIAL_FORM) when it finds no DCs, which would wipe any
+  // pre-fill we applied. By waiting for loadingFacilities=false before running, we
+  // guarantee this effect always fires AFTER the data_centers fetch settles.
+  useEffect(() => {
+    if (loadingFacilities) return;                    // wait for DC fetch to finish
+    if (!facilityRecord || activeFacilityId !== null) return;
+    const locationEwkb = toEwkbHex(facilityRecord.facility_location)
+      || (facilityCoords ? pointToEWKB(facilityCoords.lng, facilityCoords.lat) : '');
+    setFormRaw(prev => ({
+      ...prev,
+      FAC_ID: facilityRecord.name ?? prev.FAC_ID,
+      facility_location: locationEwkb || prev.facility_location,
+      ISO: facilityRecord.iso_rto ?? prev.ISO,
+      UTIL: facilityRecord.utility ?? prev.UTIL,
+      V_CONN: facilityRecord.grid_voltage_kv != null ? String(facilityRecord.grid_voltage_kv) : prev.V_CONN,
+      POD_ID: facilityRecord.settlement_node_id ?? prev.POD_ID,
+      C_MAX: facilityRecord.contracted_capacity_mw != null ? String(facilityRecord.contracted_capacity_mw) : prev.C_MAX,
+      IC_EXP: facilityRecord.interconnection_expiry ?? prev.IC_EXP,
+    }));
+  }, [facilityRecord, activeFacilityId, facilityCoords, loadingFacilities]);
+
 
   const selectFacility = (id: string | null) => {
     setActiveFacilityId(id);
     setErrors({});
     if (id === null) {
-      setFormRaw(INITIAL_FORM);
+      // New DC: pre-fill Section A from the outer facility
+      const prefill = facilityRecord ? {
+        FAC_ID: facilityRecord.name ?? '',
+        facility_location: toEwkbHex(facilityRecord.facility_location)
+          || (facilityCoords ? pointToEWKB(facilityCoords.lng, facilityCoords.lat) : ''),
+        ISO: facilityRecord.iso_rto ?? '',
+        UTIL: facilityRecord.utility ?? '',
+        V_CONN: facilityRecord.grid_voltage_kv != null ? String(facilityRecord.grid_voltage_kv) : '',
+        POD_ID: facilityRecord.settlement_node_id ?? '',
+        C_MAX: facilityRecord.contracted_capacity_mw != null ? String(facilityRecord.contracted_capacity_mw) : '',
+        IC_EXP: facilityRecord.interconnection_expiry ?? '',
+      } : {};
+      setFormRaw({ ...INITIAL_FORM, ...prefill });
     } else {
       const fac = facilities.find((f) => f.id === id);
       if (fac) setFormRaw(dbRowToForm(fac.row));
     }
   };
+
+  // DC's own EWKB takes priority; fall back to the outer facility's geocoded coords.
+  // Used by WeatherPanel and MonthlyTempPanel so they always have a location.
+  const effectiveFacilityLocation = useMemo(
+    () => form.facility_location
+      || (facilityCoords ? pointToEWKB(facilityCoords.lng, facilityCoords.lat) : ''),
+    [form.facility_location, facilityCoords],
+  );
 
   // Auto-calculate PUE based on (p_total_facility / p_it)
   useEffect(() => {
@@ -379,6 +498,22 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
       }
     }
   }, [form.IT_LOAD, form.P_COOL, form.P_FAC, form.FACILITY_STATUS, form.MEASUREMENT_POINT, form.ETA_UPS, form.ETA_PDU]);
+
+  // BTM is true whenever any BESS field has a non-empty value
+  useEffect(() => {
+    const hasBess = [
+      form.BESS_FILL_RATE_MAX,
+      form.BESS_DRAW_RATE_MAX,
+      form.BESS_RT_LOSS_PCT,
+      form.BESS_CAPACITY_MW,
+      form.BESS_MAX_STORAGE_MWH,
+      form.BESS_YEARS_REMAINING,
+    ].some(v => v !== '');
+    if (form.BTM !== hasBess) {
+      setFormRaw(prev => ({ ...prev, BTM: hasBess }));
+    }
+  }, [form.BESS_FILL_RATE_MAX, form.BESS_DRAW_RATE_MAX, form.BESS_RT_LOSS_PCT,
+      form.BESS_CAPACITY_MW, form.BESS_MAX_STORAGE_MWH, form.BESS_YEARS_REMAINING]);
 
   // Validate a single numeric field against FIELD_RULES
   const validateField = <K extends keyof FacilityFormData>(key: K, value: FacilityFormData[K]) => {
@@ -443,7 +578,7 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
       return;
     }
     try {
-      const payload: any = { ...form, buyer_id: user?.id };
+      const payload: any = { ...form, buyer_id: user?.id, ...(facilityId ? { facility_id: facilityId } : {}) };
       // HIST_MW is uploaded separately to S3 after the profile is saved (the
       // backend's /:id/hist-mw route writes the S3 key into the DB). Other
       // file-typed fields are still stubbed to a filename until they get
@@ -488,7 +623,7 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
           prev.map((f) => f.id === activeFacilityId ? { ...f, name: updatedName, row: { ...f.row, ...payload } } : f)
         );
       } else {
-        const newId = saved?.id || saved?.data?.[0]?.id || String(Date.now());
+        const newId = saved?.id || saved?.data?.id || saved?.data?.[0]?.id || String(Date.now());
         savedId = newId;
         const newEntry = { id: newId, name: updatedName, row: { ...payload, id: newId } };
         setFacilities((prev) => [...prev, newEntry]);
@@ -500,8 +635,7 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
       // don't need to re-PUT the profile here.
       if (histMwFile) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
+          const token = localStorage.getItem('pd_access_token');
           const formData = new FormData();
           formData.append('file', histMwFile);
           const uploadRes = await fetch(`${API_URL}/datacenters/${savedId}/hist-mw`, {
@@ -575,37 +709,48 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
 
   return (
     <form onSubmit={handleSubmit}>
-      {/* ── Facility Tab Bar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
-        {facilities.map((fac) => (
-          <button
-            key={fac.id}
-            type="button"
-            id={`facility-tab-${fac.id}`}
-            onClick={() => selectFacility(fac.id)}
-            style={{
-              padding: '6px 18px',
-              borderRadius: '9999px',
-              border: activeFacilityId === fac.id ? '1.5px solid #0d9488' : '1.5px solid #e2e8f0',
-              background: activeFacilityId === fac.id ? '#f0fdfa' : '#ffffff',
-              color: activeFacilityId === fac.id ? '#0d9488' : '#64748b',
-              fontSize: 13,
-              fontWeight: activeFacilityId === fac.id ? 600 : 400,
-              fontFamily: 'Inter, sans-serif',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-              boxShadow: activeFacilityId === fac.id ? '0 1px 6px rgba(13,148,136,0.12)' : 'none',
-            }}
-          >
-            {fac.name || 'Unnamed Facility'}
-          </button>
-        ))}
+      {/* ── Datacenter selector bar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, gap: 12, flexWrap: 'wrap' }}>
+        {/* Left: associated datacenter pills */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap', fontFamily: 'Inter, sans-serif' }}>
+            Data Centers
+          </span>
+          {facilities.length === 0 ? (
+            <span style={{ fontSize: 12, color: '#cbd5e1', fontFamily: 'Inter, sans-serif', fontStyle: 'italic' }}>None yet</span>
+          ) : (
+            facilities.map((fac) => (
+              <button
+                key={fac.id}
+                type="button"
+                id={`facility-tab-${fac.id}`}
+                onClick={() => selectFacility(fac.id)}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '9999px',
+                  border: activeFacilityId === fac.id ? '1.5px solid #0d9488' : '1.5px solid #e2e8f0',
+                  background: activeFacilityId === fac.id ? '#f0fdfa' : '#ffffff',
+                  color: activeFacilityId === fac.id ? '#0d9488' : '#64748b',
+                  fontSize: 13,
+                  fontWeight: activeFacilityId === fac.id ? 600 : 400,
+                  fontFamily: 'Inter, sans-serif',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  boxShadow: activeFacilityId === fac.id ? '0 1px 6px rgba(13,148,136,0.12)' : 'none',
+                }}
+              >
+                {fac.name || 'Unnamed Data Center'}
+              </button>
+            ))
+          )}
+        </div>
+        {/* Right: add button */}
         <button
           type="button"
           id="facility-tab-new"
           onClick={() => selectFacility(null)}
           style={{
-            padding: '6px 18px',
+            padding: '6px 16px',
             borderRadius: '9999px',
             border: activeFacilityId === null ? '1.5px solid #6366f1' : '1.5px dashed #cbd5e1',
             background: activeFacilityId === null ? '#eef2ff' : '#ffffff',
@@ -615,9 +760,11 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
             fontFamily: 'Inter, sans-serif',
             cursor: 'pointer',
             transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
           }}
         >
-          + New Facility
+          + New Data Center
         </button>
       </div>
       {/* Gateway Section */}
@@ -665,6 +812,7 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
               onChange={(ewkb) => setField('facility_location', ewkb)}
               className={inputCls}
               placeholder="Type a facility address…"
+              defaultText={facilityRecord ? [facilityRecord.city, facilityRecord.state, facilityRecord.country].filter(Boolean).join(', ') : undefined}
             />
           </Field>
           <Field label="ISO / RTO region" symbol="ISO">
@@ -734,7 +882,7 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
 
       {/* Weather forecast at facility coordinates */}
       <WeatherPanel
-        facilityLocation={form.facility_location}
+        facilityLocation={effectiveFacilityLocation}
         facilityStatus={form.FACILITY_STATUS}
         itLoadMw={form.IT_LOAD === '' ? null : Number(form.IT_LOAD)}
         pItStartMw={form.P_IT_START === '' ? null : Number(form.P_IT_START)}
@@ -743,10 +891,10 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
         etaPduPct={form.ETA_PDU === '' ? null : Number(form.ETA_PDU)}
       />
 
-      {/* Section B */}
+      {/* Section B + C (combined) */}
       <section className={sectionCls}>
         <h2 className="text-xl font-bold text-slate-900 mb-1">
-          Section B — Current IT Load and Power Infrastructure
+          Current IT Load and Capacity Expansion Plans
         </h2>
         <p className="text-xs text-slate-400 mb-5">Operator-entered</p>
 
@@ -913,7 +1061,7 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
             tooltip="Auto-fetched from the Open-Meteo ERA5 archive at the facility's location, averaged hour-by-hour into 12 monthly means. The forecast feeds these into the pPUE polynomial. Set the facility location above to populate."
           >
             <MonthlyTempPanel
-              facilityLocation={form.facility_location}
+              facilityLocation={effectiveFacilityLocation}
               value={form.TEMP_AMB_monthly}
               onChange={(s) => setField('TEMP_AMB_monthly', s)}
             />
@@ -931,14 +1079,9 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
             </Field>
           </div>
         </div>
-      </section>
 
-      {/* Section C */}
-      <section className={sectionCls}>
-        <div className="flex items-start justify-between mb-1">
-          <h2 className="text-xl font-bold text-slate-900">
-            Section C — Capacity Expansion Plans
-          </h2>
+        <div className="mt-6 pt-5 border-t border-slate-200 flex items-start justify-between mb-1">
+          <h3 className="text-base font-semibold text-slate-700">Capacity Expansion Plans</h3>
           <div className="inline-flex bg-slate-100 rounded-full p-[3px] gap-[2px]">
             {(['graph', 'manual', 'csv'] as const).map((m) => (
               <button
@@ -1167,6 +1310,98 @@ export default function FacilityProfile({ onSaved, initialFacilityId }: { onSave
               <option>Base</option>
               <option>Low</option>
             </select>
+          </Field>
+        </div>
+      </section>
+
+      {/* Section BESS — Battery Energy Storage System */}
+      <section className={sectionCls}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-xl font-bold text-slate-900">
+            Battery Energy Storage System
+          </h2>
+          {form.BTM && (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '3px 10px',
+                borderRadius: 9999,
+                background: '#f0fdfa',
+                color: '#0d9488',
+                border: '1px solid #99f6e4',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                fontFamily: 'Inter, sans-serif',
+              }}
+            >
+              BTM
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-slate-400 mb-5">
+          Behind-the-meter storage. BTM is automatically set to <strong>True</strong> when any field below is filled.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Fill rate max (MW)" symbol="BESS_FILL_RATE_MAX" error={errors.BESS_FILL_RATE_MAX}>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="e.g. 10.0"
+              value={form.BESS_FILL_RATE_MAX}
+              onChange={(e) => setField('BESS_FILL_RATE_MAX', e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Draw rate max (MW)" symbol="BESS_DRAW_RATE_MAX" error={errors.BESS_DRAW_RATE_MAX}>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="e.g. 10.0"
+              value={form.BESS_DRAW_RATE_MAX}
+              onChange={(e) => setField('BESS_DRAW_RATE_MAX', e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Round-trip loss (%)" symbol="BESS_RT_LOSS_PCT" error={errors.BESS_RT_LOSS_PCT}>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="e.g. 8.0"
+              value={form.BESS_RT_LOSS_PCT}
+              onChange={(e) => setField('BESS_RT_LOSS_PCT', e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Capacity (MW)" symbol="BESS_CAPACITY_MW" error={errors.BESS_CAPACITY_MW}>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="e.g. 20.0"
+              value={form.BESS_CAPACITY_MW}
+              onChange={(e) => setField('BESS_CAPACITY_MW', e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Max storage (MWh)" symbol="BESS_MAX_STORAGE_MWH" error={errors.BESS_MAX_STORAGE_MWH}>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="e.g. 80.0"
+              value={form.BESS_MAX_STORAGE_MWH}
+              onChange={(e) => setField('BESS_MAX_STORAGE_MWH', e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Years remaining" symbol="BESS_YEARS_REMAINING" error={errors.BESS_YEARS_REMAINING}>
+            <input
+              type="number"
+              step="1"
+              placeholder="e.g. 15"
+              value={form.BESS_YEARS_REMAINING}
+              onChange={(e) => setField('BESS_YEARS_REMAINING', e.target.value)}
+              className={inputCls}
+            />
           </Field>
         </div>
       </section>

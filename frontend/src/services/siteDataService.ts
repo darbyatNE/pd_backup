@@ -110,15 +110,13 @@ export async function fetchDataCenterSites(buyerId: string): Promise<DataCenterS
  * Automatically fetches the current authenticated user's buyer_id
  */
 export async function fetchMyDataCenterSites(): Promise<DataCenterSite[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
-    throw new Error('No authenticated user');
-  }
+  const token = localStorage.getItem('pd_access_token');
+  if (!token) throw new Error('No authenticated user');
 
-  // Get buyer_id from user metadata or separate query
-  const buyerId = user.id; // Assuming buyer_id matches auth user id
-  
+  const [, payloadB64] = token.split('.');
+  const payload = JSON.parse(atob(payloadB64));
+  const buyerId: string = payload.sub;
+
   return fetchDataCenterSites(buyerId);
 }
 
