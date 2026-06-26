@@ -10,7 +10,7 @@
   "scripts": {
     "db:tunnel": "bash infra/db-tunnel.sh",
     "predev": "bash infra/db-tunnel.sh up",
-    "dev": "npm run dev --workspaces --if-present",
+    "dev": "concurrently -k -n backend,frontend -c blue,green \"npm:backend\" \"npm:frontend\"",
     "build": "npm run build --workspaces --if-present",
     "frontend": "npm run dev --workspace=frontend",
     "backend": "npm run dev --workspace=backend"
@@ -19,5 +19,8 @@
     "renewable-energy",
     "marketplace",
     "ppa"
-  ]
+  ],
+  "devDependencies": {
+    "concurrently": "^10.0.3"
+  }
 }
