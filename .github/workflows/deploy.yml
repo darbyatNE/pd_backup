@@ -42,22 +42,22 @@ jobs:
           docker push "$IMAGE"
           docker push "$LATEST"
 
-      - name: Roll ECS service
+      # Enforce the RDS wiring on every deploy: ensure the RDS security group
+      # allows the backend SG, register a task-def revision that carries the DB
+      # secrets block (referencing Secrets Manager) with the freshly-pushed
+      # image pinned, then roll the service. The DB password is NOT handled here
+      # — it lives once in Secrets Manager (created via the one-time setup:
+      # `./infra/wire-rds-to-ecs.sh --setup --apply`). See infra/wire-rds-to-ecs.sh.
+      - name: Wire RDS + roll ECS service
         env:
-          CLUSTER: ${{ vars.ECS_CLUSTER }}
-          SERVICE: ${{ vars.ECS_BACKEND_SERVICE }}
-          REGION: ${{ vars.AWS_REGION }}
-        run: |
-          aws ecs update-service \
-            --cluster "$CLUSTER" \
-            --service "$SERVICE" \
-            --force-new-deployment \
-            --region "$REGION" \
-            --no-cli-pager
-          aws ecs wait services-stable \
-            --cluster "$CLUSTER" \
-            --services "$SERVICE" \
-            --region "$REGION"
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_BACKEND_SERVICE: ${{ vars.ECS_BACKEND_SERVICE }}
+          IMAGE: ${{ vars.ECR_BACKEND_REPO }}:${{ github.sha }}
+          SKIP_SECRET: "1"   # secret value managed once in Secrets Manager
+          SKIP_IAM: "1"      # execution-role policy granted once during setup
+          SKIP_SG: "1"       # RDS ingress rule set once during setup (no drift)
+        run: ./infra/wire-rds-to-ecs.sh --apply
 
   frontend:
     name: Frontend — build and deploy
