@@ -12,6 +12,12 @@ const s3Client = new S3Client({
 
 const bucketName = process.env.AWS_S3_BUCKET_NAME;
 
+if (!bucketName) {
+  console.warn(
+    '[s3] AWS_S3_BUCKET_NAME is not set — file uploads are disabled (upload routes will return 503).'
+  );
+}
+
 /**
  * Generate S3 key for file storage
  * @param {string} userId - User ID
@@ -46,6 +52,24 @@ export const generateS3Key = (userId, folder, filename, userRole = null, categor
  */
 export const createS3Upload = (folder, maxSizeMB = 25, options = {}) => {
   const { useNewStructure = false, allowedFileTypes = [] } = options;
+
+  // If no bucket is configured, return a stub that mirrors the multer
+  // interface but responds 503 at request time. This lets the server boot
+  // (and unrelated routes work) instead of throwing at module load.
+  if (!bucketName) {
+    const disabled = (_req, res) =>
+      res.status(503).json({
+        error: 'File uploads are disabled: AWS_S3_BUCKET_NAME is not configured.',
+      });
+    const makeMiddleware = () => disabled;
+    return {
+      single: makeMiddleware,
+      array: makeMiddleware,
+      fields: makeMiddleware,
+      any: makeMiddleware,
+      none: makeMiddleware,
+    };
+  }
 
   const upload = multer({
     storage: multerS3({

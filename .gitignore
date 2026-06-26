@@ -75,14 +75,10 @@ infrastructure/**/*.tfstate.backup
 *.pem
 credentials.json
 
-# GeoJSON files (large / sourced locally)
-PJM_subs.geojson
-frontend/public/PJM_zones.geojson
-frontend/public/PJM_subs_priced.geojson
-frontend/public/PJM_subs_backup.geojson
-frontend/public/CAISO_zones.geojson
-frontend/public/ERCOT_zones.geojson
-frontend/public/MISO_zones.geojson
+# GeoJSON: all .geojson files committed (use Git LFS if repo size becomes an issue)
+
+# Windows/WSL alternate-data-stream artifacts
+*:Zone.Identifier
 
 # Misc
 .cache/

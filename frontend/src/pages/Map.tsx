@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
-import { supabase } from '../services/supabase';
+import { API_BASE_URL } from '../services/api';
 import { getZoneCoords } from '../utils/pjmZones';
 import TryOnOverlay from '../components/TryOnOverlay';
 import { useScopeContext } from '../contexts/ScopeContext';
@@ -22,8 +22,27 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
 };
 
-// Initial view: W edge of COMED → E edge of JCPL, N edge of COMED → S edge of DOM
-const PORTFOLIO_BOUNDS: maplibregl.LngLatBoundsLike = [[-91.5, 36.25], [-73.9, 42.25]];
+// Additional ISO zone overlays beyond PJM (toggleable from legend).
+// Each ISO's geojson is fetched from /public on map load; layers start hidden
+// unless the user previously enabled them (persisted in localStorage).
+type IsoZoneKey = 'MISO' | 'ERCOT';
+const ISO_ZONE_OVERLAYS: Record<IsoZoneKey, { file: string; color: string }> = {
+  MISO:  { file: '/MISO_zones.geojson',  color: '#6d28d9' }, // violet
+  ERCOT: { file: '/ERCOT_zones.geojson', color: '#be123c' }, // crimson
+};
+
+// Centroid + bbox per ISO (precomputed from the geojsons). PJM is always shown;
+// MISO and ERCOT toggle into the view. The camera centers on the arithmetic
+// mean of the visible centroids and zooms to fit the union of bboxes.
+type IsoKey = 'PJM' | IsoZoneKey;
+const ISO_META: Record<IsoKey, {
+  centroid: [number, number];
+  bbox: [[number, number], [number, number]];
+}> = {
+  PJM:   { centroid: [-82.10, 39.05], bbox: [[-90.30, 35.59], [-73.89, 42.51]] },
+  MISO:  { centroid: [-94.89, 39.16], bbox: [[-107.36, 28.93], [-82.42, 49.38]] },
+  ERCOT: { centroid: [-99.55, 30.95], bbox: [[-104.98, 25.84], [-94.13, 36.06]] },
+};
 
 const PJM_ZONE_LABELS: { label: string; coords: [number, number] }[] = [
   { label: 'COMED',   coords: [-88.67,  41.95] },
@@ -194,6 +213,23 @@ export default function MapPage() {
   const [legendMode, setLegendMode] = useState<'gen' | 'lmp'>('gen');
   const [showGenMarkers, setShowGenMarkers] = useState(true);
   const [showLmpDots, setShowLmpDots] = useState(false);
+  // Which ISO zone overlays are visible. All three (PJM/MISO/ERCOT) are
+  // independently toggleable; default on first load is PJM only.
+  const [visibleIsoZones, setVisibleIsoZones] = useState<Set<IsoKey>>(() => {
+    const saved = localStorage.getItem('map-visibleIsoZones');
+    if (saved) {
+      try {
+        const arr = JSON.parse(saved) as IsoKey[];
+        return new Set(arr.length > 0 ? arr : (['PJM'] as IsoKey[]));
+      } catch {
+        return new Set(['PJM'] as IsoKey[]);
+      }
+    }
+    return new Set(['PJM'] as IsoKey[]);
+  });
+  // Set to true once the map's style + initial sources are loaded so the
+  // camera-positioning effect can safely call fly/jump.
+  const [mapReady, setMapReady] = useState(false);
   
   // BTM (Behind The Meter) Assets state - custom build options for load sites
   const [selectedBTMOption, setSelectedBTMOption] = useState<{siteId: string; assetType: BTMAssetType} | null>(null);
@@ -236,22 +272,25 @@ export default function MapPage() {
       setLmpPrices(lmpCacheRef.current.get(key)!);
       return;
     }
-    supabase
-      .schema('planning')
-      .from('lmp_forecast')
-      .select('pnode_id,total_lmp')
-      .eq('month', lmpMonth)
-      .eq('year', lmpYear)
-      .then(({ data, error: fetchErr }) => {
-        if (fetchErr || !data) return;
+    // LMP forecast prices are sourced from the ISO data Postgres database via
+    // the backend API, not from Supabase.
+    fetch(`${API_BASE_URL}/map/lmp?year=${lmpYear}&month=${lmpMonth}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`LMP fetch failed (${res.status})`))))
+      .then(({ prices }: { prices: { pnode_id: number; total_lmp: number }[] }) => {
         let m: LmpMap;
-        if (data.length > 0) {
+        if (prices && prices.length > 0) {
           m = new Map();
-          (data as { pnode_id: number; total_lmp: number }[]).forEach((r) => m.set(r.pnode_id, r.total_lmp));
+          prices.forEach((r) => m.set(r.pnode_id, r.total_lmp));
         } else {
           // No DB data — synthesise from simulated zone averages
           m = buildSimulatedLmpMap(lmpYear, lmpMonth, pnodesByZoneRef.current);
         }
+        lmpCacheRef.current.set(key, m);
+        setLmpPrices(m);
+      })
+      .catch(() => {
+        // On error, fall back to simulated prices so the map still renders.
+        const m = buildSimulatedLmpMap(lmpYear, lmpMonth, pnodesByZoneRef.current);
         lmpCacheRef.current.set(key, m);
         setLmpPrices(m);
       });
@@ -306,18 +345,85 @@ export default function MapPage() {
     localStorage.setItem('map-visibleGenTypes', JSON.stringify(Array.from(visibleGenTypes)));
   }, [visibleGenTypes]);
 
+  // Persist + apply visibility for all three ISO zone overlays.
+  useEffect(() => {
+    localStorage.setItem('map-visibleIsoZones', JSON.stringify(Array.from(visibleIsoZones)));
+    if (!map.current) return;
+    (['PJM', 'MISO', 'ERCOT'] as IsoKey[]).forEach((iso) => {
+      const visible = visibleIsoZones.has(iso) ? 'visible' : 'none';
+      const prefix = iso.toLowerCase();
+      (['fill', 'line', 'border'] as const).forEach((suffix) => {
+        const id = `${prefix}-${suffix}`;
+        if (map.current!.getLayer(id)) {
+          map.current!.setLayoutProperty(id, 'visibility', visible);
+        }
+      });
+    });
+    // PJM zone-name label markers (COMED, AEP, ...) hide with the PJM overlay.
+    const pjmVisible = visibleIsoZones.has('PJM');
+    pjmLabelMarkers.current.forEach((m) => {
+      m.getElement().style.display = pjmVisible ? '' : 'none';
+    });
+  }, [visibleIsoZones]);
+
+  // Toggle a single ISO on/off. Guards against zero selected — the user must
+  // always have at least one ISO visible (avoids an empty-map dead state).
+  const toggleIsoZone = (iso: IsoKey) => {
+    setVisibleIsoZones((prev) => {
+      const next = new Set(prev);
+      if (next.has(iso)) {
+        if (next.size <= 1) return prev; // can't turn off the last one
+        next.delete(iso);
+      } else {
+        next.add(iso);
+      }
+      return next;
+    });
+  };
+
+  // Camera positioning — fires on map-ready and on every ISO toggle.
+  // Uses fitBounds on the union of selected ISO bboxes so the view's
+  // geometric center matches what's actually on screen (no arithmetic-mean
+  // skew from one ISO sitting far south of the others).
+  const hasFlownRef = useRef(false);
+  useEffect(() => {
+    if (!mapReady || !map.current) return;
+    const visible = Array.from(visibleIsoZones);
+    if (visible.length === 0) return; // guard: nothing to focus on
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const iso of visible) {
+      const m = ISO_META[iso];
+      if (m.bbox[0][0] < minX) minX = m.bbox[0][0];
+      if (m.bbox[0][1] < minY) minY = m.bbox[0][1];
+      if (m.bbox[1][0] > maxX) maxX = m.bbox[1][0];
+      if (m.bbox[1][1] > maxY) maxY = m.bbox[1][1];
+    }
+    const bounds: maplibregl.LngLatBoundsLike = [[minX, minY], [maxX, maxY]];
+    const opts: maplibregl.FitBoundsOptions = {
+      padding: 50,
+      duration: hasFlownRef.current ? 800 : 0,
+    };
+    map.current.fitBounds(bounds, opts);
+    hasFlownRef.current = true;
+  }, [mapReady, visibleIsoZones]);
+
   const fetchProjects = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [{ data: genData, error: genErr }, { data: siteData, error: siteErr }] =
-        await Promise.all([
-          supabase.from('projects').select('*').in('status', ['published', 'active']).order('created_at', { ascending: false }),
-          supabase.from('buyer_projects').select('id,name,location,project_type,target_capacity_mw,settlement_zone').order('created_at', { ascending: false }),
-        ]);
+      // Projects/load sites are sourced from the ISO data Postgres database via
+      // the backend API (the browser cannot connect to Postgres directly), not
+      // from Supabase.
+      const [genRes, siteRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/map/projects`),
+        fetch(`${API_BASE_URL}/map/buyer-projects`),
+      ]);
 
-      if (genErr) throw genErr;
-      if (siteErr) throw siteErr;
+      if (!genRes.ok) throw new Error(`Failed to load projects (${genRes.status})`);
+      if (!siteRes.ok) throw new Error(`Failed to load load sites (${siteRes.status})`);
+
+      const { projects: genData } = (await genRes.json()) as { projects: Project[] };
+      const { buyerSites: siteData } = (await siteRes.json()) as { buyerSites: Omit<BuyerSite, 'coords'>[] };
 
       setProjects((genData ?? []).map((p: Project) => ({ ...p, coords: getZoneCoords(p.location ?? '') })));
       setBuyerSites((siteData ?? []).map((s: Omit<BuyerSite, 'coords'>) => ({ ...s, coords: getZoneCoords(s.location ?? '') })));
@@ -416,12 +522,14 @@ export default function MapPage() {
           const geojson = await res.json();
 
           map.current!.addSource('pjm-zones', { type: 'geojson', data: geojson });
+          const pjmInitial = visibleIsoZones.has('PJM') ? 'visible' : 'none';
 
           // Subtle fill for entire PJM region to make it stand out
           map.current!.addLayer({
             id: 'pjm-fill',
             type: 'fill',
             source: 'pjm-zones',
+            layout: { visibility: pjmInitial },
             paint: { 'fill-color': '#0f766e', 'fill-opacity': 0.05 },
           });
 
@@ -430,6 +538,7 @@ export default function MapPage() {
             id: 'pjm-line',
             type: 'line',
             source: 'pjm-zones',
+            layout: { visibility: pjmInitial },
             paint: { 'line-color': '#0f766e', 'line-width': 1.2, 'line-opacity': 0.7 },
           });
 
@@ -438,6 +547,7 @@ export default function MapPage() {
             id: 'pjm-border',
             type: 'line',
             source: 'pjm-zones',
+            layout: { visibility: pjmInitial },
             paint: {
               'line-color': '#0f766e',
               'line-width': 2,
@@ -466,7 +576,8 @@ export default function MapPage() {
             paint: { 'line-color': '#b45309', 'line-width': 3, 'line-opacity': 0.95 },
           });
 
-          // Zone name labels
+          // Zone name labels — initial display matches the PJM toggle state.
+          const pjmLabelDisplay = visibleIsoZones.has('PJM') ? '' : 'none';
           PJM_ZONE_LABELS.forEach(({ label, coords }) => {
             const el = document.createElement('div');
             el.textContent = label;
@@ -483,6 +594,7 @@ export default function MapPage() {
               'letter-spacing:0.04em',
               'line-height:1',
             ].join(';');
+            el.style.display = pjmLabelDisplay;
             pjmLabelMarkers.current.push(
               new maplibregl.Marker({ element: el, anchor: 'center' })
                 .setLngLat(coords)
@@ -490,8 +602,8 @@ export default function MapPage() {
             );
           });
 
-          // Fit to PJM footprint on load
-          map.current!.fitBounds(PORTFOLIO_BOUNDS, { padding: 30, duration: 500 });
+          // Initial camera fit is handled by the camera-positioning effect
+          // (centers on the midpoint of visible ISO centroids, zooms to fit).
 
           // Pointer cursor when hovering a zone
           map.current!.on('mouseenter', 'pjm-fill', () => {
@@ -503,6 +615,45 @@ export default function MapPage() {
         }
       } catch {
         // non-critical — map renders without zone overlay
+      }
+
+      // ── Additional ISO zone overlays (MISO, ERCOT) — toggleable via legend ──
+      // Initial visibility derived from current visibleIsoZones state.
+      for (const iso of Object.keys(ISO_ZONE_OVERLAYS) as IsoZoneKey[]) {
+        const cfg = ISO_ZONE_OVERLAYS[iso];
+        const prefix = iso.toLowerCase();
+        const initial = visibleIsoZones.has(iso) ? 'visible' : 'none';
+        try {
+          const r = await fetch(cfg.file);
+          if (!r.ok) continue;
+          const gj = await r.json();
+          if (!map.current) return;
+          map.current.addSource(`${prefix}-zones`, { type: 'geojson', data: gj });
+
+          map.current.addLayer({
+            id: `${prefix}-fill`,
+            type: 'fill',
+            source: `${prefix}-zones`,
+            layout: { visibility: initial },
+            paint: { 'fill-color': cfg.color, 'fill-opacity': 0.04 },
+          });
+          map.current.addLayer({
+            id: `${prefix}-line`,
+            type: 'line',
+            source: `${prefix}-zones`,
+            layout: { visibility: initial },
+            paint: { 'line-color': cfg.color, 'line-width': 1.0, 'line-opacity': 0.6 },
+          });
+          map.current.addLayer({
+            id: `${prefix}-border`,
+            type: 'line',
+            source: `${prefix}-zones`,
+            layout: { visibility: initial },
+            paint: { 'line-color': cfg.color, 'line-width': 1.8, 'line-opacity': 0.85 },
+          });
+        } catch {
+          // non-critical — overlay simply won't appear
+        }
       }
 
       // ── PJM Priced Substations layer ────────────────────────────────────────
@@ -525,11 +676,15 @@ export default function MapPage() {
 
           map.current!.addSource('pjm-subs', { type: 'geojson', data: subsGeoJson });
 
-          // ── LMP colored circle markers — data-driven color by price
+          // ── LMP colored circle markers — data-driven color by price.
+          // Initial visibility honors BOTH the LMP toggle and the PJM scope
+          // toggle — substation dots stay hidden if PJM is off.
+          const pjmDotsInitial =
+            showLmpDotsRef.current && visibleIsoZones.has('PJM') ? 'visible' : 'none';
           map.current!.addLayer({
             id: 'pjm-subs-dots',
             type: 'circle',
-            layout: { visibility: showLmpDotsRef.current ? 'visible' : 'none' },
+            layout: { visibility: pjmDotsInitial },
             source: 'pjm-subs',
             paint: {
               'circle-radius': [
@@ -673,11 +828,13 @@ export default function MapPage() {
       });
 
       renderMarkers();
+      setMapReady(true);
     });
 
     return () => {
       pjmLabelMarkers.current.forEach((m) => m.remove());
       pjmLabelMarkers.current = [];
+      setMapReady(false);
       map.current?.remove();
       map.current = null;
     };
@@ -1304,11 +1461,19 @@ export default function MapPage() {
     });
   }, [showGenMarkers]);
 
-  // Toggle LMP substation dot visibility
+  // Toggle LMP substation dot visibility. LMP nodes for an ISO only show
+  // when (a) the LMP dots toggle is ON and (b) that ISO is in scope. Today
+  // only PJM has a substation layer; MISO/ERCOT will follow the same rule
+  // once their LMP node datasets land.
   useEffect(() => {
-    if (!map.current || !map.current.getLayer('pjm-subs-dots')) return;
-    map.current.setLayoutProperty('pjm-subs-dots', 'visibility', showLmpDots ? 'visible' : 'none');
-  }, [showLmpDots]);
+    if (!map.current) return;
+    const pjmDotsVisible = showLmpDots && visibleIsoZones.has('PJM');
+    if (map.current.getLayer('pjm-subs-dots')) {
+      map.current.setLayoutProperty(
+        'pjm-subs-dots', 'visibility', pjmDotsVisible ? 'visible' : 'none',
+      );
+    }
+  }, [showLmpDots, visibleIsoZones]);
 
   // Update dot appearance when period type changes
   // historical = amber dashed-style (thicker amber stroke)
@@ -1542,11 +1707,46 @@ export default function MapPage() {
         {/* Legend panel — toggles between Gen Types and LMP Price Scale */}
         <div className="absolute bottom-6 left-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg border border-slate-200 shadow-md text-xs" style={{ minWidth: 192 }}>
 
+          {/* ISO zone overlay toggles — all three are independently toggleable. */}
+          <div className="px-3 py-2 border-b border-slate-200">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">
+              ISO Zones
+            </div>
+            <div className="flex gap-1.5">
+              {(['PJM', 'MISO', 'ERCOT'] as IsoKey[]).map((iso) => {
+                const active = visibleIsoZones.has(iso);
+                const color = iso === 'PJM' ? '#0f766e' : ISO_ZONE_OVERLAYS[iso as IsoZoneKey].color;
+                const isLast = active && visibleIsoZones.size === 1;
+                return (
+                  <button
+                    key={iso}
+                    type="button"
+                    onClick={() => toggleIsoZone(iso)}
+                    disabled={isLast}
+                    title={isLast ? 'At least one ISO must remain visible' : undefined}
+                    className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border transition-colors ${
+                      active
+                        ? 'text-white border-transparent'
+                        : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600 hover:border-slate-300'
+                    } ${isLast ? 'cursor-not-allowed opacity-90' : ''}`}
+                    style={active ? { background: color } : undefined}
+                  >
+                    <span
+                      className="inline-block w-2 h-2 rounded-sm"
+                      style={{ background: active ? 'rgba(255,255,255,0.85)' : color }}
+                    />
+                    {iso}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Mode toggle header */}
           <div className="flex items-stretch border-b border-slate-200">
             <button
               onClick={() => setLegendMode('gen')}
-              className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wide rounded-tl-lg transition-colors ${
+              className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
                 legendMode === 'gen' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-50'
               }`}
             >
@@ -1554,7 +1754,7 @@ export default function MapPage() {
             </button>
             <button
               onClick={() => setLegendMode('lmp')}
-              className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wide rounded-tr-lg transition-colors ${
+              className={`flex-1 py-1.5 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
                 legendMode === 'lmp' ? 'bg-teal-700 text-white' : 'text-slate-500 hover:bg-slate-50'
               }`}
             >
