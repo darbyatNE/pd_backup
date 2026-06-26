@@ -8,6 +8,8 @@
     "backend"
   ],
   "scripts": {
+    "db:tunnel": "bash infra/db-tunnel.sh",
+    "predev": "bash infra/db-tunnel.sh up",
     "dev": "npm run dev --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "frontend": "npm run dev --workspace=frontend",
