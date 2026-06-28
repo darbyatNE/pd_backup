@@ -2,6 +2,14 @@
     "python.defaultInterpreterPath": "/home/darbvt/miniconda3/envs/lmp-env/bin/python3",
     "python.terminal.activateEnvironment": true,
     "python.terminal.activateEnvInCurrentTerminal": true,
+    "terminal.integrated.defaultProfile.linux": "bash (lmp-env)",
+    "terminal.integrated.profiles.linux": {
+        "bash (lmp-env)": {
+            "path": "bash",
+            "args": ["--rcfile", "${workspaceFolder}/.vscode/lmp-env.bashrc"],
+            "icon": "snake"
+        }
+    },
     "python-envs.pythonProjects": [
         {
             "path": ".",
