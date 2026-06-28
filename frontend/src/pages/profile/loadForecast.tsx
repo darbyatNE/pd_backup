@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   fetchAllFacilities,
   calculateMultiYearForecast,
-  calculateHourlyLoad,
-  currentLoadDemand,
+  calculateHourlyForecast,
+  calculateContractCoverage,
   type FacilityData,
   type ForecastResult,
   type Scenario,
 } from './loadCalculation';
+import { ewkbToPoint } from './ewkb';
+import { useHourlyArchive } from '../../hooks/useHourlyArchive';
 import {
   LOAD_PROFILES,
   LOAD_PROFILE_MAP,
@@ -30,6 +32,8 @@ import {
   LineChart,
   Line,
   Dot,
+  ComposedChart,
+  Area,
 } from 'recharts';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -39,6 +43,7 @@ const HOURS_PER_MONTH = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 
 
 type XAxisMode = 'hours' | 'months';
 type Horizon = 3 | 5 | 10;
+type ForecastViewMode = 'yearly' | 'monthly';
 
 // ─── Pill Toggle ──────────────────────────────────────────────────────────────
 
@@ -93,7 +98,15 @@ function PillToggle<T extends string | number>({
 
 // ─── Load Shape Bar Chart ────────────────────────────────────────────────────
 
-function LoadShapePlot({ profile, xAxisMode }: { profile: SiteLoadProfile; xAxisMode: XAxisMode }) {
+function LoadShapePlot({
+  profile,
+  xAxisMode,
+  peakOverlayMw,
+}: {
+  profile: SiteLoadProfile;
+  xAxisMode: XAxisMode;
+  peakOverlayMw?: number; // Annual P_NET_PEAK_PROJ[BASE][0] — when present, drawn as a horizontal reference line above the baseload+peak bars.
+}) {
   const data = xAxisMode === 'hours'
     ? profile.loadShape.filter(pt => pt.month === 1).map(pt => ({
       label: `${pt.hour + 1}h`,
@@ -133,6 +146,22 @@ function LoadShapePlot({ profile, xAxisMode }: { profile: SiteLoadProfile; xAxis
         <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
         <Bar dataKey="baseloadMw" stackId="load" fill={LOAD_COLORS.base} stroke={LOAD_COLORS.base} strokeWidth={0} name="Baseload" isAnimationActive={false} />
         <Bar dataKey="peakMw" stackId="load" fill={LOAD_COLORS.peak} stroke={LOAD_COLORS.peak} strokeWidth={0} name="Peak" isAnimationActive={false} />
+        {peakOverlayMw != null && peakOverlayMw > 0 && (
+          <ReferenceLine
+            y={peakOverlayMw}
+            stroke="#f59e0b"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            ifOverflow="extendDomain"
+            label={{
+              value: `P_NET_PEAK_PROJ ${peakOverlayMw.toFixed(1)} MW`,
+              position: 'insideTopRight',
+              fill: '#f59e0b',
+              fontSize: 10,
+              fontFamily: 'Inter',
+            }}
+          />
+        )}
       </BarChart>
     </ResponsiveContainer>
   );
@@ -199,14 +228,232 @@ function ForwardForecastChart({
   );
 }
 
+// ─── Monthly Forward Forecast Chart (single year) ─────────────────────────────
+
+function MonthlyForecastChart({
+  forecast,
+  scenario,
+  year,
+  lf,
+}: {
+  forecast: ForecastResult;
+  scenario: Scenario;
+  year: number;
+  lf: number;
+}) {
+  const monthlyAvg = forecast.P_NET_AVG_MONTH[scenario]?.[year] || Array(12).fill(0);
+  const colors = SCENARIO_COLORS[scenario];
+
+  const data = MONTH_LABELS.map((label, m) => {
+    const avg = parseFloat((monthlyAvg[m] || 0).toFixed(3));
+    const peak = parseFloat((avg / lf).toFixed(3));
+    return {
+      month: label,
+      'Avg Load (MW)': avg,
+      'Peak Load (MW)': peak,
+    };
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <LineChart data={data} margin={{ top: 8, right: 24, left: 8, bottom: 4 }}>
+        <CartesianGrid vertical={false} stroke="rgba(134,133,133,0.2)" />
+        <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }} axisLine={false} tickLine={false} width={40}
+          label={{ value: 'MW', angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }} />
+        <Tooltip
+          contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8, fontSize: 12, fontFamily: 'Inter', color: '#f8fafc' }}
+          labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
+          itemStyle={{ color: '#f8fafc' }}
+        />
+        <Legend wrapperStyle={{ fontSize: 11, fontFamily: 'Inter', color: '#94a3b8' }} />
+        <Line type="monotone" dataKey="Avg Load (MW)" stroke={colors.avg} strokeWidth={2}
+          dot={<Dot r={4} fill={colors.avg} stroke="#fff" strokeWidth={1.5} />}
+          activeDot={{ r: 6, fill: colors.avg }} isAnimationActive={false} />
+        <Line type="monotone" dataKey="Peak Load (MW)" stroke={colors.peak} strokeWidth={2} strokeDasharray="5 3"
+          dot={<Dot r={4} fill={colors.peak} stroke="#fff" strokeWidth={1.5} />}
+          activeDot={{ r: 6, fill: colors.peak }} isAnimationActive={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── PUE Forecast Chart (yearly or monthly) ───────────────────────────────────
+
+function PueForecastChart({
+  forecast,
+  scenario,
+  startYear,
+  viewMode,
+  year,
+}: {
+  forecast: ForecastResult;
+  scenario: Scenario;
+  startYear: number;
+  viewMode: ForecastViewMode;
+  year: number;
+}) {
+  const pueData = forecast.PUE_PROJ[scenario] || [];
+  const PUE_COLOR = '#8b5cf6';
+
+  const data = viewMode === 'yearly'
+    ? Array.from({ length: 11 }, (_, y) => {
+      const months = pueData[y] || Array(12).fill(0);
+      const avg = months.reduce((s: number, v: number) => s + v, 0) / 12;
+      return { label: `${startYear + y}`, PUE: parseFloat(avg.toFixed(3)) };
+    })
+    : MONTH_LABELS.map((label, m) => {
+      const months = pueData[year] || Array(12).fill(0);
+      return { label, PUE: parseFloat((months[m] || 0).toFixed(3)) };
+    });
+
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <LineChart data={data} margin={{ top: 8, right: 24, left: 8, bottom: 4 }}>
+        <CartesianGrid vertical={false} stroke="rgba(134,133,133,0.2)" />
+        <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }} axisLine={false} tickLine={false} />
+        <YAxis
+          tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
+          axisLine={false}
+          tickLine={false}
+          width={48}
+          domain={['auto', 'auto']}
+          label={{ value: 'PUE', angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }}
+        />
+        <Tooltip
+          contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8, fontSize: 12, fontFamily: 'Inter', color: '#f8fafc' }}
+          labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
+          itemStyle={{ color: '#f8fafc' }}
+        />
+        <Legend wrapperStyle={{ fontSize: 11, fontFamily: 'Inter', color: '#94a3b8' }} />
+        <Line
+          type="monotone"
+          dataKey="PUE"
+          stroke={PUE_COLOR}
+          strokeWidth={2}
+          dot={<Dot r={4} fill={PUE_COLOR} stroke="#fff" strokeWidth={1.5} />}
+          activeDot={{ r: 6, fill: PUE_COLOR }}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Uncontracted Power & Energy Chart (all forecast years) ───────────────────
+
+function UncontractedPowerChart({
+  forecast,
+  startYear,
+  scenario,
+  contractedMw,
+}: {
+  forecast: ForecastResult;
+  startYear: number;
+  scenario: Scenario;
+  contractedMw: number;
+}) {
+  const peakData = forecast.P_NET_PEAK_PROJ[scenario] || [];
+
+  const PEAK_COLOR = '#6366f1';
+  const UNCONT_COLOR = '#ef4444'; // Red fill above the contracted line — peak demand uncovered by contracts.
+
+  const data = Array.from({ length: 11 }, (_, y) => {
+    const peakMw = parseFloat((peakData[y] || 0).toFixed(3));
+    const uncontMw = parseFloat(Math.max(0, peakMw - contractedMw).toFixed(3)); // Excess above the contracted line; visually anchored at contractedMw via the transparent stacked spacer below.
+    return {
+      year: `${startYear + y}`,
+      __base: contractedMw, // Invisible spacer area so the red Uncontracted area stacks ON the contracted line instead of from y=0.
+      'Uncontracted (MW)': uncontMw,
+      'Peak Load (MW)': peakMw,
+    };
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <ComposedChart data={data} margin={{ top: 8, right: 24, left: 8, bottom: 4 }}>
+        <CartesianGrid vertical={false} stroke="rgba(134,133,133,0.2)" />
+        <XAxis
+          dataKey="year"
+          tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          tick={{ fill: '#94a3b8', fontSize: 11, fontFamily: 'Inter' }}
+          axisLine={false}
+          tickLine={false}
+          width={48}
+          label={{ value: 'MW', angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }}
+        />
+        <Tooltip
+          contentStyle={{ background: '#1e293b', border: 'none', borderRadius: 8, fontSize: 12, fontFamily: 'Inter', color: '#f8fafc' }}
+          labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
+          itemStyle={{ color: '#f8fafc' }}
+          formatter={(value: number | string | undefined, name: string) => (name === '__base' ? null : [value, name])}
+        />
+        <Legend
+          wrapperStyle={{ fontSize: 11, fontFamily: 'Inter', color: '#94a3b8' }}
+          formatter={(value: string) => (value === '__base' ? null : value)}
+        />
+        <ReferenceLine
+          y={contractedMw}
+          stroke="#10b981"
+          strokeWidth={2}
+          strokeDasharray="6 4"
+          label={{ value: `Contracted ${contractedMw.toFixed(1)} MW`, position: 'insideTopRight', fill: '#10b981', fontSize: 10, fontFamily: 'Inter' }}
+          ifOverflow="extendDomain"
+        />
+        {/* Green envelope fills 0 → contractedMw — the contracted capacity band. Red Uncontracted area stacks on top so its bottom edge sits on the green dashed line. */}
+        <Area
+          type="monotone"
+          dataKey="__base"
+          stackId="band"
+          stroke="transparent"
+          fill="#10b981"
+          fillOpacity={0.18}
+          isAnimationActive={false}
+          legendType="none"
+        />
+        <Area
+          type="monotone"
+          dataKey="Uncontracted (MW)"
+          stackId="band"
+          stroke={UNCONT_COLOR}
+          strokeWidth={1.5}
+          fill={UNCONT_COLOR}
+          fillOpacity={0.22}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="Peak Load (MW)"
+          stroke={PEAK_COLOR}
+          strokeWidth={2}
+          dot={<Dot r={4} fill={PEAK_COLOR} stroke="#fff" strokeWidth={1.5} />}
+          activeDot={{ r: 6, fill: PEAK_COLOR }}
+          isAnimationActive={false}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 type FacilityEntry = { id: string; name: string; data: FacilityData };
 
-export default function LoadForcast() {
+export default function LoadForcast({ initialFacilityId, facilityId, onFacilityChange }: { initialFacilityId?: string | null; facilityId?: string | null; onFacilityChange?: (facilityId: string) => void } = {}) {
   const [xAxisMode, setXAxisMode] = useState<XAxisMode>('months');
   const [horizon, setHorizon] = useState<Horizon>(3);
   const [scenario, setScenario] = useState<Scenario>('BASE');
+  const [forecastView, setForecastView] = useState<ForecastViewMode>('yearly');
+  const [monthlyYearOffset, setMonthlyYearOffset] = useState<number>(0);
+  const [pueView, setPueView] = useState<ForecastViewMode>('yearly');
+  const [pueYearOffset, setPueYearOffset] = useState<number>(0);
+  // Percentile of hourly P_NET that splits the load-shape stack: hours at or
+  // below this percentile become baseload; the excess becomes peak.
+  const [thresholdPct, setThresholdPct] = useState<number>(25);
 
   const { user } = useAuth();
   const [facilities, setFacilities] = useState<FacilityEntry[]>([]);
@@ -217,28 +464,156 @@ export default function LoadForcast() {
 
   const { selectedSites, startYear } = useScopeContext();
 
-  // Fetch all facilities once
+  // The last initialFacilityId we actually applied to local state. We compare
+  // the incoming prop against this (not the prior prop value) so that when the
+  // user clicks a tab and we echo that id back via onFacilityChange, the
+  // parent's re-render with the same id doesn't fire the focus-apply effect
+  // again. Without this guard, fast tab clicks racing the fetch caused the
+  // active tab to "randomly" snap to a previous selection.
+  const appliedFocusRef = useRef<string | null>(null);
+
+  // Re-fetch DCs whenever the outer facility selection changes.
+  // Selects the first DC immediately inside the same .then() so facilityData
+  // is never null after loading completes (avoids the "no profile found" flash).
+  // If no DCs are linked to the facility yet, falls back to all buyer DCs.
   useEffect(() => {
     if (!user?.id) { setLoading(false); return; }
-    fetchAllFacilities(user.id).then((list) => {
-      setFacilities(list);
-      if (list.length > 0) {
-        setActiveFacilityId(list[0].id);
-        setFacilityData(list[0].data);
-        console.log(list[0].data, 'list[0].data');
-        setForecast(calculateMultiYearForecast(list[0].data));
-      }
-      setLoading(false);
-    });
-  }, [user?.id]);
+    setLoading(true);
+    appliedFocusRef.current = null;
+    fetchAllFacilities(user.id, facilityId)
+      .then((list) => (list.length > 0 || !facilityId) ? list : fetchAllFacilities(user.id))
+      .then((list) => {
+        setFacilities(list);
+        const first = list[0] ?? null;
+        setActiveFacilityId(first?.id ?? null);
+        setFacilityData(first?.data ?? null);
+        if (first) appliedFocusRef.current = first.id;
+        setLoading(false);
+      });
+  }, [user?.id, facilityId]);
 
-  // Recompute forecast when active facility changes
-  const selectFacility = (fac: FacilityEntry) => {
-    setActiveFacilityId(fac.id);
-    setFacilityData(fac.data);
-    setForecast(calculateMultiYearForecast(fac.data));
-    console.log(calculateMultiYearForecast(fac.data), 'calculateMultiYearForecast(fac.data)');
-  };
+
+  // Single source of truth for forecast: any change to facilityData (initial
+  // load, facility switch, or a profile edit propagated back into this state)
+  // re-runs the multi-year calc. Without this, edits to fields like P_FAC
+  // didn't impact the displayed forecast until the user switched facilities.
+  useEffect(() => {
+    if (!facilityData) return;
+    const result = calculateMultiYearForecast(facilityData);
+    setForecast(result); console.log(result, "forecast result");
+
+    // Persist to datacenters_forecast (fire-and-forget, non-blocking)
+    if (!activeFacilityId || !user?.id) return;
+    const API_URL = import.meta.env.VITE_API_URL || '/api';
+    fetch(`${API_URL}/datacenters-forecast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        datacenter_id: activeFacilityId,
+        buyer_id: user.id,
+        p_it_proj: result.P_IT_PROJ,
+        pue_proj: result.PUE_PROJ,
+        p_gross_proj: result.P_GROSS_PROJ,
+        p_net_avg_month: result.P_NET_AVG_MONTH,
+        e_annual_proj: result.E_ANNUAL_PROJ,
+        p_net_peak_proj: result.P_NET_PEAK_PROJ,
+        uncont_exp_proj: result.UNCONT_EXP_PROJ,
+        ccr_annual_proj: result.CCR_ANNUAL_PROJ,
+        alerts: result.ALERTS,
+      }),
+    }).catch(() => { });
+  }, [facilityData]);
+
+  console.log(facilityData, 'facilityData')
+
+  // Open-Meteo ERA5 archive: most recent completed calendar year of hourly
+  // temperatures at the facility coordinates. When the archive is unavailable
+  // (no location, or fetch hasn't resolved) the hourly forecast uses T=0.
+  const facilityPoint = useMemo(
+    () => (facilityData?.facility_location ? ewkbToPoint(facilityData.facility_location) : null),
+    [facilityData?.facility_location],
+  );
+  const archiveYear = new Date().getUTCFullYear() - 1;
+  const { data: tempAmbHourly } = useHourlyArchive(facilityPoint, archiveYear);
+
+  // Persist hourly forecast for all 10 years × 3 scenarios once the ERA5 archive
+  // has loaded. Skipped when tempAmbHourly is null (avoids storing T=0 fallback data).
+  // Debounced 600 ms: when dependencies change rapidly (facilityData → forecast →
+  // tempAmbHourly all settling on first load), only the final stable state is sent.
+  useEffect(() => {
+    if (!forecast || !facilityData || !activeFacilityId || !user?.id || !tempAmbHourly) return;
+
+    const timer = setTimeout(() => {
+      const API_URL = import.meta.env.VITE_API_URL || '/api';
+      const SCENARIOS = ['BASE', 'HIGH', 'LOW'] as const;
+
+      const hourlyPayload: Record<string, { p_it: number[][], ppue: number[][], p_gross: number[][], p_net: number[][] }> = {};
+      for (const scenario of SCENARIOS) {
+        hourlyPayload[scenario] = { p_it: [], ppue: [], p_gross: [], p_net: [] };
+        for (let y = 0; y < 10; y++) {
+          const h = calculateHourlyForecast({
+            pItMonthly: forecast.P_IT_PROJ[scenario][y],
+            pFac: facilityData.P_FAC,
+            pGen: 0,
+            tempAmbHourly: tempAmbHourly,
+          });
+          // Round to 4 dp to keep the JSON payload compact
+          hourlyPayload[scenario].p_it.push(Array.from(h.pIt, v => Math.round(v * 1e4) / 1e4));
+          hourlyPayload[scenario].ppue.push(Array.from(h.ppue, v => Math.round(v * 1e4) / 1e4));
+          hourlyPayload[scenario].p_gross.push(Array.from(h.pGross, v => Math.round(v * 1e4) / 1e4));
+          hourlyPayload[scenario].p_net.push(Array.from(h.pNet, v => Math.round(v * 1e4) / 1e4));
+        }
+      }
+
+      fetch(`${API_URL}/datacenters-forecast/${activeFacilityId}/hourly`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hourly: hourlyPayload }),
+      }).catch(() => {});
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [forecast, facilityData, tempAmbHourly, activeFacilityId, user?.id]);
+
+  // Hourly P_NET for year 0 of the BASE scenario. Cooling varies hour-by-hour
+  // with ambient temperature via the pPUE polynomial; P_IT is flat at the
+  // monthly mean within each month. See loadCalculation.calculateHourlyForecast.
+  // pItMonthly must be raw IT (P_IT_PROJ) — calculateHourlyForecast itself adds
+  // cooling and pFac on top. Passing P_NET_AVG_MONTH here would double-count
+  // both, since that series already includes pue × IT + P_FAC.
+  // Computed before any early return so hook order stays stable across renders.
+  const hourly = useMemo(() => {
+    if (!facilityData || !forecast || !forecast.P_IT_PROJ['BASE']) return null;
+    return calculateHourlyForecast({
+      pItMonthly: forecast.P_IT_PROJ['BASE'][0],
+      pFac: facilityData.P_FAC,
+      pGen: 0,
+      tempAmbHourly: tempAmbHourly ?? undefined,
+      pNetPeakAnnual: forecast.P_NET_PEAK_PROJ['BASE']?.[0] ?? 0,
+    });
+  }, [facilityData, forecast, tempAmbHourly]);
+
+  // Monthly contract-coverage ratio for year 0 BASE: pNet vs the sum of all contracts'
+  // CV_i active in that hour, aggregated up to per-month coverage %. Flat contracts only
+  // for now (see calculateContractCoverage). Anchored at startYear so contract date
+  // windows (CS_i / CE_i) are checked against the correct calendar year.
+  const coverage = useMemo(() => {
+    if (!hourly || !facilityData) return null;
+    return calculateContractCoverage({
+      pNet: hourly.pNet,
+      contracts: facilityData.contracts,
+      year: startYear,
+    });
+  }, [hourly, facilityData, startYear]);
+
+  // Threshold (MW) is the chosen percentile of the 8760-point pNet series.
+  // Hours at or below it become baseload; the excess becomes peak.
+  const thresholdMw = useMemo(() => {
+    if (!hourly) return 0;
+    const sorted = [...hourly.pNet].sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(sorted.length - 1, Math.floor((thresholdPct / 100) * (sorted.length - 1))));
+    return sorted[idx] ?? 0;
+  }, [hourly, thresholdPct]);
 
   if (loading) return <div className="p-8 text-sm text-slate-500">Loading forecast data...</div>;
   if (!facilityData) return <div className="p-8 text-sm text-rose-500">No facility profile found. Please complete the Facility Profile first.</div>;
@@ -254,28 +629,26 @@ export default function LoadForcast() {
       ? profiles[0]
       : aggregateProfiles(profiles);
 
-  if (forecast && forecast.P_NET_AVG_MONTH['BASE']) {
-    const monthlyNetLoad = forecast.P_NET_AVG_MONTH['BASE'][0] || Array(12).fill(0);
-    const hourlyLoad = calculateHourlyLoad(monthlyNetLoad);
+  if (hourly) {
+    // monthStarts[m] = hour-of-year index where month m begins (Jan=0, Feb=744, …).
     const monthStarts = [0];
     for (let i = 0; i < 11; i++) {
       monthStarts.push(monthStarts[i] + HOURS_PER_MONTH[i]);
     }
 
-    // Use the monthly dynamic load for the load shape plot
-    const lf = facilityData.LF_ASSUMED ? facilityData.LF_ASSUMED / 100 : 0.82;
-
     profile = {
       ...profile,
       loadShape: profile.loadShape.map(pt => {
         const m = pt.month - 1;
-        const baseloadMw = monthlyNetLoad[m] || 0;
-        const totalMw = baseloadMw / lf;
+        // pt.hour is hour-of-day (0-23). Sample the corresponding hour from the
+        // 8760-point hourly series at the first day of each month.
+        const idx = monthStarts[m] + pt.hour;
+        const v = hourly.pNet[idx] ?? 0;
         return {
           ...pt,
-          baseloadMw: baseloadMw,
-          totalMw: totalMw,
-          peakMw: Math.max(0, totalMw - baseloadMw),
+          baseloadMw: Math.min(v, thresholdMw),
+          peakMw: Math.max(0, v - thresholdMw),
+          totalMw: v,
         };
       }),
     };
@@ -286,35 +659,34 @@ export default function LoadForcast() {
   return (
     <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
-      {/* ── Facility Tab Bar ── */}
-      {facilities.length > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9', paddingBottom: 16 }}>
-          <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'Inter, sans-serif', marginRight: 4, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-            Facility
+      {/* ── DC selector ── */}
+      {facilities.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b', fontFamily: 'Inter, sans-serif', whiteSpace: 'nowrap' }}>
+            Data Center
           </span>
-          {facilities.map((fac) => (
-            <button
-              key={fac.id}
-              id={`forecast-facility-tab-${fac.id}`}
-              type="button"
-              onClick={() => selectFacility(fac)}
-              style={{
-                padding: '5px 16px',
-                borderRadius: '9999px',
-                border: activeFacilityId === fac.id ? '1.5px solid #0d9488' : '1.5px solid #e2e8f0',
-                background: activeFacilityId === fac.id ? '#f0fdfa' : '#ffffff',
-                color: activeFacilityId === fac.id ? '#0d9488' : '#64748b',
-                fontSize: 13,
-                fontWeight: activeFacilityId === fac.id ? 600 : 400,
-                fontFamily: 'Inter, sans-serif',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                boxShadow: activeFacilityId === fac.id ? '0 1px 6px rgba(13,148,136,0.12)' : 'none',
-              }}
-            >
-              {fac.name || 'Unnamed'}
-            </button>
-          ))}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {facilities.map(f => (
+              <button
+                key={f.id}
+                onClick={() => { setActiveFacilityId(f.id); setFacilityData(f.data); }}
+                style={{
+                  padding: '4px 14px',
+                  borderRadius: 9999,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontFamily: 'Inter, sans-serif',
+                  fontWeight: 500,
+                  background: activeFacilityId === f.id ? '#0f766e' : '#f1f5f9',
+                  color: activeFacilityId === f.id ? '#ffffff' : '#475569',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {f.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -329,14 +701,49 @@ export default function LoadForcast() {
               {xAxisMode === 'months' ? 'Monthly average baseload & peak (MW)' : 'Hourly profile — representative day (Jan)'}
             </p>
           </div>
-          <PillToggle<XAxisMode>
-            options={['months', 'hours']}
-            value={xAxisMode}
-            onChange={setXAxisMode}
-            labelFn={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
-            idPrefix="shape-toggle"
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {hourly && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label
+                  htmlFor="shape-threshold-slider"
+                  style={{ fontSize: 11, color: '#64748b', fontFamily: 'Inter, sans-serif', fontWeight: 500, whiteSpace: 'nowrap' }}
+                >
+                  Baseload ≤
+                </label>
+                <input
+                  id="shape-threshold-slider"
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={thresholdPct}
+                  onChange={(e) => setThresholdPct(Number(e.target.value))}
+                  style={{ width: 120, accentColor: '#6366f1' }}
+                />
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: '#64748b',
+                    fontFamily: 'Inter, sans-serif',
+                    fontVariantNumeric: 'tabular-nums',
+                    minWidth: 96,
+                    textAlign: 'right',
+                  }}
+                >
+                  {thresholdMw.toFixed(2)} MW (p{thresholdPct})
+                </span>
+              </div>
+            )}
+            <PillToggle<XAxisMode>
+              options={['months', 'hours']}
+              value={xAxisMode}
+              onChange={setXAxisMode}
+              labelFn={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
+              idPrefix="shape-toggle"
+            />
+          </div>
         </div>
+        {/* Peak overlay temporarily hidden — restore by passing `peakOverlayMw={hourly?.pNetPeakAnnual}`. */}
         <LoadShapePlot profile={profile} xAxisMode={xAxisMode} />
       </div>
 
@@ -351,110 +758,206 @@ export default function LoadForcast() {
               Forward Forecast{activeName ? ` — ${activeName}` : ''}
             </p>
             <p style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'Inter, sans-serif', margin: 0 }}>
-              Projected avg & peak net grid import — {scenario} scenario, {startYear}–{startYear + horizon}
+              {forecastView === 'yearly'
+                ? `Projected avg & peak net grid import — ${scenario} scenario, ${startYear}–${startYear + horizon}`
+                : `Monthly avg & peak net grid import — ${scenario} scenario, ${startYear + monthlyYearOffset}`}
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <PillToggle<Scenario>
               options={['BASE', 'LOW', 'HIGH']}
               value={scenario}
               onChange={setScenario}
               idPrefix="scenario-toggle"
             />
-            <PillToggle<Horizon>
-              options={[3, 5, 10]}
-              value={horizon}
-              onChange={setHorizon}
-              labelFn={(v) => `+${v}`}
-              idPrefix="horizon-toggle"
+            <PillToggle<ForecastViewMode>
+              options={['yearly', 'monthly']}
+              value={forecastView}
+              onChange={setForecastView}
+              labelFn={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
+              idPrefix="forecast-view-toggle"
             />
+            {forecastView === 'yearly' ? (
+              <PillToggle<Horizon>
+                options={[3, 5, 10]}
+                value={horizon}
+                onChange={setHorizon}
+                labelFn={(v) => `+${v}`}
+                idPrefix="horizon-toggle"
+              />
+            ) : (
+              <select
+                id="monthly-year-select"
+                value={monthlyYearOffset}
+                onChange={(e) => setMonthlyYearOffset(Number(e.target.value))}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '9999px',
+                  border: '1px solid #e2e8f0',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  fontSize: 12,
+                  fontFamily: 'Inter, sans-serif',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                {Array.from({ length: 11 }, (_, i) => (
+                  <option key={i} value={i}>{startYear + i}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
         {forecast ? (
-          <ForwardForecastChart forecast={forecast} startYear={startYear} horizon={horizon} scenario={scenario} />
+          forecastView === 'yearly' ? (
+            <ForwardForecastChart forecast={forecast} startYear={startYear} horizon={horizon} scenario={scenario} />
+          ) : (
+            <MonthlyForecastChart
+              forecast={forecast}
+              scenario={scenario}
+              year={monthlyYearOffset}
+              lf={facilityData?.LF_ASSUMED ? facilityData.LF_ASSUMED / 100 : 0.82}
+            />
+          )
         ) : (
           <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 12, fontFamily: 'Inter' }}>
             No forecast data available
           </div>
         )}
-
-        {/* KPI summary row */}
-        {forecast && (() => {
-          const peakData = forecast.P_NET_PEAK_PROJ[scenario] || [];
-          const avgData = forecast.P_NET_AVG_MONTH[scenario] || [];
-          const itData = forecast.P_IT_PROJ[scenario] || [];
-          const pueData = forecast.PUE_PROJ[scenario] || [];
-          const colors = SCENARIO_COLORS[scenario];
-          const hIdx = Math.min(horizon, 10);
-          const peakAtHorizon = (peakData[hIdx] || 0).toFixed(2);
-          const monthlyAvg = avgData[hIdx] || Array(12).fill(0);
-          const avgAtHorizon = (monthlyAvg.reduce((s: number, v: number) => s + v, 0) / 12).toFixed(2);
-          const peakNow = (peakData[0] || 0).toFixed(2);
-
-          // Detailed metrics for the horizon year
-          const itMonthly = itData[hIdx] || Array(12).fill(0);
-          const avgIT = (itMonthly.reduce((s: number, v: number) => s + v, 0) / 12).toFixed(2);
-          const pueMonthly = pueData[hIdx] || Array(12).fill(0);
-          const avgPUE = (pueMonthly.reduce((s: number, v: number) => s + v, 0) / 12).toFixed(3);
-          const lf = facilityData?.LF_ASSUMED ? facilityData.LF_ASSUMED / 100 : 0.82;
-          const HOURS_PER_YEAR = 8760;
-          const annualEnergyGWh = (monthlyAvg.reduce((s: number, v: number, i: number) => s + v * HOURS_PER_MONTH[i], 0) / 1000).toFixed(1);
-          const totalContractVol = (facilityData?.contracts || []).reduce((acc: number, c: { CV_i?: number | string }) => acc + (Number(c.CV_i) || 0), 0);
-          const peakHorizonNum = peakData[hIdx] || 0;
-          const uncontPeak = Math.max(0, peakHorizonNum - totalContractVol).toFixed(2);
-          const uncontEnergy = ((Math.max(0, peakHorizonNum - totalContractVol) * lf * HOURS_PER_YEAR) / 1000).toFixed(1);
-          const baseloadThresh = (peakHorizonNum * 0.76).toFixed(2);
-          const superPeakThresh = (peakHorizonNum * 1.05).toFixed(2);
-
-          const detailMetrics = [
-            { label: 'Forecast IT Load', value: `${avgIT} MW`, color: '#6366f1' },
-            { label: 'Forecast PUE', value: avgPUE, color: '#8b5cf6' },
-            { label: 'Annual Energy', value: `${annualEnergyGWh} GWh`, color: '#0ea5e9' },
-            { label: 'Contracted Capacity', value: `${totalContractVol} MW`, color: '#10b981' },
-            { label: 'Peak Uncontracted', value: `${uncontPeak} MW`, color: '#f59e0b' },
-            { label: 'Uncontracted Energy', value: `${uncontEnergy} GWh`, color: '#f59e0b' },
-            { label: 'Baseload Threshold', value: `${baseloadThresh} MW`, color: '#64748b' },
-            { label: 'Super-Peak Threshold', value: `${superPeakThresh} MW`, color: '#ef4444' },
-          ];
-
-          return (
-            <>
-              <div style={{ display: 'flex', gap: 16, marginTop: 16 }}>
-                {[
-                  { label: `Avg Load ${startYear + horizon}`, value: `${avgAtHorizon} MW`, color: colors.avg, formula: 'P_NET_AVG_MONTH' },
-                  { label: `Peak Load ${startYear + horizon}`, value: `${peakAtHorizon} MW`, color: colors.peak, formula: 'Avg Load / LF' },
-                  { label: 'Peak Load Now', value: `${peakNow} MW`, color: '#94a3b8', formula: 'Avg Load (Y0) / LF' },
-                ].map(({ label, value, color, formula }) => (
-                  <div key={label} style={{
-                    flex: 1, background: '#f8fafc', borderRadius: 10, padding: '12px 16px',
-                    borderLeft: `3px solid ${color}`,
-                  }}>
-                    <p style={{ margin: 0, fontSize: 10, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</p>
-                    <p style={{ margin: '2px 0 0', fontSize: 8, color: '#64748b', fontFamily: 'monospace', fontStyle: 'italic' }}>{formula}</p>
-                    <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 700, color: '#51565eff', fontFamily: 'Inter' }}>{value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Detailed forecast breakdown row */}
-              <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
-                {detailMetrics.map(({ label, value, color }) => (
-                  <div key={label} style={{
-                    flex: '1 1 calc(25% - 10px)', minWidth: 140,
-                    background: '#f8fafc', borderRadius: 8, padding: '10px 14px',
-                    borderLeft: `3px solid ${color}`,
-                  }}>
-                    <p style={{ margin: 0, fontSize: 9, color: '#94a3b8', fontFamily: 'Inter', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</p>
-                    <p style={{ margin: '3px 0 0', fontSize: 14, fontWeight: 700, color: '#1e293b', fontFamily: 'Inter' }}>{value}</p>
-                  </div>
-                ))}
-              </div>
-            </>
-          );
-        })()}
       </div>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: '#f1f5f9' }} />
+
+      {/* ── Section 3: Uncontracted Power (all years) ── */}
+      {forecast && (() => {
+        const contractedMw = (facilityData?.contracts || []).reduce(
+          (acc: number, c: { CV_i?: number | string }) => acc + (Number(c.CV_i) || 0),
+          0,
+        );
+        return (
+          <div>
+            <div className="flex items-center justify-between mb-4" style={{ gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                  Uncontracted Power{activeName ? ` — ${activeName}` : ''}
+                </p>
+                <p style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                  Peak load vs. contracted capacity across all forecast years — {scenario} scenario, {startYear}–{startYear + 10}
+                </p>
+              </div>
+            </div>
+            <UncontractedPowerChart
+              forecast={forecast}
+              startYear={startYear}
+              scenario={scenario}
+              contractedMw={contractedMw}
+            />
+
+            {/* Monthly Contract Coverage Ratio strip (year 0 BASE, hour-resolved internally).
+                Temporarily hidden — flip the `false &&` to re-enable. The `coverage` useMemo
+                still runs so the data is ready to display when re-enabled. */}
+            {false && coverage && (
+              <div style={{ marginTop: 20 }}>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#64748b', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px 0' }}>
+                  Monthly Coverage Ratio — {startYear}
+                </p>
+                <p style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'Inter, sans-serif', margin: '0 0 8px 0' }}>
+                  Σ min(pNet, contracted) ÷ Σ pNet per month, hour-by-hour. Green ≥ 90%, amber 70–90%, red &lt; 70%.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 4 }}>
+                  {MONTH_LABELS.map((label, m) => {
+                    const pct = coverage.ccrMonthly[m] ?? 0;
+                    const bg = pct >= 90 ? '#dcfce7' : pct >= 70 ? '#fef3c7' : '#fee2e2';
+                    const fg = pct >= 90 ? '#166534' : pct >= 70 ? '#92400e' : '#991b1b';
+                    return (
+                      <div
+                        key={label}
+                        title={`${label}: ${pct.toFixed(1)}% covered`}
+                        style={{
+                          background: bg,
+                          color: fg,
+                          borderRadius: 6,
+                          padding: '8px 4px',
+                          textAlign: 'center',
+                          fontFamily: 'Inter, sans-serif',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        <div style={{ fontSize: 10, fontWeight: 500, opacity: 0.75 }}>{label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{pct.toFixed(0)}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Divider */}
+      {forecast && <div style={{ height: 1, background: '#f1f5f9' }} />}
+
+      {/* ── Section 4: PUE Forecast (yearly or monthly) ── */}
+      {forecast && (
+        <div>
+          <div className="flex items-center justify-between mb-4" style={{ gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                PUE Forecast{activeName ? ` — ${activeName}` : ''}
+              </p>
+              <p style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'Inter, sans-serif', margin: 0 }}>
+                {pueView === 'yearly'
+                  ? `Annual average PUE — ${scenario} scenario, ${startYear}–${startYear + 10}`
+                  : `Monthly PUE — ${scenario} scenario, ${startYear + pueYearOffset}`}
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <PillToggle<ForecastViewMode>
+                options={['yearly', 'monthly']}
+                value={pueView}
+                onChange={setPueView}
+                labelFn={(v) => v.charAt(0).toUpperCase() + v.slice(1)}
+                idPrefix="pue-view-toggle"
+              />
+              {pueView === 'monthly' && (
+                <select
+                  id="pue-year-select"
+                  value={pueYearOffset}
+                  onChange={(e) => setPueYearOffset(Number(e.target.value))}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '9999px',
+                    border: '1px solid #e2e8f0',
+                    background: '#ffffff',
+                    color: '#1e293b',
+                    fontSize: 12,
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {Array.from({ length: 11 }, (_, i) => (
+                    <option key={i} value={i}>{startYear + i}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+          <PueForecastChart
+            forecast={forecast}
+            scenario={scenario}
+            startYear={startYear}
+            viewMode={pueView}
+            year={pueYearOffset}
+          />
+        </div>
+      )}
 
     </div>
   );
 }
+

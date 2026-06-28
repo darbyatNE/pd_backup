@@ -1,155 +1,117 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Session } from '@supabase/supabase-js';
-import { supabase } from '../services/supabase';
-import type { User, AuthContextType } from '../types/index';
+import type { User, AppSession, AuthContextType } from '../types/index';
 import { setUserId } from '../utils/errorReporter';
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
+const TOKEN_KEY = 'pd_access_token';
+const COGNITO_TOKEN_KEY = 'pd_cognito_access_token';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<AppSession | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Restore session from localStorage on mount
   useEffect(() => {
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user) {
-        fetchUserData(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user) {
-        fetchUserData(session.user.id);
-      } else {
-        setUser(null);
-        setLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    fetch(`${API_BASE}/auth/session`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then(({ user: userData }) => {
+        setUser(userData);
+        setUserId(userData.id);
+        setSession({
+          access_token: token,
+          cognito_access_token: localStorage.getItem(COGNITO_TOKEN_KEY) || '',
+        });
+      })
+      .catch(() => {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(COGNITO_TOKEN_KEY);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const fetchUserData = async (userId: string) => {
-    try {
-      if (import.meta.env.DEV) {
-        console.debug('[Auth] Fetching user record', { userId });
-      }
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-      if (error) throw error;
-      setUser(data);
-      // Track user ID for error reporting
-      setUserId(userId);
-      if (import.meta.env.DEV) {
-        console.debug('[Auth] User record loaded', { userId, role: data?.role });
-      }
-    } catch (error) {
-      console.error('Error fetching user data:', error);
-      setUser(null);
-      setUserId(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const signIn = async (email: string, password: string) => {
-    if (import.meta.env.DEV) {
-      console.debug('[Auth] Starting sign-in', { email });
-    }
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
     });
 
-    if (error) {
-      console.error('[Auth] Sign-in failed', { email, error });
-      throw error;
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
 
-    if (import.meta.env.DEV) {
-      console.debug('[Auth] Sign-in success', {
-        email,
-        hasSession: Boolean(data.session),
-        hasUser: Boolean(data.user),
-      });
-    }
+    const newSession: AppSession = {
+      access_token: data.session.access_token,
+      cognito_access_token: data.session.cognito_access_token,
+      refresh_token: data.session.refresh_token,
+      expires_in: data.session.expires_in,
+    };
 
-    // Fetch user data after successful login
-    if (data.user) {
-      await fetchUserData(data.user.id);
-    }
+    localStorage.setItem(TOKEN_KEY, newSession.access_token);
+    localStorage.setItem(COGNITO_TOKEN_KEY, newSession.cognito_access_token);
+
+    setSession(newSession);
+    setUser(data.user);
+    setUserId(data.user.id);
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    const cognitoToken = localStorage.getItem(COGNITO_TOKEN_KEY);
+
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cognito_access_token: cognitoToken }),
+    }).catch(() => {}); // best-effort
+
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(COGNITO_TOKEN_KEY);
     setUser(null);
     setSession(null);
-    // Clear user ID for error reporting
     setUserId(null);
   };
 
-  const signUp = async (email: string, password: string, metadata?: { firstName: string; lastName: string; role: string; title?: string }) => {
-    if (import.meta.env.DEV) {
-      console.debug('[Auth] Starting sign-up', { email });
-    }
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          first_name: metadata?.firstName,
-          last_name: metadata?.lastName,
-          role: metadata?.role,
-          title: metadata?.title,
-        },
-      },
+  const signUp = async (
+    email: string,
+    password: string,
+    metadata?: { firstName: string; lastName: string; role: string; title?: string; company_name?: string }
+  ): Promise<{ userId: string }> => {
+    const contact_person = metadata
+      ? `${metadata.firstName} ${metadata.lastName}`.trim()
+      : undefined;
+
+    const res = await fetch(`${API_BASE}/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password,
+        role: metadata?.role || 'buyer',
+        company_name: metadata?.company_name || null,
+        contact_person: contact_person || null,
+        title: metadata?.title || null,
+      }),
     });
 
-    if (error) {
-      console.error('[Auth] Sign-up failed', { email, error });
-      throw error;
-    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Signup failed');
 
-    if (import.meta.env.DEV) {
-      console.debug('[Auth] Sign-up success', {
-        email,
-        hasSession: Boolean(data.session),
-        hasUser: Boolean(data.user),
-      });
-    }
-
-    if (data.user && metadata) {
-      // If we have a user and metadata, ensure we fetch the updated record
-      // This is helpful if there's a trigger that populates the users table
-      await fetchUserData(data.user.id);
-    }
-
-    return { data, error };
+    return { userId: data.userId };
   };
 
-  const value = {
-    user,
-    session,
-    loading,
-    signIn,
-    signOut,
-    signUp
-  };
+  const value: AuthContextType = { user, session, loading, signIn, signOut, signUp };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

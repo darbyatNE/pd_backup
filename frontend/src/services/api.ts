@@ -1,4 +1,3 @@
-import { supabase } from './supabase';
 import type {
   BuyerUploadParams,
   SellerUploadParams,
@@ -14,17 +13,7 @@ import type {
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
-/**
- * Get auth token from Supabase session
- */
-const getAuthToken = async (): Promise<string | null> => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
-  } catch {
-    return null;
-  }
-};
+const getAuthToken = (): string | null => localStorage.getItem('pd_access_token');
 
 /**
  * Upload files to the documents API
@@ -49,7 +38,7 @@ export const uploadDocuments = async (
     formData.append('transaction_id', transactionId);
   }
 
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/documents/upload`, {
     method: 'POST',
     headers: {
@@ -86,7 +75,7 @@ export const uploadTechnicalDocuments = async (
     formData.append('project_id', projectId);
   }
 
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/technical-documents/upload`, {
     method: 'POST',
     headers: {
@@ -121,7 +110,7 @@ export const uploadPowerPlans = async (
 
   formData.append('plan_type', planType);
 
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/power-plans/upload`, {
     method: 'POST',
     headers: {
@@ -144,7 +133,7 @@ export const uploadPowerPlans = async (
  * @returns Promise with document data including download URL
  */
 export const getDocumentDownloadUrl = async (documentId: string): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
     headers: {
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -165,7 +154,7 @@ export const getDocumentDownloadUrl = async (documentId: string): Promise<Record
  * @returns Promise with document data including download URL
  */
 export const getTechnicalDocumentDownloadUrl = async (documentId: string): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/technical-documents/${documentId}`, {
     headers: {
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -186,7 +175,7 @@ export const getTechnicalDocumentDownloadUrl = async (documentId: string): Promi
  * @returns Promise with plan data including download URL
  */
 export const getPowerPlanDownloadUrl = async (planId: string): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/power-plans/${planId}`, {
     headers: {
       ...(token && { Authorization: `Bearer ${token}` }),
@@ -206,7 +195,7 @@ export const getPowerPlanDownloadUrl = async (planId: string): Promise<Record<st
  * @param documentId - Document ID
  */
 export const deleteDocument = async (documentId: string): Promise<void> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
     method: 'DELETE',
     headers: {
@@ -225,7 +214,7 @@ export const deleteDocument = async (documentId: string): Promise<void> => {
  * @param documentId - Technical document ID
  */
 export const deleteTechnicalDocument = async (documentId: string): Promise<void> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/technical-documents/${documentId}`, {
     method: 'DELETE',
     headers: {
@@ -244,7 +233,7 @@ export const deleteTechnicalDocument = async (documentId: string): Promise<void>
  * @param planId - Power plan ID
  */
 export const deletePowerPlan = async (planId: string): Promise<void> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/power-plans/${planId}`, {
     method: 'DELETE',
     headers: {
@@ -284,7 +273,7 @@ export const uploadBuyerDocument = async (params: BuyerUploadParams): Promise<Re
     formData.append('metadata', JSON.stringify(metadata));
   }
 
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/power-plans/upload`, {
     method: 'POST',
     headers: {
@@ -307,7 +296,7 @@ export const uploadBuyerDocument = async (params: BuyerUploadParams): Promise<Re
  * @returns Promise with submission response
  */
 export const submitGreenfieldForm = async (formData: GreenfieldFormData): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/power-plans/greenfield-form`, {
     method: 'POST',
     headers: {
@@ -357,7 +346,7 @@ export const uploadSellerDocument = async (params: SellerUploadParams): Promise<
     formData.append('metadata', JSON.stringify(metadata));
   }
 
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}/technical-documents/upload`, {
     method: 'POST',
     headers: {
@@ -386,7 +375,7 @@ export const getExampleDocuments = async (
   facilityType?: FacilityType,
   sellerType?: SellerType
 ): Promise<{ examples?: Record<string, ExampleDocument>; example?: ExampleDocument }> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
 
   const params = new URLSearchParams();
   if (facilityType) params.append('facility_type', facilityType);
@@ -419,7 +408,7 @@ export const getPowerPlans = async (filters?: {
   facility_type?: FacilityType;
   document_category?: BuyerDocumentCategory;
 }): Promise<{ plans: PowerPlan[] }> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
 
   const params = new URLSearchParams();
   if (filters?.plan_type) params.append('plan_type', filters.plan_type);
@@ -453,7 +442,7 @@ export const getTechnicalDocuments = async (filters?: {
   seller_type?: SellerType;
   technology_type?: TechnologyType;
 }): Promise<{ documents: TechnicalDocument[] }> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
 
   const params = new URLSearchParams();
   if (filters?.project_id) params.append('project_id', filters.project_id);
@@ -494,7 +483,7 @@ export const getMyProjects = async (): Promise<{
     status: string;
   }>
 }> => {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   console.log('API: getMyProjects called');
   console.log('API: Token exists?', !!token);
   console.log('API: URL:', `${API_BASE_URL}/projects/my-projects`);

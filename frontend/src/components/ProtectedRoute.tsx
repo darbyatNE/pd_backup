@@ -7,9 +7,10 @@ interface ProtectedRouteProps {
   children: ReactNode;
   fullWidth?: boolean;
   hideFooter?: boolean;
+  requireOnboarding?: boolean;
 }
 
-export default function ProtectedRoute({ children, fullWidth = false, hideFooter = false }: ProtectedRouteProps) {
+export default function ProtectedRoute({ children, fullWidth = false, hideFooter = false, requireOnboarding = false }: ProtectedRouteProps) {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -25,6 +26,10 @@ export default function ProtectedRoute({ children, fullWidth = false, hideFooter
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (requireOnboarding && !user.onboarding_completed) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return <Layout fullWidth={fullWidth} hideFooter={hideFooter}>{children}</Layout>;

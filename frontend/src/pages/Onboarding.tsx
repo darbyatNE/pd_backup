@@ -1,52 +1,25 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ReactNode, Dispatch, SetStateAction, ChangeEvent } from 'react';
+import type { ReactNode } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../services/supabase';
+import { State, City } from 'country-state-city';
+import LocationCascade from './profile/LocationCascade';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const STEPS = [
     'Create Account',
+    'Facility Profile',
+    'IT Load & Capacity',
+    'Procurement Status',
+    'Sustainability Goals',
+    "KPI's & Targets",
+    '3rd-Party Market',
+    'Review',
 ];
 
 
-type Doc = {
-    id: string;
-    name: string;
-    type: string;
-    facility: string;
-    checked: boolean;
-    file?: File;
-};
 
-const INITIAL_DOCS: Doc[] = [];
-
-const DATA_CENTER_TYPES = ['Hyperscale', 'Colocation', 'Edge', 'Enterprise', 'Wholesale', 'NeoCloud'];
-const OPERATIONAL_STATUSES = ['Operational', 'Under Construction', 'Planned', 'Decommissioning'];
-const SITE_COUNTS = ['1', '2–5', '6–10', '11–20', '20+'];
-
-const CONTINENTS = ['US', 'Continental Europe', 'UK'];
-const ISOS_BY_CONTINENT: Record<string, string[]> = {
-    'US': ['ERCOT', 'PJM', 'CAISO', 'MISO', 'SPP', 'NYISO', 'ISO-NE'],
-    'Continental Europe': ['EPEX SPOT (DE/AT)', 'EPEX SPOT (FR)', 'Nord Pool', 'OMIE (ES/PT)', 'GME (IT)'],
-    'UK': ['GB (Elexon)'],
-};
-const NODES_BY_ISO: Record<string, string[]> = {
-    'ERCOT': ['HB_NORTH', 'HB_SOUTH', 'HB_WEST', 'HB_HOUSTON'],
-    'PJM': ['AEP GEN HUB', 'DOMINION HUB', 'PJM WESTERN HUB', 'CHICAGO GEN HUB'],
-    'CAISO': ['NP15', 'SP15', 'ZP26'],
-    'MISO': ['Illinois Hub', 'Indiana Hub', 'Minnesota Hub'],
-    'SPP': ['North Hub', 'South Hub'],
-    'NYISO': ['Zone A (West)', 'Zone G (Hudson Valley)', 'Zone J (NYC)', 'Zone K (Long Island)'],
-    'ISO-NE': ['Maine', 'New Hampshire', 'Vermont', 'Connecticut', 'W. Central MA', 'NE Mass/Boston'],
-    'EPEX SPOT (DE/AT)': ['Germany Base', 'Austria Base'],
-    'EPEX SPOT (FR)': ['France Base'],
-    'Nord Pool': ['NO1 Oslo', 'SE3 Stockholm', 'DK1 Copenhagen'],
-    'OMIE (ES/PT)': ['Spain', 'Portugal'],
-    'GME (IT)': ['Italy North', 'Italy Center-North', 'Italy South'],
-    'GB (Elexon)': ['National Grid GB'],
-};
 
 const ELECTRICITY_CONTRACT_TYPES = [
     'Utility Contract',
@@ -129,13 +102,13 @@ function StepCreateAccount({
                 <div className="grid grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-800 mb-2">First Name*</label>
-                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`} 
+                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`}
                             type="text" placeholder="Jane" disabled={disabled}
                             value={data.firstName} onChange={e => onChange('firstName', e.target.value)} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-800 mb-2">Last Name*</label>
-                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`} 
+                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`}
                             type="text" placeholder="Smith" disabled={disabled}
                             value={data.lastName} onChange={e => onChange('lastName', e.target.value)} />
                     </div>
@@ -144,451 +117,794 @@ function StepCreateAccount({
                 <div className="grid grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-800 mb-2">Work Email*</label>
-                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`} 
+                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`}
                             type="email" placeholder="janesmith@powerDime.net" disabled={disabled}
                             value={data.email} onChange={e => onChange('email', e.target.value)} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-800 mb-2">Title*</label>
-                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`} 
+                        <input className={`${input} ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`}
                             type="text" placeholder="e.g. Head of Energy Procurement" disabled={disabled}
                             value={data.title} onChange={e => onChange('title', e.target.value)} />
                     </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-800 mb-2">Password*</label>
-                        <div className="relative">
-                            <input className={`${input} pr-11 ${disabled ? 'bg-gray-50 cursor-not-allowed opacity-75' : ''}`}
-                                type={showPassword ? 'text' : 'password'}
-                                placeholder="PowerDime78#" disabled={disabled}
-                                value={data.password} onChange={e => onChange('password', e.target.value)} />
-                            <button type="button" tabIndex={-1} disabled={disabled}
-                                onClick={() => setShowPassword(v => !v)}
-                                className={`absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 ${disabled ? 'cursor-not-allowed' : 'hover:text-gray-600'}`}>
-                                {showPassword ? (
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                                            d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.956 9.956 0 012.223-3.592M6.53 6.53A9.956 9.956 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.973 9.973 0 01-4.07 5.296M3 3l18 18" />
-                                    </svg>
-                                ) : (
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                    </svg>
-                                )}
-                            </button>
+                {!disabled && (
+                    <>
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Password*</label>
+                                <div className="relative">
+                                    <input className={`${input} pr-11`}
+                                        type={showPassword ? 'text' : 'password'}
+                                        placeholder="PowerDime78#"
+                                        value={data.password} onChange={e => onChange('password', e.target.value)} />
+                                    <button type="button" tabIndex={-1}
+                                        onClick={() => setShowPassword(v => !v)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                        {showPassword ? (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                                                    d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.956 9.956 0 012.223-3.592M6.53 6.53A9.956 9.956 0 0112 5c4.477 0 8.268 2.943 9.542 7a9.973 9.973 0 01-4.07 5.296M3 3l18 18" />
+                                            </svg>
+                                        ) : (
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Confirm Password*</label>
+                                <input className={input}
+                                    type={showPassword ? 'text' : 'password'}
+                                    placeholder="PowerDime78#"
+                                    value={data.confirmPassword} onChange={e => onChange('confirmPassword', e.target.value)} />
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-800 mb-2">Confirm Password*</label>
-                        <input className={input}
-                            type={showPassword ? 'text' : 'password'}
-                            placeholder="PowerDime78#"
-                            value={data.confirmPassword} onChange={e => onChange('confirmPassword', e.target.value)} />
-                    </div>
-                </div>
 
-                <div>
-                    <p className="text-sm font-medium text-gray-700 mb-3">Password must contain:</p>
-                    <ul className="space-y-2">
-                        {[
-                            { label: 'Minimum 8 characters', met: hasMinLength },
-                            { label: 'Must have numeric character', met: hasNumeric },
-                            { label: 'Must have special character', met: hasSpecial },
-                        ].map(({ label, met }) => (
-                            <li key={label} className="flex items-center gap-2 text-sm text-gray-700">
-                                <CheckIcon className={`w-4 h-4 flex-shrink-0 ${met ? 'text-teal-500' : 'text-gray-300'}`} />
-                                {label}
-                            </li>
-                        ))}
-                    </ul>
-                </div>
+                        <div>
+                            <p className="text-sm font-medium text-gray-700 mb-3">Password must contain:</p>
+                            <ul className="space-y-2">
+                                {[
+                                    { label: 'Minimum 8 characters', met: hasMinLength },
+                                    { label: 'Must have numeric character', met: hasNumeric },
+                                    { label: 'Must have special character', met: hasSpecial },
+                                ].map(({ label, met }) => (
+                                    <li key={label} className="flex items-center gap-2 text-sm text-gray-700">
+                                        <CheckIcon className={`w-4 h-4 flex-shrink-0 ${met ? 'text-teal-500' : 'text-gray-300'}`} />
+                                        {label}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </>
+                )}
             </div>
         </div>
     );
 }
 
 
-// ─── Step 1 — Upload Documents ────────────────────────────────────────────────
+// ─── Step 1 — Facility Profile ───────────────────────────────────────────────
 
-function StepUploadDocuments({
-    docs,
-    setDocs,
-    editDocId,
-    setEditDocId
+const ISO_RTO_OPTIONS = ['PJM', 'MISO', 'ERCOT', 'CAISO', 'NYISO', 'ISO-NE', 'SPP'];
+
+const ISO_POD_PORTALS: Record<string, { label: string; url: string; hint: string }> = {
+    PJM:     { label: 'PJM Pnode List',          url: 'https://www.pjm.com/markets-and-operations/energy/real-time/lmps', hint: 'Find your Pnode ID in your interconnection agreement or on the PJM Markets portal under LMP data.' },
+    MISO:    { label: 'MISO Energy Markets',     url: 'https://www.misoenergy.org/markets-and-operations/real-time--market-data/market-reports/', hint: 'Look up your settlement point in the MISO Energy Markets portal under Market Reports.' },
+    ERCOT:   { label: 'ERCOT Settlement Points', url: 'https://www.ercot.com/mktinfo/prices',  hint: 'Your settlement point ID is listed in your ERCOT interconnection or retail agreement. Browse current settlement points on the ERCOT market info page.' },
+    CAISO:   { label: 'CAISO OASIS',             url: 'https://oasis.caiso.com',               hint: 'Use the CAISO OASIS portal to look up your Pnode or TAC area. Your interconnection agreement will reference the exact node ID.' },
+    NYISO:   { label: 'NYISO Markets',           url: 'https://www.nyiso.com/energy-market-operational-data', hint: 'NYISO reference your zone or bus-level pricing node. Find it in your NYISO interconnection agreement or on the NYISO market data portal.' },
+    'ISO-NE': { label: 'ISO-NE SMT Portal',      url: 'https://smt.iso-ne.com',                hint: 'Your settlement node appears in your ISO-NE interconnection documents. Use the SMT (Standard Market Design) portal to search nodes.' },
+    SPP:     { label: 'SPP Marketplace',         url: 'https://marketplace.spp.org',           hint: 'Look up your settlement location in the SPP Marketplace portal or in your SPP interconnection agreement.' },
+};
+
+const ISO_ZONES: Record<string, string[]> = {
+    PJM: ['AECO', 'AEP', 'AP', 'ATSI', 'BGE', 'COMED', 'DAYTON', 'DEOK', 'DOM', 'DPL', 'DUQ', 'EKPC', 'JCPL', 'ME', 'PECO', 'PENNA', 'PPL', 'PSEG', 'RECO'],
+    MISO: ['Zone 1 (MN/ND/SD)', 'Zone 2 (MN/WI)', 'Zone 3 (MI)', 'Zone 4 (IN)', 'Zone 5 (IL)', 'Zone 6 (MO/IA)', 'Zone 7 (AR/MS)', 'Zone 8 (LA)', 'Zone 9 (TX/LA)', 'Zone 10 (TX)'],
+    ERCOT: ['North', 'South', 'Houston', 'West'],
+    CAISO: ['NP15 (North)', 'SP15 (South)', 'ZP26 (Central)'],
+    NYISO: ['Zone A (West)', 'Zone B (Genesee)', 'Zone C (Central)', 'Zone D (North)', 'Zone E (Mohawk Valley)', 'Zone F (Capital)', 'Zone G (Hudson Valley)', 'Zone H (Millwood)', 'Zone I (Dunwoodie)', 'Zone J (NYC)', 'Zone K (Long Island)'],
+    'ISO-NE': ['CT', 'ME', 'NH', 'NE-MA', 'RI', 'VT', 'WCMA', 'SEMA', 'NEMA'],
+    SPP: ['North', 'South'],
+};
+
+type FacilityOnboardingData = {
+    lp_facility_status: string;
+    lp_facility_name: string;
+    lp_address: string;
+    lp_country: string;
+    lp_state: string;
+    lp_city: string;
+    lp_zipcode: string;
+    lp_availability_zone: string;
+    lp_iso_rto: string;
+    lp_grid_voltage_kv: string;
+    lp_settlement_node_id: string;
+    lp_contracted_capacity_mw: string;
+    lp_interconnection_expiry: string;
+};
+
+const EMPTY_FACILITY: FacilityOnboardingData = {
+    lp_facility_status: '',
+    lp_facility_name: '',
+    lp_address: '',
+    lp_country: '',
+    lp_state: '',
+    lp_city: '',
+    lp_zipcode: '',
+    lp_availability_zone: '',
+    lp_iso_rto: '',
+    lp_grid_voltage_kv: '',
+    lp_settlement_node_id: '',
+    lp_contracted_capacity_mw: '',
+    lp_interconnection_expiry: '',
+};
+
+// ─── Address Autocomplete (Nominatim / OpenStreetMap) ────────────────────────
+
+type NominatimResult = {
+    display_name: string;
+    address: {
+        house_number?: string;
+        road?: string;
+        city?: string;
+        town?: string;
+        village?: string;
+        municipality?: string;
+        state?: string;
+        country_code?: string;
+        postcode?: string;
+    };
+};
+
+function AddressAutocomplete({
+    value,
+    onAddressChange,
+    onPlacePicked,
+    inputClass,
 }: {
-    docs: Doc[];
-    setDocs: Dispatch<SetStateAction<Doc[]>>;
-    editDocId: string | null;
-    setEditDocId: (id: string | null) => void;
+    value: string;
+    onAddressChange: (v: string) => void;
+    onPlacePicked: (parts: { country: string; state: string; city: string; zip: string }) => void;
+    inputClass: string;
 }) {
-    const [isDragging, setDragging] = useState(false);
-    const fileRef = useRef<HTMLInputElement>(null);
+    const [results, setResults] = useState<NominatimResult[]>([]);
+    const [open, setOpen] = useState(false);
+    const [fetching, setFetching] = useState(false);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const toggleCheck = (id: string) =>
-        setDocs(prev => prev.map(d => d.id === id ? { ...d, checked: !d.checked } : d));
-
-    const deleteDoc = (id: string) =>
-        setDocs(prev => prev.filter(d => d.id !== id));
-
-    const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files) return;
-        const newDocs: Doc[] = Array.from(files).map(file => ({
-            id: Math.random().toString(36).substr(2, 9),
-            name: file.name,
-            type: 'Utility Bill',
-            facility: 'Unassigned',
-            checked: true,
-            file
-        }));
-        setDocs(prev => [...prev, ...newDocs]);
-        if (fileRef.current) fileRef.current.value = '';
+    const handleChange = (v: string) => {
+        onAddressChange(v);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (v.length < 3) { setResults([]); setOpen(false); return; }
+        timerRef.current = setTimeout(async () => {
+            setFetching(true);
+            try {
+                const res = await fetch(
+                    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(v)}&format=json&addressdetails=1&limit=6`,
+                    { headers: { 'Accept-Language': 'en' } },
+                );
+                const data: NominatimResult[] = await res.json();
+                setResults(data);
+                setOpen(data.length > 0);
+            } catch {
+                // silently ignore network errors
+            } finally {
+                setFetching(false);
+            }
+        }, 420);
     };
 
-    const updateDoc = (id: string, field: keyof Doc, value: any) => {
-        setDocs(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
+    const handlePick = (r: NominatimResult) => {
+        const a = r.address;
+        const countryCode = (a.country_code || '').toUpperCase();
+
+        // Resolve ISO state code from the full state name Nominatim returns
+        const stateName = a.state || '';
+        const stateMatch = State.getStatesOfCountry(countryCode).find(
+            s => s.name.toLowerCase() === stateName.toLowerCase(),
+        );
+        const stateCode = stateMatch?.isoCode || '';
+
+        // Nominatim city name may differ from the country-state-city dataset.
+        // Try exact match first, then substring in either direction so the
+        // LocationCascade dropdown has a valid <option> value to select.
+        const nominatimCity = a.city || a.town || a.village || a.municipality || '';
+        let city = nominatimCity;
+        if (countryCode && stateCode && nominatimCity) {
+            const datasetCities = City.getCitiesOfState(countryCode, stateCode);
+            const norm = (s: string) => s.toLowerCase();
+            const exact = datasetCities.find(c => norm(c.name) === norm(nominatimCity));
+            const partial = !exact && datasetCities.find(
+                c => norm(c.name).includes(norm(nominatimCity)) || norm(nominatimCity).includes(norm(c.name)),
+            );
+            city = exact?.name ?? partial?.name ?? nominatimCity;
+        }
+
+        const zip = a.postcode || '';
+        const street = [a.house_number, a.road].filter(Boolean).join(' ') || r.display_name;
+
+        onAddressChange(street);
+        onPlacePicked({ country: countryCode, state: stateCode, city, zip });
+        setOpen(false);
+        setResults([]);
     };
 
     return (
-        <div className="px-10 py-7">
-            <div className="flex items-start justify-between mb-1">
-                <h1 className="text-2xl font-bold text-gray-900">Upload Your Documents</h1>
+        <div className="relative">
+            <div className="relative">
+                <input
+                    type="text"
+                    autoComplete="off"
+                    placeholder="Start typing a street address…"
+                    value={value}
+                    onChange={e => handleChange(e.target.value)}
+                    onFocus={() => results.length > 0 && setOpen(true)}
+                    onBlur={() => setTimeout(() => setOpen(false), 160)}
+                    className={inputClass}
+                />
+                {fetching && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <div className="w-4 h-4 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                )}
             </div>
+            {open && results.length > 0 && (
+                <ul className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto text-sm">
+                    {results.map((r, i) => (
+                        <li
+                            key={i}
+                            onMouseDown={() => handlePick(r)}
+                            className="flex items-start gap-2.5 px-4 py-3 hover:bg-teal-50 cursor-pointer border-b border-gray-50 last:border-0"
+                        >
+                            <svg className="w-4 h-4 text-teal-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span className="text-gray-700 leading-snug">{r.display_name}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
 
-            {/* Document requirements excerpt */}
-            <div className="bg-teal-50 border border-teal-100 rounded-lg px-4 py-3 mb-5 max-w-3xl">
-                <p className="text-sm font-medium text-teal-800 mb-1">Required Preliminary Documents</p>
-                <p className="text-sm text-teal-700 leading-relaxed">
-                    Please upload any relevant documents to help us build your energy profile. This may include
-                    <strong> sustainability reports</strong>, <strong>annual filings</strong>, <strong>utility bills</strong>,
-                    <strong> power purchase agreements</strong>, <strong>DCIM exports</strong>, or <strong>energy contracts</strong>.
-                    These documents are used solely for analysis and scoping — you may proceed without them and add them later.
-                </p>
+function StepLoadProfile({
+    data,
+    onChange,
+    facilities,
+    activeFacilityIdx,
+    onSwitchFacility,
+    onAddFacility,
+    onDeleteFacility,
+}: {
+    data: any;
+    onChange: (f: string, v: string) => void;
+    facilities: FacilityOnboardingData[];
+    activeFacilityIdx: number;
+    onSwitchFacility: (idx: number) => void;
+    onAddFacility: () => void;
+    onDeleteFacility: (idx: number) => void;
+}) {
+    const inputClass =
+        'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 ' +
+        'focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition bg-white';
+    const selectClass =
+        'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 appearance-none ' +
+        'bg-white focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition';
+    const sectionHeading = 'text-base font-semibold text-gray-800 mb-4 mt-6 first:mt-0';
+
+    const knownZones: string[] = ISO_ZONES[data.lp_iso_rto] ?? [];
+    const isCustomZone = knownZones.length > 0 &&
+        data.lp_availability_zone !== '' &&
+        !knownZones.includes(data.lp_availability_zone);
+    const [otherZoneMode, setOtherZoneMode] = useState(isCustomZone);
+
+    return (
+        <div className="px-12 py-8">
+            <div className="mb-1">
+                <h1 className="text-3xl font-bold text-gray-900">Facility Profile</h1>
             </div>
+            <p className="text-sm text-gray-500 mb-6">Tell us about your facility and its grid connection details.</p>
 
-            <p className="flex items-center gap-1.5 text-sm text-gray-500 mb-6">
-                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Add your documents or manually input your information.
-            </p>
-
-            <div className="flex items-center justify-between mb-4">
-                <button onClick={() => fileRef.current?.click()}
-                    className="text-sm font-medium text-gray-700 hover:text-gray-900">
-                    + Add Documents
+            {/* Facility tab bar */}
+            <div className="flex items-center gap-2 mb-8 flex-wrap">
+                {facilities.map((fac, idx) => (
+                    <div
+                        key={idx}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border-[1.5px] text-sm font-medium transition-all ${
+                            idx === activeFacilityIdx
+                                ? 'bg-teal-50 border-teal-500 text-teal-700 shadow-sm'
+                                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                        }`}
+                    >
+                        <button
+                            type="button"
+                            onClick={() => onSwitchFacility(idx)}
+                            className="leading-none"
+                        >
+                            {fac.lp_facility_name || `Facility ${idx + 1}`}
+                        </button>
+                        {facilities.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={() => onDeleteFacility(idx)}
+                                title="Remove facility"
+                                className={`leading-none rounded-full w-3.5 h-3.5 flex items-center justify-center transition-colors ${
+                                    idx === activeFacilityIdx
+                                        ? 'text-teal-400 hover:text-red-500'
+                                        : 'text-gray-300 hover:text-red-500'
+                                }`}
+                            >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                ))}
+                <button
+                    type="button"
+                    onClick={onAddFacility}
+                    className="flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium bg-white border-[1.5px] border-dashed border-gray-300 text-gray-400 hover:border-teal-400 hover:text-teal-600 transition-all"
+                >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Facility
                 </button>
-                <button className="border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                    Manually Add Information
-                </button>
             </div>
 
-            <div
-                onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={e => {
-                    e.preventDefault();
-                    setDragging(false);
-                    const files = e.dataTransfer.files;
-                    if (files.length > 0) {
-                        const newDocs: Doc[] = Array.from(files).map(file => ({
-                            id: Math.random().toString(36).substr(2, 9),
-                            name: file.name,
-                            type: 'Utility Bill',
-                            facility: 'Unassigned',
-                            checked: true,
-                            file
-                        }));
-                        setDocs(prev => [...prev, ...newDocs]);
-                    }
-                }}
-                onClick={() => fileRef.current?.click()}
-                className={`rounded-lg border-2 border-dashed p-12 flex flex-col items-center justify-center cursor-pointer transition-colors ${isDragging ? 'border-teal-400 bg-teal-50' : 'border-gray-300 bg-white hover:bg-gray-50'}`}
-            >
-                <input ref={fileRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
-                <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-                <p className="text-sm text-gray-500">
-                    <span className="underline font-medium text-gray-700">click to upload</span> or drag and drop
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Maximum file size 50 MB</p>
-            </div>
+            <div className="space-y-0 max-w-4xl">
+                {/* Core Information */}
+                <h2 className={sectionHeading}>Core Information</h2>
+                <div className="grid grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-800 mb-2">Facility Status*</label>
+                        <div className="relative">
+                            <select
+                                className={selectClass}
+                                value={data.lp_facility_status}
+                                onChange={e => onChange('lp_facility_status', e.target.value)}
+                            >
+                                <option value="" disabled>Select status</option>
+                                <option value="Brownfield">Brownfield (Operational)</option>
+                                <option value="Greenfield">Greenfield (New / Planned)</option>
+                            </select>
+                            <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-800 mb-2">Facility Name*</label>
+                        <input
+                            className={inputClass}
+                            type="text"
+                            placeholder="e.g. Ashburn-1"
+                            value={data.lp_facility_name}
+                            onChange={e => onChange('lp_facility_name', e.target.value)}
+                        />
+                    </div>
+                </div>
 
-            <div className="mt-6 bg-white rounded-lg border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
-                    <thead className="border-b border-gray-200">
-                        <tr>
-                            <th className="w-8" />
-                            <th className="w-10" />
-                            <th className="text-left px-4 py-3 font-semibold text-gray-700">Document Name</th>
-                            <th className="text-left px-4 py-3 font-semibold text-gray-700">Type</th>
-                            <th className="text-left px-4 py-3 font-semibold text-gray-700">Facility</th>
-                            <th className="w-28" />
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {docs.map(doc => (
-                            <tr key={doc.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
-                                <td className="px-2 py-3 text-center text-gray-300 cursor-grab select-none text-xs leading-none">
-                                    ⋮<br />⋮
-                                </td>
-                                <td className="px-2 py-3">
-                                    <input type="checkbox" checked={doc.checked}
-                                        onChange={() => toggleCheck(doc.id)}
-                                        className="w-4 h-4 rounded accent-teal-500 cursor-pointer" />
-                                </td>
-                                <td className="px-4 py-3 text-gray-900">{doc.name}</td>
-                                <td className="px-4 py-3">
-                                    {editDocId === doc.id ? (
-                                        <select
-                                            value={doc.type}
-                                            onChange={(e) => updateDoc(doc.id, 'type', e.target.value)}
-                                            className="w-full text-sm border-gray-300 rounded-md focus:ring-teal-500 focus:border-teal-500"
-                                        >
-                                            <option>DCIM Export</option>
-                                            <option>Utility Bill</option>
-                                            <option>Power Purchase Agreement</option>
-                                            <option>Energy Contract</option>
-                                            <option>Planning Model</option>
-                                            <option>Storage Spec</option>
-                                            <option>Other</option>
-                                        </select>
-                                    ) : (
-                                        <span className="text-gray-600">{doc.type}</span>
-                                    )}
-                                </td>
-                                <td className="px-4 py-3">
-                                    {editDocId === doc.id ? (
-                                        <input
-                                            type="text"
-                                            value={doc.facility}
-                                            onChange={(e) => updateDoc(doc.id, 'facility', e.target.value)}
-                                            className="w-full text-sm border-gray-300 rounded-md focus:ring-teal-500 focus:border-teal-500"
-                                            placeholder="Facility Name"
-                                        />
-                                    ) : (
-                                        <span className="text-gray-600">{doc.facility}</span>
-                                    )}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                    <div className="flex items-center justify-end gap-3">
-                                        {editDocId === doc.id ? (
-                                            <button
-                                                onClick={() => setEditDocId(null)}
-                                                className="text-teal-600 hover:text-teal-700 font-medium transition-colors"
+                {/* Location Details */}
+                <div className="mb-6">
+                    <label className="block text-sm font-medium text-gray-800 mb-2">Street Address*</label>
+                    <AddressAutocomplete
+                        value={data.lp_address}
+                        onAddressChange={v => onChange('lp_address', v)}
+                        onPlacePicked={({ country, state, city, zip }) => {
+                            onChange('lp_country', country);
+                            onChange('lp_state', state);
+                            onChange('lp_city', city);
+                            onChange('lp_zipcode', zip);
+                        }}
+                        inputClass={inputClass}
+                    />
+                    <p className="text-xs text-gray-400 mt-1.5">Type to search — selecting a suggestion auto-fills Country, State, City and ZIP below.</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6 mb-6">
+                    <LocationCascade
+                        value={{
+                            country: data.lp_country,
+                            state: data.lp_state,
+                            city: data.lp_city,
+                            zip: data.lp_zipcode,
+                        }}
+                        onChange={patch => {
+                            if (patch.country !== undefined) {
+                                onChange('lp_country', patch.country);
+                                onChange('lp_state', '');
+                                onChange('lp_city', '');
+                            }
+                            if (patch.state !== undefined) {
+                                onChange('lp_state', patch.state);
+                                onChange('lp_city', '');
+                            }
+                            if (patch.city !== undefined) onChange('lp_city', patch.city);
+                            if (patch.zip !== undefined) onChange('lp_zipcode', patch.zip);
+                        }}
+                        inputCls={inputClass}
+                    />
+                    <div>
+                        <label className="block text-sm font-medium text-gray-800 mb-2">ISO / RTO Region</label>
+                        <div className="relative">
+                            <select
+                                className={selectClass}
+                                value={data.lp_iso_rto}
+                                onChange={e => {
+                                    onChange('lp_iso_rto', e.target.value);
+                                    onChange('lp_availability_zone', '');
+                                    setOtherZoneMode(false);
+                                }}
+                            >
+                                <option value="">Select…</option>
+                                {ISO_RTO_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                            <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-800 mb-2">
+                            Availability Zone
+                            {!data.lp_iso_rto && <span className="text-gray-400 font-normal"> — select ISO/RTO first</span>}
+                        </label>
+                        {data.lp_iso_rto && ISO_ZONES[data.lp_iso_rto] ? (
+                            <div className="space-y-2">
+                                <div className="relative">
+                                    <select
+                                        className={selectClass}
+                                        value={otherZoneMode ? '__other__' : data.lp_availability_zone}
+                                        onChange={e => {
+                                            if (e.target.value === '__other__') {
+                                                setOtherZoneMode(true);
+                                                onChange('lp_availability_zone', '');
+                                            } else {
+                                                setOtherZoneMode(false);
+                                                onChange('lp_availability_zone', e.target.value);
+                                            }
+                                        }}
+                                    >
+                                        <option value="">Select zone…</option>
+                                        {ISO_ZONES[data.lp_iso_rto].map(z => (
+                                            <option key={z} value={z}>{z}</option>
+                                        ))}
+                                        <option value="__other__">Other</option>
+                                    </select>
+                                    <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </div>
+                                {otherZoneMode && (
+                                    <input
+                                        className={inputClass}
+                                        type="text"
+                                        placeholder="Enter availability zone"
+                                        value={data.lp_availability_zone}
+                                        onChange={e => onChange('lp_availability_zone', e.target.value)}
+                                        autoFocus
+                                    />
+                                )}
+                            </div>
+                        ) : (
+                            <input
+                                className={`${inputClass} bg-gray-50 cursor-not-allowed text-gray-400`}
+                                type="text"
+                                placeholder="Select an ISO / RTO first"
+                                disabled
+                                value=""
+                            />
+                        )}
+                    </div>
+                </div>
+
+                {/* Grid & Technical Specifications */}
+                <div className="grid grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-800 mb-2">Grid Connection Voltage (kV)</label>
+                        <input
+                            className={inputClass}
+                            type="number"
+                            step="0.1"
+                            placeholder="e.g. 230"
+                            value={data.lp_grid_voltage_kv}
+                            onChange={e => onChange('lp_grid_voltage_kv', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <div className="flex items-center gap-1.5 mb-2">
+                            <label className="text-sm font-medium text-gray-800">Settlement Node (POD) ID</label>
+                            {(() => {
+                                const portal = data.lp_iso_rto ? ISO_POD_PORTALS[data.lp_iso_rto] : null;
+                                return portal ? (
+                                    <div className="relative group">
+                                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold cursor-default select-none">?</span>
+                                        <div className="absolute z-50 left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 bg-gray-900 text-white text-xs rounded-xl p-3.5 shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity leading-relaxed">
+                                            <p className="mb-2">{portal.hint}</p>
+                                            <a
+                                                href={portal.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-1 text-teal-300 hover:text-teal-200 font-medium underline underline-offset-2"
                                             >
-                                                Done
-                                            </button>
-                                        ) : (
-                                            <>
-                                                <button title="View" className="text-gray-400 hover:text-gray-600 transition-colors">
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                                                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                    </svg>
-                                                </button>
-                                                <button
-                                                    title="Edit"
-                                                    onClick={() => setEditDocId(doc.id)}
-                                                    className="text-gray-400 hover:text-gray-600 transition-colors"
-                                                >
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                                                            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                                    </svg>
-                                                </button>
-                                                <button title="Delete" onClick={() => deleteDoc(doc.id)}
-                                                    className="text-gray-400 hover:text-red-500 transition-colors">
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                    </svg>
-                                                </button>
-                                            </>
-                                        )}
+                                                {portal.label}
+                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                </svg>
+                                            </a>
+                                            <div className="absolute left-1/2 -translate-x-1/2 top-full w-2.5 h-2.5 bg-gray-900 rotate-45 -mt-1.5" />
+                                        </div>
                                     </div>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                                ) : null;
+                            })()}
+                        </div>
+                        <input
+                            className={inputClass}
+                            type="text"
+                            placeholder={data.lp_iso_rto ? `e.g. ${data.lp_iso_rto === 'ERCOT' ? 'HB_NORTH' : data.lp_iso_rto === 'NYISO' ? 'CAPITL' : data.lp_iso_rto === 'CAISO' ? 'DLAP_SDGE-APND' : 'COMED_RTO'}` : 'e.g. Pnode-1234'}
+                            value={data.lp_settlement_node_id}
+                            onChange={e => onChange('lp_settlement_node_id', e.target.value)}
+                        />
+                        {!data.lp_iso_rto && (
+                            <p className="text-xs text-gray-400 mt-1.5">Select an ISO / RTO above to see where to find your node ID.</p>
+                        )}
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-800 mb-2">Contracted Grid Import Capacity (MW)</label>
+                        <input
+                            className={inputClass}
+                            type="number"
+                            step="0.1"
+                            placeholder="e.g. 50.0"
+                            value={data.lp_contracted_capacity_mw}
+                            onChange={e => onChange('lp_contracted_capacity_mw', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-800 mb-2">Interconnection Agreement Expiry</label>
+                        <input
+                            className={inputClass}
+                            type="date"
+                            value={data.lp_interconnection_expiry}
+                            onChange={e => onChange('lp_interconnection_expiry', e.target.value)}
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     );
 }
 
 
-// ─── Step 2 — Facility Information ───────────────────────────────────────────
+// ─── Step 2 — IT Load & Capacity ─────────────────────────────────────────────
+
+const IT_MEASUREMENT_POINTS = [
+    'At IT Equipment (server PDUs)',
+    'At PDU Input',
+    'At UPS Output',
+    'At Utility Meter',
+];
+
+const FORECAST_SCENARIOS = ['Base Case', 'Conservative', 'Aggressive', 'Custom'];
+
+function UploadRow({
+    label,
+    fieldName,
+    value,
+    onChange,
+    buttonLabel = 'Upload CSV',
+    accept = '.csv',
+}: {
+    label: string;
+    fieldName: string;
+    value: string;
+    onChange: (f: string, v: string) => void;
+    buttonLabel?: string;
+    accept?: string;
+}) {
+    return (
+        <div className="flex items-center justify-between py-4">
+            <span className="text-sm font-medium text-gray-800">{label}</span>
+            <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-4">
+                <label className="cursor-pointer">
+                    <input
+                        type="file"
+                        accept={accept}
+                        className="hidden"
+                        onChange={e => onChange(fieldName, e.target.files?.[0]?.name || '')}
+                    />
+                    <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        {buttonLabel}
+                    </span>
+                </label>
+                {value && <span className="text-xs text-teal-600 truncate max-w-[220px]">{value}</span>}
+            </div>
+        </div>
+    );
+}
 
 function StepFacilityInformation({ data, onChange }: { data: any; onChange: (f: string, v: string) => void }) {
+    const inputClass =
+        'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 ' +
+        'focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition bg-white';
     const selectClass =
         'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 appearance-none ' +
         'bg-white focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition';
 
-    const inputClass =
-        'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 ' +
-        'focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition bg-white';
-
-    const availableIsos = data.location_continent ? (ISOS_BY_CONTINENT[data.location_continent] ?? []) : [];
-    const availableNodes = data.location_iso ? (NODES_BY_ISO[data.location_iso] ?? []) : [];
-
-    const handleContinentChange = (v: string) => {
-        onChange('location_continent', v);
-        onChange('location_iso', '');
-        onChange('location_node', '');
-    };
-
-    const handleIsoChange = (v: string) => {
-        onChange('location_iso', v);
-        onChange('location_node', '');
-    };
-
-    function Select({ value, onSelect, options, disabled = false }: {
-        value: string; onSelect: (v: string) => void; options: string[]; disabled?: boolean;
-    }) {
-        return (
-            <div className="relative">
-                <select
-                    className={`${selectClass} ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''}`}
-                    value={value}
-                    onChange={e => onSelect(e.target.value)}
-                    disabled={disabled}
-                >
-                    <option value="" disabled>Select option</option>
-                    {options.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
-                <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-            </div>
-        );
-    }
-
     return (
         <div className="px-12 py-8">
             <div className="flex items-start justify-between mb-1">
-                <h1 className="text-3xl font-bold text-gray-900">Facility Profile</h1>
+                <h1 className="text-3xl font-bold text-gray-900">IT Load & Capacity</h1>
             </div>
-            <p className="text-sm text-gray-500 mb-8">Tell us about the physical space we're finding power for.</p>
+            <p className="text-sm text-gray-500 mb-8">Upload your load data or enter manually below.</p>
 
-            <div className="space-y-7 max-w-4xl">
-                {/* DC Type + Operational Status */}
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-800 mb-2">Data Center Type*</label>
-                        <Select value={data.dc_type} onSelect={v => onChange('dc_type', v)} options={DATA_CENTER_TYPES} />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-800 mb-2">Operational Status*</label>
-                        <Select value={data.operational_status} onSelect={v => onChange('operational_status', v)} options={OPERATIONAL_STATUSES} />
-                    </div>
-                </div>
-
-                {/* Number of Sites */}
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-800 mb-2">
-                            Number of Sites <span className="text-gray-400 font-normal">(optional)</span>
-                        </label>
-                        <Select value={data.num_sites} onSelect={v => onChange('num_sites', v)} options={SITE_COUNTS} />
-                    </div>
-                </div>
-
-                {/* Primary Location of Interest — three cascading dropdowns */}
+            <div className="max-w-4xl space-y-8">
+                {/* File Upload Section */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-800 mb-3">Primary Location of Interest*</label>
-                    <div className="grid grid-cols-3 gap-4">
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1.5">Continent</label>
-                            <Select value={data.location_continent} onSelect={handleContinentChange} options={CONTINENTS} />
-                        </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1.5">ISO</label>
-                            <Select
-                                value={data.location_iso}
-                                onSelect={handleIsoChange}
-                                options={availableIsos}
-                                disabled={!data.location_continent}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1.5">Price Point (Node)</label>
-                            <Select
-                                value={data.location_node}
-                                onSelect={v => onChange('location_node', v)}
-                                options={availableNodes}
-                                disabled={!data.location_iso}
-                            />
-                        </div>
+                    <h2 className="text-base font-semibold text-gray-800 mb-4">File Upload Section (CSV Uploads)</h2>
+                    <div className="bg-white rounded-xl border border-gray-200 px-6 divide-y divide-gray-100">
+                        <UploadRow
+                            label="Planned IT Capacity Additions by Year (MW)"
+                            fieldName="csv_planned_it_capacity"
+                            value={data.csv_planned_it_capacity}
+                            onChange={onChange}
+                        />
+                        <UploadRow
+                            label="Utilisation Rate"
+                            fieldName="csv_utilisation_rate"
+                            value={data.csv_utilisation_rate}
+                            onChange={onChange}
+                        />
+                        <UploadRow
+                            label="Planned PUE Improvement by Year (e.g., 0.05 = 5%)"
+                            fieldName="csv_planned_pue"
+                            value={data.csv_planned_pue}
+                            onChange={onChange}
+                        />
+                        <UploadRow
+                            label="Planned On-site Renewables"
+                            fieldName="csv_planned_renewables"
+                            value={data.csv_planned_renewables}
+                            onChange={onChange}
+                        />
+                        <UploadRow
+                            label="Planned Battery Storage Additions by Year (MW)"
+                            fieldName="csv_planned_battery"
+                            value={data.csv_planned_battery}
+                            onChange={onChange}
+                        />
+                        <UploadRow
+                            label="Historical Interval Data"
+                            fieldName="csv_historical_interval"
+                            value={data.csv_historical_interval}
+                            onChange={onChange}
+                            buttonLabel="Choose File"
+                        />
+                        <UploadRow
+                            label="PPUE Curve Upload (CSV)"
+                            fieldName="csv_ppue_curve"
+                            value={data.csv_ppue_curve}
+                            onChange={onChange}
+                            buttonLabel="Choose File"
+                        />
                     </div>
                 </div>
 
-                {/* IT Capacity + Utilization */}
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <div className="flex items-center gap-1.5 mb-1">
-                            <InfoIcon />
-                            <span className="text-sm font-medium text-gray-800">Approx Total Rated IT Capacity Per Site (MW)*</span>
-                        </div>
-                        <p className="text-xs text-gray-400 mb-2">What is the design capacity of the facility?</p>
-                        <input className={inputClass} type="text" placeholder="input a value"
-                            value={data.it_capacity} onChange={e => onChange('it_capacity', e.target.value)} />
-                    </div>
-                    <div>
-                        <div className="flex items-center gap-1.5 mb-1">
-                            <InfoIcon />
-                            <span className="text-sm font-medium text-gray-800">Current Utilization (%)</span>
-                        </div>
-                        <p className="text-xs text-gray-400 mb-2">What percentage of that capacity is currently live?</p>
-                        <input className={inputClass} type="text" placeholder="input a value"
-                            value={data.utilization} onChange={e => onChange('utilization', e.target.value)} />
-                    </div>
-                </div>
-
-                {/* Target PUE */}
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <div className="flex items-center gap-1.5 mb-1">
-                            <InfoIcon />
-                            <span className="text-sm font-medium text-gray-800">Target Power Usage Effectiveness</span>
-                        </div>
-                        <p className="text-xs text-gray-400 mb-2">What is your target or average annual PUE?</p>
-                        <input className={inputClass} type="text" placeholder="input a value"
-                            value={data.pue} onChange={e => onChange('pue', e.target.value)} />
-                    </div>
-                </div>
-
-                {/* Expansion Roadmap — moved here from Energy Load */}
+                {/* Manual Input Section */}
                 <div>
-                    <div className="flex items-center gap-1.5 mb-1">
-                        <InfoIcon />
-                        <span className="text-sm font-medium text-gray-800">IT Capacity Expansion Roadmap (MW, optional)</span>
-                    </div>
-                    <p className="text-xs text-gray-400 mb-4">Estimated IT capacity growth in megawatts over the next years.</p>
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1.5">3 Years</label>
-                            <input className={inputClass} type="text" placeholder="ex: +40MW"
-                                value={data.expansion_3yr} onChange={e => onChange('expansion_3yr', e.target.value)} />
+                    <h2 className="text-base font-semibold text-gray-800 mb-1">Manual Input</h2>
+                    <p className="text-sm text-gray-500 mb-6">Don't have the file? Input manually</p>
+
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">
+                                    Where is your primary IT power measurement taken?
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        className={selectClass}
+                                        value={data.it_measurement_point}
+                                        onChange={e => onChange('it_measurement_point', e.target.value)}
+                                    >
+                                        <option value="" disabled>Select option</option>
+                                        {IT_MEASUREMENT_POINTS.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                    <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1.5">5 Years</label>
-                            <input className={inputClass} type="text" placeholder="ex: +40MW"
-                                value={data.expansion_5yr} onChange={e => onChange('expansion_5yr', e.target.value)} />
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Installed IT Capacity (MW)</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 30.0"
+                                    value={data.installed_it_capacity_mw} onChange={e => onChange('installed_it_capacity_mw', e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Total IT Load*</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 24.5"
+                                    value={data.total_it_load_mw} onChange={e => onChange('total_it_load_mw', e.target.value)} />
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-xs text-gray-500 mb-1.5">10 Years</label>
-                            <input className={inputClass} type="text" placeholder="ex: +40MW"
-                                value={data.expansion_10yr} onChange={e => onChange('expansion_10yr', e.target.value)} />
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">UPS System Efficiency (%)</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 97.0"
+                                    value={data.ups_efficiency_pct} onChange={e => onChange('ups_efficiency_pct', e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Cooling System Power (MW)</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 6.2"
+                                    value={data.cooling_system_power_mw} onChange={e => onChange('cooling_system_power_mw', e.target.value)} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">PDU/Transformer Efficiency (%)</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 98.0"
+                                    value={data.pdu_efficiency_pct} onChange={e => onChange('pdu_efficiency_pct', e.target.value)} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Battery Storage Capacity (MW)</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 6.2"
+                                    value={data.battery_storage_capacity_mw} onChange={e => onChange('battery_storage_capacity_mw', e.target.value)} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Lighting / General Facility Load (MW)</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 1.5"
+                                    value={data.lighting_facility_load_mw} onChange={e => onChange('lighting_facility_load_mw', e.target.value)} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Forecast Scenario</label>
+                                <div className="relative">
+                                    <select
+                                        className={selectClass}
+                                        value={data.forecast_scenario}
+                                        onChange={e => onChange('forecast_scenario', e.target.value)}
+                                    >
+                                        <option value="" disabled>Select option</option>
+                                        {FORECAST_SCENARIOS.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                    <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-800 mb-2">Organic IT Load Growth</label>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 1.5"
+                                    value={data.organic_it_load_growth} onChange={e => onChange('organic_it_load_growth', e.target.value)} />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -598,51 +914,7 @@ function StepFacilityInformation({ data, onChange }: { data: any; onChange: (f: 
 }
 
 
-// ─── Step 3 — Energy Load ─────────────────────────────────────────────────────
-
-function StepEnergyLoad({ data, onChange }: { data: any; onChange: (f: string, v: string) => void }) {
-    const inputClass =
-        'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 ' +
-        'focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition bg-white';
-
-    return (
-        <div className="px-12 py-8">
-            <div className="flex items-start justify-between mb-1">
-                <h1 className="text-3xl font-bold text-gray-900">Energy Load</h1>
-            </div>
-            <p className="text-sm text-gray-500 mb-8">Help us understand how much power you need and when you need it.</p>
-
-            <div className="space-y-8 max-w-4xl">
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <div className="flex items-center gap-1.5 mb-1">
-                            <InfoIcon />
-                            <span className="text-sm font-medium text-gray-800">Annual Electricity Consumption (MWh)*</span>
-                        </div>
-                        <p className="text-xs text-gray-400 mb-2">Total energy used in the last 12 months (if operational)</p>
-                        <input className={inputClass} type="text" placeholder="input a value"
-                            value={data.annual_mwh} onChange={e => onChange('annual_mwh', e.target.value)} />
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6">
-                    <div>
-                        <div className="flex items-center gap-1.5 mb-1">
-                            <InfoIcon />
-                            <span className="text-sm font-medium text-gray-800">AI/HPC Exposure*</span>
-                        </div>
-                        <p className="text-xs text-gray-400 mb-2">What percentage of your load is dedicated to High-Performance Computing or AI training?</p>
-                        <input className={inputClass} type="text" placeholder="input a value"
-                            value={data.ai_hpc_exposure} onChange={e => onChange('ai_hpc_exposure', e.target.value)} />
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-
-// ─── Step 4 — Procurement Status ─────────────────────────────────────────────
+// ─── Step 3 — Procurement Status ─────────────────────────────────────────────
 
 function StepProcurementStatus({ data, onChange }: { data: any; onChange: (f: string, v: string) => void }) {
     const inputClass =
@@ -890,7 +1162,160 @@ function StepSustainabilityGoals({ data, onChange }: { data: any; onChange: (f: 
 }
 
 
-// ─── Step 6 — Review ─────────────────────────────────────────────────────────
+// ─── Step 5 — KPI's & Targets ────────────────────────────────────────────────
+
+const POWER_COST_BUDGET_OPTIONS = [
+    '< $30 / MWh',
+    '$30 – $50 / MWh',
+    '$50 – $75 / MWh',
+    '$75 – $100 / MWh',
+    '> $100 / MWh',
+];
+
+function StepKPIsTargets({ data, onChange }: { data: any; onChange: (f: string, v: string) => void }) {
+    const inputClass =
+        'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 ' +
+        'focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition bg-white';
+    const selectClass =
+        'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 appearance-none ' +
+        'bg-white focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition';
+
+    return (
+        <div className="px-12 py-8">
+            <div className="flex items-start justify-between mb-1">
+                <h1 className="text-3xl font-bold text-gray-900">KPI's & Targets</h1>
+            </div>
+            <p className="text-sm text-gray-500 mb-8">Define your performance benchmarks and cost constraints.</p>
+
+            <div className="max-w-4xl space-y-8">
+                <div>
+                    <h2 className="text-base font-semibold text-gray-800 mb-6">Budget & Targets</h2>
+
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <InfoIcon />
+                                    <span className="text-sm font-medium text-gray-800">Power Cost Budget ($/MWh)</span>
+                                </div>
+                                <div className="relative">
+                                    <select
+                                        className={selectClass}
+                                        value={data.power_cost_budget}
+                                        onChange={e => onChange('power_cost_budget', e.target.value)}
+                                    >
+                                        <option value="" disabled>Select range</option>
+                                        {POWER_COST_BUDGET_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                    <svg className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
+                                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <InfoIcon />
+                                    <span className="text-sm font-medium text-gray-800">Carbon Intensity Target (%)</span>
+                                </div>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 30.0"
+                                    value={data.carbon_intensity_target} onChange={e => onChange('carbon_intensity_target', e.target.value)} />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <InfoIcon />
+                                    <span className="text-sm font-medium text-gray-800">Renewable Energy Target (%)</span>
+                                </div>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 24.5"
+                                    value={data.renewable_energy_target} onChange={e => onChange('renewable_energy_target', e.target.value)} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                            <div>
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <InfoIcon />
+                                    <span className="text-sm font-medium text-gray-800">Maximum Price Risk Tolerance (%)</span>
+                                </div>
+                                <input className={inputClass} type="number" step="0.1" placeholder="e.g. 97.0"
+                                    value={data.max_price_risk_tolerance} onChange={e => onChange('max_price_risk_tolerance', e.target.value)} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+// ─── Step 6 — 3rd-Party Market ───────────────────────────────────────────────
+
+function StepThirdPartyMarket({ data, onChange }: { data: any; onChange: (f: string, v: string) => void }) {
+    return (
+        <div className="px-12 py-8">
+            <div className="flex items-start justify-between mb-1">
+                <h1 className="text-3xl font-bold text-gray-900">3rd-Party Market</h1>
+            </div>
+            <p className="text-sm text-gray-500 mb-8">Upload external market and site data files to power your analysis.</p>
+
+            <div className="max-w-4xl">
+                <h2 className="text-base font-semibold text-gray-800 mb-4">File Uploads (CSV/PDF)</h2>
+                <div className="bg-white rounded-xl border border-gray-200 px-6 divide-y divide-gray-100">
+                    <UploadRow
+                        label="Day-ahead Power Price - Nodal (CSV)"
+                        fieldName="csv_day_ahead_power_price"
+                        value={data.csv_day_ahead_power_price}
+                        onChange={onChange}
+                        buttonLabel="Choose File"
+                    />
+                    <UploadRow
+                        label="Forward Price Power Curve (CSV)"
+                        fieldName="csv_forward_price_curve"
+                        value={data.csv_forward_price_curve}
+                        onChange={onChange}
+                        buttonLabel="Choose File"
+                    />
+                    <UploadRow
+                        label="LMP History - 3 Years (CSV)"
+                        fieldName="csv_lmp_history"
+                        value={data.csv_lmp_history}
+                        onChange={onChange}
+                        buttonLabel="Choose File"
+                    />
+                    <UploadRow
+                        label="Utility Tariff Schedule (CSV/PDF)"
+                        fieldName="csv_utility_tariff"
+                        value={data.csv_utility_tariff}
+                        onChange={onChange}
+                        buttonLabel="Choose File"
+                        accept=".csv,.pdf"
+                    />
+                    <UploadRow
+                        label="Hourly Temperature at Site (CSV)"
+                        fieldName="csv_hourly_temperature"
+                        value={data.csv_hourly_temperature}
+                        onChange={onChange}
+                        buttonLabel="Choose File"
+                    />
+                    <UploadRow
+                        label="Renewable Generation Profile (CSV)"
+                        fieldName="csv_renewable_gen_profile"
+                        value={data.csv_renewable_gen_profile}
+                        onChange={onChange}
+                        buttonLabel="Choose File"
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+// ─── Step 7 — Review ─────────────────────────────────────────────────────────
 
 function EditIcon() {
     return (
@@ -933,8 +1358,7 @@ function ReviewSection({ title, onEdit, children }: {
     );
 }
 
-function StepReview({ data, onGoToStep }: { data: any; onGoToStep: (s: number) => void }) {
-    const locationSummary = [data.location_continent, data.location_iso, data.location_node].filter(Boolean).join(' / ');
+function StepReview({ data, facilityProfiles, onGoToStep }: { data: any; facilityProfiles: FacilityOnboardingData[]; onGoToStep: (s: number) => void }) {
 
     return (
         <div className="px-12 py-8">
@@ -944,39 +1368,58 @@ function StepReview({ data, onGoToStep }: { data: any; onGoToStep: (s: number) =
             <p className="text-sm text-gray-500 mb-8">Review your answers before we create your personalized dashboard.</p>
 
             <div className="max-w-4xl space-y-8">
-                {/* Facility Information */}
-                <ReviewSection title="Facility Information" onEdit={() => onGoToStep(2)}>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-                        <ReviewField label="Data Center Type*" value={data.dc_type} />
-                        <ReviewField label="Operational Status*" value={data.operational_status} />
-                        <ReviewField label="Primary Location of Interest*" value={locationSummary} />
-                        <ReviewField label="Current Utilization (%)*" value={data.utilization} />
-                        <ReviewField label="Number of Sites" optional value={data.num_sites} />
-                        <ReviewField label="Approx Total Rated IT Capacity Per Site (MW)*" value={data.it_capacity} />
-                        <ReviewField label="Target Power Usage Effectiveness*" value={data.pue} />
-                        <div>
-                            <p className="text-xs text-gray-500 mb-0.5">IT Capacity Expansion Roadmap (optional)</p>
-                            <p className="text-sm font-semibold text-gray-900">
-                                3Y: {data.expansion_3yr || '—'} &nbsp; 5Y: {data.expansion_5yr || '—'} &nbsp; 10Y: {data.expansion_10yr || '—'}
-                            </p>
-                        </div>
+                {/* Facility Profiles */}
+                <ReviewSection title="Facility Profiles" onEdit={() => onGoToStep(1)}>
+                    <div className="space-y-6">
+                        {facilityProfiles.map((fp, i) => (
+                            <div key={i} className={facilityProfiles.length > 1 ? 'pb-5 border-b border-gray-100 last:border-0 last:pb-0' : ''}>
+                                {facilityProfiles.length > 1 && (
+                                    <p className="text-xs font-semibold text-teal-700 uppercase tracking-widest mb-3">
+                                        Facility {i + 1}{fp.lp_facility_name ? ` — ${fp.lp_facility_name}` : ''}
+                                    </p>
+                                )}
+                                <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+                                    <ReviewField label="Facility Name" value={fp.lp_facility_name} />
+                                    <ReviewField label="Status" value={fp.lp_facility_status} />
+                                    <ReviewField label="Address" value={fp.lp_address} optional />
+                                    <ReviewField label="City" value={fp.lp_city} optional />
+                                    <ReviewField label="State / Province" value={fp.lp_state} optional />
+                                    <ReviewField label="Country" value={fp.lp_country} optional />
+                                    <ReviewField label="ZIP / Postal Code" value={fp.lp_zipcode} optional />
+                                    <ReviewField label="ISO / RTO Region" value={fp.lp_iso_rto} optional />
+                                    <ReviewField label="Availability Zone" value={fp.lp_availability_zone} optional />
+                                    <ReviewField label="Grid Voltage (kV)" value={fp.lp_grid_voltage_kv} optional />
+                                    <ReviewField label="Settlement Node (POD) ID" value={fp.lp_settlement_node_id} optional />
+                                    <ReviewField label="Contracted Capacity (MW)" value={fp.lp_contracted_capacity_mw} optional />
+                                    <ReviewField label="Interconnection Expiry" value={fp.lp_interconnection_expiry} optional />
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </ReviewSection>
 
                 <hr className="border-gray-200" />
 
-                {/* Energy Load */}
-                <ReviewSection title="Energy Load" onEdit={() => onGoToStep(3)}>
+                {/* IT Load & Capacity */}
+                <ReviewSection title="IT Load & Capacity" onEdit={() => onGoToStep(2)}>
                     <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-                        <ReviewField label="Annual Electricity Consumption (MWh)*" value={data.annual_mwh} />
-                        <ReviewField label="AI/HPC Exposure*" value={data.ai_hpc_exposure} />
+                        <ReviewField label="IT Power Measurement Point" value={data.it_measurement_point} />
+                        <ReviewField label="Installed IT Capacity (MW)" value={data.installed_it_capacity_mw} />
+                        <ReviewField label="Total IT Load*" value={data.total_it_load_mw} />
+                        <ReviewField label="UPS System Efficiency (%)" value={data.ups_efficiency_pct} />
+                        <ReviewField label="Cooling System Power (MW)" value={data.cooling_system_power_mw} />
+                        <ReviewField label="PDU/Transformer Efficiency (%)" value={data.pdu_efficiency_pct} />
+                        <ReviewField label="Battery Storage Capacity (MW)" value={data.battery_storage_capacity_mw} />
+                        <ReviewField label="Lighting / General Facility Load (MW)" value={data.lighting_facility_load_mw} />
+                        <ReviewField label="Forecast Scenario" value={data.forecast_scenario} />
+                        <ReviewField label="Organic IT Load Growth" value={data.organic_it_load_growth} />
                     </div>
                 </ReviewSection>
 
                 <hr className="border-gray-200" />
 
                 {/* Procurement Status */}
-                <ReviewSection title="Procurement Status" onEdit={() => onGoToStep(4)}>
+                <ReviewSection title="Procurement Status" onEdit={() => onGoToStep(3)}>
                     <div className="grid grid-cols-2 gap-x-8 gap-y-5">
                         <ReviewField label="Existing Utility/Retailer*" value={data.utility_retailer} />
                         <ReviewField label="Electricity Contract Type*" value={
@@ -994,7 +1437,7 @@ function StepReview({ data, onGoToStep }: { data: any; onGoToStep: (s: number) =
                 <hr className="border-gray-200" />
 
                 {/* Sustainability Goals */}
-                <ReviewSection title="Sustainability Goals" onEdit={() => onGoToStep(5)}>
+                <ReviewSection title="Sustainability Goals" onEdit={() => onGoToStep(4)}>
                     <div className="grid grid-cols-2 gap-x-8 gap-y-5">
                         <ReviewField label="Primary Goal*" value={data.primary_goal} />
                         {data.net_zero_year && (
@@ -1005,6 +1448,32 @@ function StepReview({ data, onGoToStep }: { data: any; onGoToStep: (s: number) =
                         <ReviewField label="Additionality Requirement" optional value={data.additionality_req} />
                     </div>
                 </ReviewSection>
+
+                <hr className="border-gray-200" />
+
+                {/* KPI's & Targets */}
+                <ReviewSection title="KPI's & Targets" onEdit={() => onGoToStep(5)}>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+                        <ReviewField label="Power Cost Budget ($/MWh)" value={data.power_cost_budget} />
+                        <ReviewField label="Carbon Intensity Target (%)" value={data.carbon_intensity_target} />
+                        <ReviewField label="Renewable Energy Target (%)" value={data.renewable_energy_target} />
+                        <ReviewField label="Maximum Price Risk Tolerance (%)" value={data.max_price_risk_tolerance} />
+                    </div>
+                </ReviewSection>
+
+                <hr className="border-gray-200" />
+
+                {/* 3rd-Party Market */}
+                <ReviewSection title="3rd-Party Market" onEdit={() => onGoToStep(6)}>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+                        <ReviewField label="Day-ahead Power Price - Nodal" value={data.csv_day_ahead_power_price} />
+                        <ReviewField label="Forward Price Power Curve" value={data.csv_forward_price_curve} />
+                        <ReviewField label="LMP History - 3 Years" value={data.csv_lmp_history} />
+                        <ReviewField label="Utility Tariff Schedule" value={data.csv_utility_tariff} />
+                        <ReviewField label="Hourly Temperature at Site" value={data.csv_hourly_temperature} />
+                        <ReviewField label="Renewable Generation Profile" value={data.csv_renewable_gen_profile} />
+                    </div>
+                </ReviewSection>
             </div>
         </div>
     );
@@ -1013,18 +1482,26 @@ function StepReview({ data, onGoToStep }: { data: any; onGoToStep: (s: number) =
 
 // ─── Root Onboarding shell ────────────────────────────────────────────────────
 
+const LP_FIELDS = new Set<string>([
+    'lp_facility_status', 'lp_facility_name', 'lp_address', 'lp_country',
+    'lp_state', 'lp_city', 'lp_zipcode', 'lp_availability_zone', 'lp_iso_rto',
+    'lp_grid_voltage_kv', 'lp_settlement_node_id', 'lp_contracted_capacity_mw',
+    'lp_interconnection_expiry',
+]);
+
 export default function Onboarding() {
     const [step, setStep] = useState(0);
     const [loading, setLoading] = useState(false);
     const [restoring, setRestoring] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [showSuccess, setShowSuccess] = useState(false);
+    const [justRegistered, setJustRegistered] = useState(false);
     const [registeredUserId, setRegisteredUserId] = useState<string | null>(null);
-    const [docs, setDocs] = useState<Doc[]>(INITIAL_DOCS);
-    const [editDocId, setEditDocId] = useState<string | null>(null);
+    const [facilityProfiles, setFacilityProfiles] = useState<FacilityOnboardingData[]>([{ ...EMPTY_FACILITY }]);
+    const [activeFacilityIdx, setActiveFacilityIdx] = useState(0);
     const hasRestoredRef = useRef(false);
     const navigate = useNavigate();
-    const { user, signUp, signOut, loading: authLoading } = useAuth();
+    const { user, signIn, signUp, signOut, loading: authLoading } = useAuth();
 
     const [accountData, setAccountData] = useState({
         firstName: '',
@@ -1036,20 +1513,37 @@ export default function Onboarding() {
     });
 
     const [formData, setFormData] = useState({
-        dc_type: '',
-        operational_status: '',
-        num_sites: '',
-        location_continent: '',
-        location_iso: '',
-        location_node: '',
-        it_capacity: '',
-        utilization: '',
-        pue: '',
-        expansion_3yr: '',
-        expansion_5yr: '',
-        expansion_10yr: '',
-        annual_mwh: '',
-        ai_hpc_exposure: '',
+        // Facility Profile (step 1)
+        lp_facility_status: '',
+        lp_facility_name: '',
+        lp_address: '',
+        lp_country: '',
+        lp_state: '',
+        lp_city: '',
+        lp_zipcode: '',
+        lp_availability_zone: '',
+        lp_iso_rto: '',
+        lp_grid_voltage_kv: '',
+        lp_settlement_node_id: '',
+        lp_contracted_capacity_mw: '',
+        lp_interconnection_expiry: '',
+        csv_planned_it_capacity: '',
+        csv_utilisation_rate: '',
+        csv_planned_pue: '',
+        csv_planned_renewables: '',
+        csv_planned_battery: '',
+        csv_historical_interval: '',
+        csv_ppue_curve: '',
+        it_measurement_point: '',
+        installed_it_capacity_mw: '',
+        total_it_load_mw: '',
+        ups_efficiency_pct: '',
+        cooling_system_power_mw: '',
+        pdu_efficiency_pct: '',
+        battery_storage_capacity_mw: '',
+        lighting_facility_load_mw: '',
+        forecast_scenario: '',
+        organic_it_load_growth: '',
         utility_retailer: '',
         electricity_contract_type: '',
         electricity_contract_other: '',
@@ -1062,6 +1556,16 @@ export default function Onboarding() {
         sustainability_targets: '',
         carbon_match_pref: '',
         additionality_req: '',
+        power_cost_budget: '',
+        carbon_intensity_target: '',
+        renewable_energy_target: '',
+        max_price_risk_tolerance: '',
+        csv_day_ahead_power_price: '',
+        csv_forward_price_curve: '',
+        csv_lmp_history: '',
+        csv_utility_tariff: '',
+        csv_hourly_temperature: '',
+        csv_renewable_gen_profile: '',
     });
 
     // Restore saved progress when a returning user lands on this page (runs once)
@@ -1077,18 +1581,25 @@ export default function Onboarding() {
 
         hasRestoredRef.current = true;
 
-        // Populate Step 0 from the DB users table record.
+        // After a fresh signup, accountData already holds what the user typed.
+        // Skip the DB-derived population so those values aren't overwritten.
+        if (justRegistered) {
+            setRestoring(false);
+            return;
+        }
+
+        // Populate Step 0 from the DB users table record for returning users.
         // contact_person stores the full name (e.g. "Jane Smith"); split on first space.
         const fullName = (user as any).contact_person || '';
         const spaceIdx = fullName.indexOf(' ');
         const derivedFirstName = spaceIdx === -1 ? fullName : fullName.slice(0, spaceIdx);
-        const derivedLastName  = spaceIdx === -1 ? ''        : fullName.slice(spaceIdx + 1);
+        const derivedLastName = spaceIdx === -1 ? '' : fullName.slice(spaceIdx + 1);
         setAccountData({
             firstName: derivedFirstName,
-            lastName:  derivedLastName,
-            email:     user.email || '',
-            title:     (user as any).title || '',
-            password:        '••••••••',
+            lastName: derivedLastName,
+            email: user.email || '',
+            title: (user as any).title || '',
+            password: '••••••••',
             confirmPassword: '••••••••',
         });
 
@@ -1099,8 +1610,28 @@ export default function Onboarding() {
                 if (response.ok) {
                     const { data } = await response.json();
                     if (data && Object.keys(data).length > 0) {
-                        const { id: _id, updated_at: _u, completed: _c, ...fields } = data;
-                        setFormData(prev => ({ ...prev, ...fields }));
+                        const { id: _id, updated_at: _u, completed: _c, facility_profiles: rawProfiles, ...fields } = data;
+
+                        // Restore facility profiles array from DB (stored as JSONB)
+                        let parsedProfiles: FacilityOnboardingData[] | null = null;
+                        if (rawProfiles) {
+                            try {
+                                const arr = typeof rawProfiles === 'string' ? JSON.parse(rawProfiles) : rawProfiles;
+                                if (Array.isArray(arr) && arr.length > 0) {
+                                    parsedProfiles = arr as FacilityOnboardingData[];
+                                }
+                            } catch { /* ignore parse errors */ }
+                        }
+
+                        if (parsedProfiles) {
+                            setFacilityProfiles(parsedProfiles);
+                            // Sync the first (active) facility's lp_ fields into formData so
+                            // Section A (Facility Identity & Grid Connection) renders pre-filled
+                            setFormData(prev => ({ ...prev, ...fields, ...parsedProfiles![0] }));
+                        } else {
+                            setFormData(prev => ({ ...prev, ...fields }));
+                        }
+
                         setStep(inferStep(fields));
                         setRestoring(false);
                         return;
@@ -1115,8 +1646,11 @@ export default function Onboarding() {
             const saved = localStorage.getItem(storageKey);
             if (saved) {
                 try {
-                    const { step: savedStep, formData: savedForm } = JSON.parse(saved);
+                    const { step: savedStep, formData: savedForm, facilityProfiles: savedFacilities } = JSON.parse(saved);
                     if (savedForm) setFormData(prev => ({ ...prev, ...savedForm }));
+                    if (savedFacilities && Array.isArray(savedFacilities) && savedFacilities.length > 0) {
+                        setFacilityProfiles(savedFacilities);
+                    }
                     if (savedStep && savedStep > 0) setStep(savedStep);
                 } catch {
                     setStep(1);
@@ -1128,8 +1662,8 @@ export default function Onboarding() {
         };
 
         restore();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [authLoading, user]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [authLoading, user, justRegistered]);
 
     // Auto-save to localStorage whenever step or form data changes
     useEffect(() => {
@@ -1138,9 +1672,9 @@ export default function Onboarding() {
 
         localStorage.setItem(
             `onboarding_progress_${finalUserId}`,
-            JSON.stringify({ step, formData })
+            JSON.stringify({ step, formData, facilityProfiles })
         );
-    }, [step, formData, user, registeredUserId]);
+    }, [step, formData, facilityProfiles, user, registeredUserId]);
 
     const updateAccountField = (field: string, value: string) => {
         setAccountData(prev => ({ ...prev, [field]: value }));
@@ -1148,6 +1682,36 @@ export default function Onboarding() {
 
     const updateField = (field: string, value: string) => {
         setFormData(prev => ({ ...prev, [field]: value }));
+        if (LP_FIELDS.has(field)) {
+            setFacilityProfiles(prev => {
+                const next = [...prev];
+                next[activeFacilityIdx] = { ...next[activeFacilityIdx], [field]: value } as FacilityOnboardingData;
+                return next;
+            });
+        }
+    };
+
+    const switchFacility = (idx: number) => {
+        setActiveFacilityIdx(idx);
+        const fac = facilityProfiles[idx];
+        setFormData(prev => ({ ...prev, ...fac }));
+    };
+
+    const addFacility = () => {
+        const newFac = { ...EMPTY_FACILITY };
+        setFacilityProfiles(prev => [...prev, newFac]);
+        const newIdx = facilityProfiles.length;
+        setActiveFacilityIdx(newIdx);
+        setFormData(prev => ({ ...prev, ...EMPTY_FACILITY }));
+    };
+
+    const deleteFacility = (idx: number) => {
+        if (facilityProfiles.length <= 1) return;
+        const next = facilityProfiles.filter((_, i) => i !== idx);
+        setFacilityProfiles(next);
+        const newActive = idx >= next.length ? next.length - 1 : idx;
+        setActiveFacilityIdx(newActive);
+        setFormData(prev => ({ ...prev, ...next[newActive] }));
     };
 
     const goNext = async () => {
@@ -1172,33 +1736,20 @@ export default function Onboarding() {
 
             setLoading(true);
             try {
-                // Attempt Supabase Auth Sign Up
-                const res: any = await signUp(accountData.email, accountData.password, {
+                const { userId } = await signUp(accountData.email, accountData.password, {
                     firstName: accountData.firstName,
                     lastName: accountData.lastName,
                     role: 'buyer',
                     title: accountData.title,
                 });
-                if (res?.data?.user?.id) {
-                    const userId = res.data.user.id;
-                    setRegisteredUserId(userId);
-
-                    const fullName = `${accountData.firstName} ${accountData.lastName}`;
-                    const { error: updateError } = await supabase
-                        .from('users')
-                        .update({
-                            contact_person: fullName,
-                            role: 'buyer',
-                            title: accountData.title,
-                            onboarding_completed: true,
-                        })
-                        .eq('id', userId);
-
-                    if (updateError) {
-                        console.warn('Profile update failed:', updateError);
-                    }
+                setRegisteredUserId(userId);
+                // Auto-login so sidebar buttons are enabled and properly highlighted
+                try {
+                    await signIn(accountData.email, accountData.password);
+                } catch {
+                    // Non-fatal — user can proceed as guest through onboarding
                 }
-                navigate('/login');
+                setJustRegistered(true);
             } catch (err) {
                 const errMsg = err instanceof Error ? err.message : String(err);
                 if (
@@ -1221,10 +1772,25 @@ export default function Onboarding() {
             // Auto-save progress to backend so it survives across devices/browsers
             const finalUserId = user?.id || registeredUserId;
             if (finalUserId) {
+                const NUMERIC_FIELDS = new Set([
+                    'battery_storage_capacity_mw', 'cooling_system_power_mw',
+                    'installed_it_capacity_mw', 'lighting_facility_load_mw',
+                    'total_it_load_mw', 'ups_efficiency_pct', 'pdu_efficiency_pct',
+                    'organic_it_load_growth', 'carbon_intensity_target',
+                    'renewable_energy_target', 'max_price_risk_tolerance',
+                    'lp_grid_voltage_kv', 'lp_contracted_capacity_mw',
+                    'contracted_capacity', 'remaining_capacity', 'existing_renewables',
+                ]);
+                const sanitized = Object.fromEntries(
+                    Object.entries(formData).map(([k, v]) => [
+                        k,
+                        NUMERIC_FIELDS.has(k) && v === '' ? null : v,
+                    ])
+                );
                 fetch('/api/onboarding/submit', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: finalUserId, ...formData }),
+                    body: JSON.stringify({ userId: finalUserId, ...sanitized, facility_profiles: facilityProfiles }),
                 }).catch(() => { /* best-effort, ignore errors */ });
             }
         }
@@ -1240,37 +1806,64 @@ export default function Onboarding() {
         setLoading(true);
         setError(null);
         try {
+            // Numeric columns in Postgres reject empty strings — coerce them to null.
+            const NUMERIC_FIELDS = new Set([
+                'battery_storage_capacity_mw', 'cooling_system_power_mw',
+                'installed_it_capacity_mw', 'lighting_facility_load_mw',
+                'total_it_load_mw', 'ups_efficiency_pct', 'pdu_efficiency_pct',
+                'organic_it_load_growth', 'carbon_intensity_target',
+                'renewable_energy_target', 'max_price_risk_tolerance',
+                'lp_grid_voltage_kv', 'lp_contracted_capacity_mw',
+                'contracted_capacity', 'remaining_capacity', 'existing_renewables',
+            ]);
+            const sanitized = Object.fromEntries(
+                Object.entries(formData).map(([k, v]) => [
+                    k,
+                    NUMERIC_FIELDS.has(k) && v === '' ? null : v,
+                ])
+            );
+
             const response = await fetch('/api/onboarding/submit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: finalUserId,
                     completed: true,
-                    ...formData
+                    ...sanitized,
+                    facility_profiles: facilityProfiles,
                 })
             });
 
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Failed to submit');
 
-            const filesToUpload = docs.filter(d => d.checked && d.file);
-            if (filesToUpload.length > 0) {
-                const uploadFormData = new FormData();
-                filesToUpload.forEach(d => {
-                    if (d.file) uploadFormData.append('files', d.file);
-                });
-                uploadFormData.append('buyer_id', finalUserId);
-
-                const uploadRes = await fetch('/api/onboarding/onboardingdocs', {
-                    method: 'POST',
-                    body: uploadFormData,
-                });
-
-                const uploadResult = await uploadRes.json();
-                if (!uploadRes.ok) {
-                    console.warn('Document upload warning:', uploadResult.error);
-                }
-            }
+            // Insert each facility profile into the `facilities` table so the
+            // Profile page sidebar and datacenterProfiles can link data centers to them.
+            const API_URL = import.meta.env.VITE_API_URL || '/api';
+            await Promise.allSettled(
+                facilityProfiles
+                    .filter(fp => fp.lp_facility_name?.trim())
+                    .map(fp =>
+                        fetch(`${API_URL}/facilities`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                buyer_id: finalUserId,
+                                name: fp.lp_facility_name.trim(),
+                                country: fp.lp_country || null,
+                                state: fp.lp_state || null,
+                                city: fp.lp_city || null,
+                                zip_code: fp.lp_zipcode || null,
+                                iso_rto: fp.lp_iso_rto || null,
+                                utility: null,
+                                grid_voltage_kv: fp.lp_grid_voltage_kv ? Number(fp.lp_grid_voltage_kv) : null,
+                                settlement_node_id: fp.lp_settlement_node_id || null,
+                                contracted_capacity_mw: fp.lp_contracted_capacity_mw ? Number(fp.lp_contracted_capacity_mw) : null,
+                                interconnection_expiry: fp.lp_interconnection_expiry || null,
+                            }),
+                        })
+                    )
+            );
 
             const finalUserIdForCleanup = user?.id || registeredUserId;
             if (finalUserIdForCleanup) {
@@ -1320,7 +1913,7 @@ export default function Onboarding() {
                                 className={`w-full text-left h-[65px] px-10 text-base transition-all ${i === step
                                     ? 'bg-white text-black font-semibold'
                                     : 'text-white font-medium hover:bg-white/5'
-                                    } ${(loading || (i > 0 && !user)) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    } ${(loading || (i > 0 && !user)) && i !== step ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                                 {label}
                             </button>
@@ -1352,13 +1945,14 @@ export default function Onboarding() {
                     )}
 
                     <div className="flex-1 overflow-y-auto">
-                        {step === 0 && <StepCreateAccount data={accountData} onChange={updateAccountField} disabled={!!user} />}
-                        {step === 1 && <StepUploadDocuments docs={docs} setDocs={setDocs} editDocId={editDocId} setEditDocId={setEditDocId} />}
+                        {step === 0 && <StepCreateAccount data={accountData} onChange={updateAccountField} disabled={!!user || justRegistered} />}
+                        {step === 1 && <StepLoadProfile data={formData} onChange={updateField} facilities={facilityProfiles} activeFacilityIdx={activeFacilityIdx} onSwitchFacility={switchFacility} onAddFacility={addFacility} onDeleteFacility={deleteFacility} />}
                         {step === 2 && <StepFacilityInformation data={formData} onChange={updateField} />}
-                        {step === 3 && <StepEnergyLoad data={formData} onChange={updateField} />}
-                        {step === 4 && <StepProcurementStatus data={formData} onChange={updateField} />}
-                        {step === 5 && <StepSustainabilityGoals data={formData} onChange={updateField} />}
-                        {step === 6 && <StepReview data={formData} onGoToStep={setStep} />}
+                        {step === 3 && <StepProcurementStatus data={formData} onChange={updateField} />}
+                        {step === 4 && <StepSustainabilityGoals data={formData} onChange={updateField} />}
+                        {step === 5 && <StepKPIsTargets data={formData} onChange={updateField} />}
+                        {step === 6 && <StepThirdPartyMarket data={formData} onChange={updateField} />}
+                        {step === 7 && <StepReview data={formData} facilityProfiles={facilityProfiles} onGoToStep={setStep} />}
                     </div>
                 </div>
             </div>
@@ -1366,13 +1960,50 @@ export default function Onboarding() {
             {/* Bottom bar */}
             <div className="h-[86px] flex-shrink-0 px-10 flex items-center justify-end" style={{ background: '#0D0630' }}>
                 <div className="flex items-center gap-3">
-                    <button
-                        onClick={goNext}
-                        disabled={loading || !!user}
-                        className="h-[34px] px-6 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
-                    >
-                        {loading ? 'Signing up...' : 'Sign Up'}
-                    </button>
+                    {step > 0 && (
+                        <button
+                            onClick={goBack}
+                            disabled={loading}
+                            className="h-[34px] px-6 bg-transparent border border-white/30 hover:border-white/60 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Back
+                        </button>
+                    )}
+                    {step === 0 && !justRegistered && (
+                        <button
+                            onClick={goNext}
+                            disabled={loading || !!user}
+                            className="h-[34px] px-6 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        >
+                            {loading ? 'Signing up…' : 'Sign Up'}
+                        </button>
+                    )}
+                    {step === 0 && justRegistered && (
+                        <button
+                            onClick={() => { setJustRegistered(false); setStep(1); }}
+                            className="h-[34px] px-6 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-1"
+                        >
+                            Continue →
+                        </button>
+                    )}
+                    {step > 0 && step < 7 && (
+                        <button
+                            onClick={goNext}
+                            disabled={loading}
+                            className="h-[34px] px-6 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        >
+                            {loading ? 'Saving…' : 'Next →'}
+                        </button>
+                    )}
+                    {step === 7 && (
+                        <button
+                            onClick={handleSubmit}
+                            disabled={loading}
+                            className="h-[34px] px-6 bg-teal-500 hover:bg-teal-600 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                        >
+                            {loading ? 'Submitting…' : 'Submit'}
+                        </button>
+                    )}
                 </div>
             </div>
 
