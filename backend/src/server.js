@@ -12,6 +12,7 @@ import onBoardingRoutes from './routes/onBoarding.js';
 import datacenterRoutes from './routes/datacenters.js';
 import facilitiesRoutes from './routes/facilities.js';
 import datacentersForecastRoutes from './routes/datacentersForecast.js';
+import mapRoutes from './routes/map.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import clientErrorLogger from './middleware/clientErrorLogger.js';
@@ -46,6 +47,7 @@ app.use('/api/onboarding', onBoardingRoutes);
 app.use('/api/datacenters', datacenterRoutes);
 app.use('/api/facilities', facilitiesRoutes);
 app.use('/api/datacenters-forecast', datacentersForecastRoutes);
+app.use('/api/map', mapRoutes);
 
 // ==========================================
 // Optional: Client Error Reporting
