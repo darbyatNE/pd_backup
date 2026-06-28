@@ -12,9 +12,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const REGION = process.env.AWS_REGION || 'us-east-1';
 const USER_POOL_ID = process.env.AWS_COGNITO_USER_POOL_ID;
 export const CLIENT_ID = process.env.AWS_COGNITO_CLIENT_ID;
+// The Cognito region is encoded in the pool ID (e.g. "us-east-2_ABC123"), which may
+// differ from AWS_REGION used by other services (SES/S3/CloudWatch are us-east-1).
+const REGION = USER_POOL_ID?.split('_')[0] || process.env.AWS_REGION || 'us-east-1';
 
 if (!USER_POOL_ID || !CLIENT_ID) {
   throw new Error('Missing Cognito environment variables: AWS_COGNITO_USER_POOL_ID, AWS_COGNITO_CLIENT_ID');
