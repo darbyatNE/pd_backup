@@ -36,21 +36,25 @@ router.post('/', authenticate, async (req, res) => {
       capacity_mw = null,
       energy_mwh = null,
       price_per_mwh = null,
-      price_per_mw_year = null,
+      price_per_mw_day = null,
       lda = null,
       shape = 'flat',
       start_year,
       start_month,
       end_year,
       end_month,
+      // Unbundled REC component (optional)
+      rec_pct = null,
+      retiring_agency = null,
+      matching_format = null,
       metadata = {},
     } = req.body;
 
     if (!fac_id || !project_name || !generation_type) {
       return res.status(400).json({ error: 'fac_id, project_name and generation_type are required' });
     }
-    if (capacity_mw == null && energy_mwh == null) {
-      return res.status(400).json({ error: 'Specify a capacity (MW) and/or energy (MWh) amount' });
+    if (capacity_mw == null && energy_mwh == null && retiring_agency == null) {
+      return res.status(400).json({ error: 'Specify at least one component: capacity (MW), energy (MWh), or RECs' });
     }
     if (!start_year || !start_month || !end_year || !end_month) {
       return res.status(400).json({ error: 'A full term (start and end year/month) is required' });
@@ -59,14 +63,16 @@ router.post('/', authenticate, async (req, res) => {
     const { rows } = await query(
       `INSERT INTO site_contracts
         (buyer_id, fac_id, project_id, project_name, generation_type,
-         capacity_mw, energy_mwh, price_per_mwh, price_per_mw_year, lda, shape,
-         start_year, start_month, end_year, end_month, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         capacity_mw, energy_mwh, price_per_mwh, price_per_mw_day, lda, shape,
+         start_year, start_month, end_year, end_month,
+         rec_pct, retiring_agency, matching_format, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING *`,
       [
         req.user.id, fac_id, project_id, project_name, generation_type,
-        capacity_mw, energy_mwh, price_per_mwh, price_per_mw_year, lda, shape,
-        start_year, start_month, end_year, end_month, JSON.stringify(metadata),
+        capacity_mw, energy_mwh, price_per_mwh, price_per_mw_day, lda, shape,
+        start_year, start_month, end_year, end_month,
+        rec_pct, retiring_agency, matching_format, JSON.stringify(metadata),
       ]
     );
     res.status(201).json({ contract: rows[0] });

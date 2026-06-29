@@ -61,9 +61,10 @@ export interface Project {
   metadata?: Metadata;
   created_at?: string;
   updated_at?: string;
-  // VPPA Pricing
+  // VPPA Pricing — unbundled: energy ($/MWh), EAC ($/MWh), capacity ($/MW-day)
   fixed_price_per_mwh?: number;
   eac_price_per_mwh?: number;
+  capacity_price_per_mw_day?: number;
   price_currency?: string;
   annual_escalator_percent?: number;
   // VPPA Timeline

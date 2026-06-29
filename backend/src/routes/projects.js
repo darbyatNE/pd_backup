@@ -92,7 +92,7 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const {
       name, generation_type, capacity_mw, location, metadata, status = 'draft',
-      fixed_price_per_mwh, eac_price_per_mwh, price_currency, annual_escalator_percent,
+      fixed_price_per_mwh, eac_price_per_mwh, capacity_price_per_mw_day, price_currency, annual_escalator_percent,
       expected_cod, guaranteed_cod, delivery_term_years,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
@@ -116,6 +116,7 @@ router.post('/', authenticate, async (req, res) => {
 
     if (fixed_price_per_mwh != null) insertData.fixed_price_per_mwh = fixed_price_per_mwh;
     if (eac_price_per_mwh != null) insertData.eac_price_per_mwh = eac_price_per_mwh;
+    if (capacity_price_per_mw_day != null) insertData.capacity_price_per_mw_day = capacity_price_per_mw_day;
     if (price_currency) insertData.price_currency = price_currency;
     if (annual_escalator_percent != null) insertData.annual_escalator_percent = annual_escalator_percent;
     if (expected_cod) insertData.expected_cod = expected_cod;
@@ -150,7 +151,7 @@ router.put('/:id', authenticate, async (req, res) => {
     const { id } = req.params;
     const {
       name, generation_type, capacity_mw, location, metadata, status,
-      fixed_price_per_mwh, eac_price_per_mwh, price_currency, annual_escalator_percent,
+      fixed_price_per_mwh, eac_price_per_mwh, capacity_price_per_mw_day, price_currency, annual_escalator_percent,
       expected_cod, guaranteed_cod, delivery_term_years,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
@@ -165,6 +166,7 @@ router.put('/:id', authenticate, async (req, res) => {
     if (status !== undefined) updateData.status = status;
     if (fixed_price_per_mwh !== undefined) updateData.fixed_price_per_mwh = fixed_price_per_mwh;
     if (eac_price_per_mwh !== undefined) updateData.eac_price_per_mwh = eac_price_per_mwh;
+    if (capacity_price_per_mw_day !== undefined) updateData.capacity_price_per_mw_day = capacity_price_per_mw_day;
     if (price_currency !== undefined) updateData.price_currency = price_currency;
     if (annual_escalator_percent !== undefined) updateData.annual_escalator_percent = annual_escalator_percent;
     if (expected_cod !== undefined) updateData.expected_cod = expected_cod;

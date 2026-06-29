@@ -43,6 +43,7 @@ interface EditableProject {
     status?: string;
     fixed_price_per_mwh?: number;
     eac_price_per_mwh?: number;
+    capacity_price_per_mw_day?: number;
     annual_escalator_percent?: number;
     expected_cod?: string;
     guaranteed_cod?: string;
@@ -182,6 +183,7 @@ interface GenerationProjectFormData {
     // VPPA Pricing
     fixed_price_per_mwh: string;
     eac_price_per_mwh: string;
+    capacity_price_per_mw_day: string;
     price_currency: PriceCurrency;
     annual_escalator_percent: string;
 
@@ -471,6 +473,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         // VPPA Pricing
         fixed_price_per_mwh: '',
         eac_price_per_mwh: '',
+        capacity_price_per_mw_day: '',
         price_currency: 'USD',
         annual_escalator_percent: '',
         // VPPA Timeline
@@ -788,6 +791,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                     // VPPA Pricing
                     fixed_price_per_mwh: editProject.fixed_price_per_mwh?.toString() || '',
                     eac_price_per_mwh: editProject.eac_price_per_mwh?.toString() || '',
+                    capacity_price_per_mw_day: editProject.capacity_price_per_mw_day?.toString() || '',
                     price_currency: (editProject.price_currency as PriceCurrency) || 'USD',
                     annual_escalator_percent: editProject.annual_escalator_percent?.toString() || '',
                     // VPPA Timeline
@@ -1008,6 +1012,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 // VPPA Pricing
                 fixed_price_per_mwh: generationForm.fixed_price_per_mwh ? Number(generationForm.fixed_price_per_mwh) : null,
                 eac_price_per_mwh: generationForm.eac_price_per_mwh ? Number(generationForm.eac_price_per_mwh) : null,
+                capacity_price_per_mw_day: generationForm.capacity_price_per_mw_day ? Number(generationForm.capacity_price_per_mw_day) : null,
                 price_currency: generationForm.price_currency,
                 annual_escalator_percent: generationForm.annual_escalator_percent ? Number(generationForm.annual_escalator_percent) : null,
                 // VPPA Availability
@@ -2208,6 +2213,21 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                                 onChange={(e) => setGenerationForm({ ...generationForm, eac_price_per_mwh: e.target.value })}
                                                                 className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
                                                                 placeholder="e.g., 5.00"
+                                                            />
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                                Capacity Cost (per MW-day)
+                                                            </label>
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                step="0.01"
+                                                                value={generationForm.capacity_price_per_mw_day}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, capacity_price_per_mw_day: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                placeholder="e.g., 269.92"
                                                             />
                                                         </div>
                                                     </div>

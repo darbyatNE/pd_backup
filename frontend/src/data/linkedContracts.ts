@@ -46,7 +46,7 @@ export interface ContractComponent {
   type: ContractComponentType;
   mwCovered: number;       // MW covered for this component
   pricePerMwh?: number;    // Component-specific price ($/MWh) - optional for REC
-  pricePerMwYear?: number; // Capacity-specific price ($/MW-year) - for capacity component
+  pricePerMwDay?: number; // Capacity-specific price ($/MW-day) - for capacity component
   shape?: ContractShape;   // Delivery profile - only for energy component
   tier?: ContractTier;     // Load tier - only for energy component
   lda?: string;            // Load Distribution Area - for capacity qualification
@@ -67,6 +67,10 @@ export interface LinkedContract {
   
   // LDA (Load Distribution Area) for capacity qualification
   lda?: string;            // Load Distribution Area - required for PPAs to qualify for capacity
+
+  // Commitment level — drives the pattern foreground color (see CommitmentLevel).
+  // Absent ⇒ treated as 'contracted' (near-black), the prior default.
+  commitment?: CommitmentLevel;
   
   // Visual styling
   pattern: 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag';
@@ -273,6 +277,30 @@ export const LOAD_COLORS = {
 // contracts, not color.
 export const PATTERN_FG = '#1e293b'; // slate-800
 
+// Commitment level of a contract toward a data center. The gen-type pattern
+// (e.g. Solar = dots) is identical across levels; only the pattern's FOREGROUND
+// color changes — lighter for lower commitment, near-black once contracted.
+//   exploring  — being tried on, not yet saved
+//   pending    — saved but not committed (contract-pending, still removable)
+//   contracted — committed / permanent
+export type CommitmentLevel = 'exploring' | 'pending' | 'contracted';
+
+export const COMMITMENT_LEVELS: CommitmentLevel[] = ['exploring', 'pending', 'contracted'];
+
+// Pattern foreground per commitment level: the pattern shape is unchanged; only
+// its color darkens as commitment firms up.
+export const COMMITMENT_PATTERN_FG: Record<CommitmentLevel, string> = {
+  exploring:  '#ffffff', // white — lowest commitment
+  pending:    '#808080', // medium gray — contract-pending
+  contracted: '#000000', // black — contracted
+};
+
+export const COMMITMENT_LABELS: Record<CommitmentLevel, string> = {
+  exploring:  'Exploring',
+  pending:    'Contract-pending',
+  contracted: 'Contracted',
+};
+
 // Pattern mapping for each generation type - consistent across all contracts
 export const GENERATION_TYPE_PATTERNS: Record<string, 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag'> = {
   'Solar': 'dots',
@@ -302,9 +330,12 @@ export function getPatternForGenerationType(generationType: string): 'diagonal' 
   return GENERATION_TYPE_PATTERNS[generationType] || 'grid';
 }
 
-/** Stable SVG pattern ID by gen type — shared by chart bars and legend swatches */
-export function genTypePatternId(generationType: string): string {
-  return `pat-gentype-${generationType.replace(/[^a-zA-Z0-9]+/g, '-')}`
+/** Stable SVG pattern ID by gen type + commitment level — shared by chart bars
+ *  and legend swatches. The shape depends only on gen type; the commitment level
+ *  selects the foreground color variant. Defaults to 'contracted' (near-black),
+ *  matching the prior single-color behavior. */
+export function genTypePatternId(generationType: string, commitment: CommitmentLevel = 'contracted'): string {
+  return `pat-gentype-${generationType.replace(/[^a-zA-Z0-9]+/g, '-')}-${commitment}`
 }
 
 /** Get sort order for a generation type */
@@ -653,7 +684,7 @@ export const LINKED_CONTRACTS: Record<string, LinkedContract[]> = {
     //   startYear: 2026, startMonth: 1,  endYear: 2035, endMonth: 12,
     //   lda: 'DOM', // Sterling is in Dominion LDA
     //   components: [
-    //     { type: 'capacity', mwCovered: 75, pricePerMwYear: 150000, lda: 'DOM' }, // $150,000 per MW-year for capacity
+    //     { type: 'capacity', mwCovered: 75, pricePerMwDay: 410, lda: 'DOM' }, // $410 per MW-day for capacity
     //     { type: 'energy',   mwCovered: 75, pricePerMwh: 55, shape: 'flat', tier: 'base' }, // $55/MWh for energy
     //     { type: 'rec',      mwCovered: 75, pricePerMwh: 15 } // $15/MWh for RECs
     //   ]},

@@ -1,31 +1,12 @@
 import {
   LOAD_COLORS,
-  PATTERN_FG,
+  COMMITMENT_LEVELS,
+  COMMITMENT_LABELS,
   getGenerationTypeOrder,
   genTypePatternId,
 } from '../../data/linkedContracts'
-import type { LinkedContract } from '../../data/linkedContracts'
-
-// Gen-type <pattern> swatches. Rendered locally so the legend works inside the
-// 3D view too (the 2D chart also defines these ids; duplicates are harmless —
-// the browser resolves url(#id) to the first occurrence).
-function LegendPatternDefs() {
-  const fg = PATTERN_FG
-  return (
-    <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
-      <defs>
-        <pattern id={genTypePatternId('Solar')}          patternUnits="userSpaceOnUse" width="6"  height="6"><circle cx="3" cy="3" r="1.3" fill={fg} /></pattern>
-        <pattern id={genTypePatternId('Wind')}           patternUnits="userSpaceOnUse" width="7"  height="7"><path d="M0,7 L7,0 M-1,1 L1,-1 M6,8 L8,6" stroke={fg} strokeWidth="1.3" /></pattern>
-        <pattern id={genTypePatternId('Hydro')}          patternUnits="userSpaceOnUse" width="10" height="6"><path d="M0,3 L2.5,0 L5,3 L7.5,6 L10,3" fill="none" stroke={fg} strokeWidth="1.2" /></pattern>
-        <pattern id={genTypePatternId('Nuclear')}        patternUnits="userSpaceOnUse" width="10" height="6"><path d="M0,3 Q2.5,0 5,3 T10,3" fill="none" stroke={fg} strokeWidth="1.2" /></pattern>
-        <pattern id={genTypePatternId('Hybrid')}         patternUnits="userSpaceOnUse" width="8"  height="8"><path d="M0,8 L8,0" stroke={fg} strokeWidth="1" /><path d="M0,0 L8,8" stroke={fg} strokeWidth="1" /></pattern>
-        <pattern id={genTypePatternId('Combined Cycle')} patternUnits="userSpaceOnUse" width="5"  height="5"><line x1="2.5" y1="0" x2="2.5" y2="5" stroke={fg} strokeWidth="1.4" /></pattern>
-        <pattern id={genTypePatternId('Peaker')}         patternUnits="userSpaceOnUse" width="6"  height="6"><path d="M0,0 L6,0 M0,3 L6,3 M0,0 L0,6 M3,0 L3,6" stroke={fg} strokeWidth="0.7" /></pattern>
-        <pattern id={genTypePatternId('Battery')}        patternUnits="userSpaceOnUse" width="6"  height="5"><line x1="0" y1="2.5" x2="6" y2="2.5" stroke={fg} strokeWidth="1.4" /></pattern>
-      </defs>
-    </svg>
-  )
-}
+import type { LinkedContract, CommitmentLevel } from '../../data/linkedContracts'
+import { GenTypePatternDefs } from './GenPatternDefs'
 
 // Map icon markup for generation types (shared by the legend and the 2D tooltip).
 export function getMapIconSvg(generationType: string): string {
@@ -80,7 +61,7 @@ export function AssetSelectionLegend({
   const peakContracts = contracts.filter((c) => c.tier === 'peak')
   const monthShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-  const ContractLegendItem = ({ color, name, projectName, sites, mw, term, isInactive = false, title, generationType }: { color: string; name: string; projectName: string; sites: string; mw: number; term: string; isInactive?: boolean; title?: string; generationType?: string }) => {
+  const ContractLegendItem = ({ color, name, projectName, sites, mw, term, isInactive = false, title, generationType, commitment }: { color: string; name: string; projectName: string; sites: string; mw: number; term: string; isInactive?: boolean; title?: string; generationType?: string; commitment?: CommitmentLevel }) => {
     const checked = selected.has(projectName)
     return (
       <label className={`flex items-start gap-2 py-1 cursor-pointer select-none ${isInactive || !checked ? 'opacity-40' : ''}`} title={title}>
@@ -93,8 +74,10 @@ export function AssetSelectionLegend({
         <svg width="16" height="16" className="flex-shrink-0 mt-0.5">
           {generationType ? (
             <>
-              <rect width="16" height="16" fill="white" stroke="#e2e8f0" strokeWidth="0.5" />
-              <rect width="16" height="16" fill={`url(#${genTypePatternId(generationType)})`} opacity="0.8" />
+              {/* Load color behind the pattern (matches the chart bar) so the
+                  pattern reads at any commitment color, incl. white. */}
+              <rect width="16" height="16" fill={color} stroke="#e2e8f0" strokeWidth="0.5" />
+              <rect width="16" height="16" fill={`url(#${genTypePatternId(generationType, commitment)})`} />
             </>
           ) : (
             <rect width="16" height="16" fill={color} />
@@ -145,8 +128,9 @@ export function AssetSelectionLegend({
         mw={c.mwCovered}
         term={`${startLabel}–${endLabel}`}
         isInactive={!isAnyYearActive}
-        title={`${c.generationType} · covers ${tierLabel} · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
+        title={`${c.generationType} · ${COMMITMENT_LABELS[c.commitment ?? 'contracted']} · covers ${tierLabel} · term ${startLabel} – ${endLabel}${isAnyYearActive ? '' : ' · out of view'}`}
         generationType={c.generationType}
+        commitment={c.commitment}
       />
     )
   }
@@ -160,7 +144,7 @@ export function AssetSelectionLegend({
 
   return (
     <div className="flex-shrink-0 text-xs border-r border-slate-200 pr-4">
-      <LegendPatternDefs />
+      <GenTypePatternDefs />
       {/* Select all / none — toggles every charted asset across the groups below */}
       <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-200">
         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Charted Assets</span>
@@ -186,6 +170,26 @@ export function AssetSelectionLegend({
             {peakContracts.sort(sortByTypeThenMw).map((c) => renderContract(c, LOAD_COLORS.peak, 'peak'))}
           </LegendGroup>
         )}
+      </div>
+
+      {/* Commitment-level key — same gen-type pattern, pattern color darkens as
+          commitment firms up (light = exploring → near-black = contracted). */}
+      <div className="mt-3 pt-2 border-t border-slate-200">
+        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Commitment level</h4>
+        <div className="flex flex-col gap-1">
+          {COMMITMENT_LEVELS.map((level) => (
+            <div key={level} className="flex items-center gap-2" title={`${COMMITMENT_LABELS[level]} — pattern shown in the Solar (dots) example`}>
+              <svg width="16" height="16" className="flex-shrink-0">
+                <rect width="16" height="16" fill={LOAD_COLORS.base} stroke="#e2e8f0" strokeWidth="0.5" />
+                <rect width="16" height="16" fill={`url(#${genTypePatternId('Solar', level)})`} />
+              </svg>
+              <span className="text-slate-600 text-[11px]">{COMMITMENT_LABELS[level]}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-slate-400 italic mt-1 max-w-[180px] leading-snug">
+          Same pattern per generation type; only the pattern color changes with commitment.
+        </p>
       </div>
     </div>
   )

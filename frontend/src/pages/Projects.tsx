@@ -31,6 +31,23 @@ type GenerationFilter = 'all' | string;
 type SubmissionState = 'idle' | 'submitting' | 'success' | 'error';
 type TabType = 'marketplace' | 'my-projects';
 
+// Sortable columns of the marketplace projects table.
+type SortKey =
+  | 'name' | 'generation_type' | 'capacity_mw' | 'location' | 'iso' | 'zone'
+  | 'fixed_price_per_mwh' | 'eac_price_per_mwh' | 'capacity_price_per_mw_day';
+
+// Comparable value for a project on a given sort key (string lower-cased, number as-is).
+// Unpriced rows sink to the bottom (ascending) via -Infinity.
+const projectSortValue = (p: Project, key: SortKey): string | number => {
+  switch (key) {
+    case 'capacity_mw': return Number(p.capacity_mw) || 0;
+    case 'fixed_price_per_mwh': return p.fixed_price_per_mwh == null ? -Infinity : Number(p.fixed_price_per_mwh);
+    case 'eac_price_per_mwh': return p.eac_price_per_mwh == null ? -Infinity : Number(p.eac_price_per_mwh);
+    case 'capacity_price_per_mw_day': return p.capacity_price_per_mw_day == null ? -Infinity : Number(p.capacity_price_per_mw_day);
+    default: return (p[key] ?? '').toString().toLowerCase();
+  }
+};
+
 interface InterestFormState {
   energy_amount_mwh: string;
   start_date: string;
@@ -103,6 +120,25 @@ export default function Projects() {
   const [error, setError] = useState('');
   const [generationFilter, setGenerationFilter] = useState<GenerationFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  // Marketplace table column sort.
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
+  const toggleSort = (key: SortKey) =>
+    setSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+  // Clickable, sort-aware table header cell for the marketplace table.
+  const SortTh = ({ label, col, className }: { label: string; col: SortKey; className?: string }) => (
+    <th
+      className={`px-3 sm:px-4 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900 ${className ?? ''}`}
+      onClick={() => toggleSort(col)}
+      aria-sort={sort.key === col ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <span className={sort.key === col ? 'text-slate-700' : 'text-slate-300'}>
+          {sort.key === col ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </span>
+    </th>
+  );
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [formState, setFormState] = useState<InterestFormState>(defaultFormState);
   const [submissionState, setSubmissionState] = useState<SubmissionState>('idle');
@@ -288,30 +324,6 @@ export default function Projects() {
     setProjectToDelete(null);
   };
 
-  const metrics = useMemo(() => {
-    const displayProjects = activeTab === 'marketplace' ? projects : sellerProjects;
-    if (!displayProjects.length) {
-      return {
-        total: 0,
-        solar: 0,
-        wind: 0,
-        avgCapacity: 0,
-      };
-    }
-
-    const solar = displayProjects.filter((project) => project.generation_type === 'Solar').length;
-    const wind = displayProjects.filter((project) => project.generation_type === 'Wind').length;
-    const avgCapacity =
-      displayProjects.reduce((total, project) => total + (project.capacity_mw || 0), 0) / displayProjects.length;
-
-    return {
-      total: displayProjects.length,
-      solar,
-      wind,
-      avgCapacity: Number.isFinite(avgCapacity) ? Number(avgCapacity.toFixed(1)) : 0,
-    };
-  }, [projects, sellerProjects, activeTab]);
-
   const filteredProjects = useMemo(() => {
     const displayProjects = activeTab === 'marketplace' ? projects : sellerProjects;
     return displayProjects
@@ -326,8 +338,14 @@ export default function Projects() {
           project.location.toLowerCase().includes(term) ||
           project.generation_type.toLowerCase().includes(term)
         );
+      })
+      .sort((a, b) => {
+        const av = projectSortValue(a, sort.key);
+        const bv = projectSortValue(b, sort.key);
+        const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+        return sort.dir === 'asc' ? cmp : -cmp;
       });
-  }, [projects, sellerProjects, generationFilter, searchTerm, activeTab]);
+  }, [projects, sellerProjects, generationFilter, searchTerm, activeTab, sort]);
 
   // Build the generation-type tab list dynamically from whatever's actually
   // in the visible deal list — always lead with "all", then each unique
@@ -336,6 +354,14 @@ export default function Projects() {
     const displayProjects = activeTab === 'marketplace' ? projects : sellerProjects;
     const types = Array.from(new Set(displayProjects.map((p) => p.generation_type))).sort();
     return ['all', ...types];
+  }, [projects, sellerProjects, activeTab]);
+
+  // Project count per gen-type filter (and total for 'all'), shown on each chip.
+  const genCounts = useMemo<Record<string, number>>(() => {
+    const displayProjects = activeTab === 'marketplace' ? projects : sellerProjects;
+    const counts: Record<string, number> = { all: displayProjects.length };
+    for (const p of displayProjects) counts[p.generation_type] = (counts[p.generation_type] ?? 0) + 1;
+    return counts;
   }, [projects, sellerProjects, activeTab]);
 
   // Reset filter to "all" when the active filter is no longer in the list
@@ -692,26 +718,7 @@ export default function Projects() {
           {/* Marketplace View */}
           {activeTab === 'marketplace' && (
             <div className="relative z-0">
-              <section className="grid gap-3 grid-cols-2 sm:grid-cols-4">
-                <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
-                  <p className="text-xs font-medium text-slate-500">Total</p>
-                  <p className="mt-1 text-xl sm:text-2xl font-semibold text-slate-900">{metrics.total}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
-                  <p className="text-xs font-medium text-slate-500">Solar</p>
-                  <p className="mt-1 text-xl sm:text-2xl font-semibold text-slate-900">{metrics.solar}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
-                  <p className="text-xs font-medium text-slate-500">Wind</p>
-                  <p className="mt-1 text-xl sm:text-2xl font-semibold text-slate-900">{metrics.wind}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm">
-                  <p className="text-xs font-medium text-slate-500">Avg. Cap.</p>
-                  <p className="mt-1 text-xl sm:text-2xl font-semibold text-slate-900">{metrics.avgCapacity} MW</p>
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm mt-4 sm:mt-6 overflow-hidden">
+              <section className="rounded-xl border border-slate-200 bg-white p-3 sm:p-4 shadow-sm overflow-hidden">
                 <div className="flex flex-col gap-3 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0">
                     {availableGenFilters.map((filter) => (
@@ -719,12 +726,20 @@ export default function Projects() {
                         key={filter}
                         type="button"
                         onClick={() => setGenerationFilter(filter)}
-                        className={`rounded-lg px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium transition whitespace-nowrap ${generationFilter === filter
+                        className={`inline-flex items-center gap-1.5 rounded-lg px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium transition whitespace-nowrap ${generationFilter === filter
                           ? 'bg-slate-900 text-white'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                           }`}
                       >
                         {filter === 'all' ? 'All' : filter}
+                        <span
+                          className={`inline-flex items-center justify-center min-w-[1.25rem] rounded-full px-1.5 text-[10px] font-semibold ${generationFilter === filter
+                            ? 'bg-white/20 text-white'
+                            : 'bg-white text-slate-500'
+                            }`}
+                        >
+                          {genCounts[filter] ?? 0}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -757,13 +772,15 @@ export default function Projects() {
                     <table className="min-w-full divide-y divide-slate-200">
                       <thead className="bg-slate-50 text-left text-xs font-medium text-slate-700">
                         <tr>
-                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap">Project</th>
-                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap">Type</th>
-                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap">Capacity</th>
-                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden sm:table-cell">Location</th>
-                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden md:table-cell">ISO</th>
-                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden md:table-cell">Zone</th>
-                          <th className="px-3 sm:px-4 py-2 whitespace-nowrap hidden md:table-cell">Price</th>
+                          <SortTh label="Project" col="name" />
+                          <SortTh label="Type" col="generation_type" />
+                          <SortTh label="Capacity" col="capacity_mw" />
+                          <SortTh label="Location" col="location" className="hidden sm:table-cell" />
+                          <SortTh label="ISO" col="iso" className="hidden md:table-cell" />
+                          <SortTh label="Zone" col="zone" className="hidden md:table-cell" />
+                          <SortTh label="Energy ($/MWh)" col="fixed_price_per_mwh" className="hidden md:table-cell" />
+                          <SortTh label="EAC ($/MWh)" col="eac_price_per_mwh" className="hidden lg:table-cell" />
+                          <SortTh label="Capacity ($/MW-day)" col="capacity_price_per_mw_day" className="hidden lg:table-cell" />
                           <th className="px-2 sm:px-3 py-2 text-right w-[130px]">Actions</th>
                         </tr>
                       </thead>
@@ -796,9 +813,13 @@ export default function Projects() {
                               {project.zone || '—'}
                             </td>
                             <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-900 hidden md:table-cell whitespace-nowrap">
-                              {project.fixed_price_per_mwh != null
-                                ? `$${project.fixed_price_per_mwh}/MWh${project.eac_price_per_mwh ? ` + $${project.eac_price_per_mwh} EAC` : ''}`
-                                : '—'}
+                              {project.fixed_price_per_mwh != null ? `$${project.fixed_price_per_mwh}` : '—'}
+                            </td>
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden lg:table-cell whitespace-nowrap">
+                              {project.eac_price_per_mwh != null ? `$${project.eac_price_per_mwh}` : '—'}
+                            </td>
+                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden lg:table-cell whitespace-nowrap">
+                              {project.capacity_price_per_mw_day != null ? `$${project.capacity_price_per_mw_day}` : '—'}
                             </td>
                             <td className="px-2 sm:px-3 py-2 sm:py-2.5 text-right">
                               <RowActionGroup>

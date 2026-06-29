@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useScopeContext } from '../contexts/ScopeContext';
 import { API_BASE_URL } from '../services/api';
 import { siteContractsForSites, type SiteContractRow } from '../data/siteContractsApi';
+import { fetchProductSet, type ProductSet } from '../data/projectProductsApi';
 import { TryOnControls } from './tryon/TryOnControls';
 import { TryOnSummaryCards } from './tryon/TryOnSummaryCards';
 import { TryOnChart } from './tryon/TryOnChart';
@@ -73,7 +74,31 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
   const [viewMode, setViewMode] = useState<'energy' | 'capacity'>(
     isBESS ? 'capacity' : 'energy'
   );
-  
+
+  // Unbundled components this project OFFERS (from planning.project_products).
+  // null while loading; if a project has no product metadata we treat all three
+  // as offered so contracting still works. Drives the check/uncheck selectors.
+  const [productSet, setProductSet] = useState<ProductSet | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchProductSet(project.id).then((s) => { if (alive) setProductSet(s); });
+    return () => { alive = false; };
+  }, [project.id]);
+  const hasAnyProduct = !!productSet && (!!productSet.capacity || !!productSet.energy || !!productSet.rec);
+  const offered = {
+    capacity: !hasAnyProduct || !!productSet?.capacity,
+    energy: !hasAnyProduct || !!productSet?.energy,
+    rec: !hasAnyProduct || !!productSet?.rec,
+  };
+  // Which components the user will save/commit. Initialised to whatever's offered.
+  const [selectedComponents, setSelectedComponents] = useState({ capacity: false, energy: true, rec: false });
+  useEffect(() => {
+    setSelectedComponents({ capacity: offered.capacity, energy: offered.energy, rec: offered.rec });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productSet]);
+  const toggleComponent = (k: 'capacity' | 'energy' | 'rec') =>
+    setSelectedComponents((prev) => ({ ...prev, [k]: !prev[k] }));
+
   // BESS configuration state
   const [bessDischargeHours, setBessDischargeHours] = useState<number[]>([15, 16, 17, 18]);
   const [bessChargeHours, setBessChargeHours] = useState<number[]>([0, 1, 2, 3, 4, 5, 24]);
@@ -95,11 +120,12 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
     return previewSites;
   }, [isBTM, scopeSite, selectedSites, viewMode, previewSites]);
 
-  // Per-data-center volume from the "Contracted volume" slider × the site allocation.
-  // BTM assets sit at a single site; otherwise the committed MW is split across the
-  // checked sites by their breakout percentage. This is what gets written to the DB —
-  // one row per data center — so the summed volume is parsed back out per site.
-  // Commitments draw from the volume still available (nameplate − already committed).
+  // Per-data-center volume written to the DB (one row per data center).
+  // BTM assets sit at a single site and use the capacity-commitment %. For
+  // multi-site deals each checked site carries its OWN absolute allocation
+  // (`splits[facId]` = % of the project's available volume) — independent and
+  // persistent per site. Commitments draw from the volume still available
+  // (nameplate − already committed).
   const effectiveCapacityMw = availableCapacityMw * (capacityPct / 100);
   const saveBreakdown = useMemo(() => {
     if (isBTM) {
@@ -107,15 +133,27 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
       return facId ? [{ facId, mw: effectiveCapacityMw }] : [];
     }
     return previewSites
-      .map((facId) => ({ facId, mw: effectiveCapacityMw * ((splits[facId] || 0) / 100) }))
+      .map((facId) => ({ facId, mw: availableCapacityMw * ((splits[facId] || 0) / 100) }))
       .filter((s) => s.mw > 0);
-  }, [isBTM, effectiveSites, previewSites, splits, effectiveCapacityMw]);
+  }, [isBTM, effectiveSites, previewSites, splits, effectiveCapacityMw, availableCapacityMw]);
 
   const saveContract = async () => {
     if (saveBreakdown.length === 0) {
       setSaveMsg({ kind: 'err', text: 'No volume to save — set the slider and site allocation above.' });
       return;
     }
+    if (!selectedComponents.capacity && !selectedComponents.energy && !selectedComponents.rec) {
+      setSaveMsg({ kind: 'err', text: 'Select at least one component (Capacity, Energy, or RECs) to contract.' });
+      return;
+    }
+    // REC attributes come from the project's offering; only attachable when fully defined.
+    const recFields = selectedComponents.rec && productSet?.rec?.retiring_agency && productSet?.rec?.matching_format
+      ? {
+          rec_pct: productSet.rec.rec_pct === '' ? null : productSet.rec.rec_pct,
+          retiring_agency: productSet.rec.retiring_agency,
+          matching_format: productSet.rec.matching_format,
+        }
+      : {};
     setSaving(true);
     setSaveMsg(null);
     try {
@@ -123,9 +161,10 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
       const headers = { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) };
       const results = await Promise.all(
         saveBreakdown.map(({ facId, mw }) => {
-          // Capacity view → MW-year baseload. Energy view → annual MWh (flat MW × 8760) peaking.
-          const capacity_mw = viewMode === 'capacity' ? Math.round(mw * 100) / 100 : null;
-          const energy_mwh = viewMode === 'energy' ? Math.round(mw * 8760 * 100) / 100 : null;
+          // One row per data center carrying every selected component:
+          // Capacity → MW-year baseload; Energy → annual MWh (flat MW × 8760); RECs → attrs.
+          const capacity_mw = selectedComponents.capacity ? Math.round(mw * 100) / 100 : null;
+          const energy_mwh = selectedComponents.energy ? Math.round(mw * 8760 * 100) / 100 : null;
           return fetch(`${API_BASE_URL}/site-contracts`, {
             method: 'POST',
             headers,
@@ -138,6 +177,7 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
               generation_type: project.generation_type,
               capacity_mw,
               energy_mwh,
+              ...recFields,
               shape: 'flat',
               start_year: saveStartYear,
               start_month: saveStartMonth,
@@ -363,10 +403,11 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">Save Contract to Load Chart</h3>
                 <p className="text-[11px] text-slate-500">
-                  {project.generation_type} · saving <strong>{viewMode === 'capacity' ? 'Capacity (MW-year, baseload)' : 'Energy (MWh/yr, peaking)'}</strong> from the volume slider — one contract per data center
+                  {project.generation_type} · one contract per data center — choose which unbundled components to contract below
                 </p>
               </div>
               <div className="flex items-center gap-1.5">
+                {/* Save / Remove act on this project's SAVED (contract-pending) rows */}
                 <button
                   type="button"
                   onClick={saveContract}
@@ -379,22 +420,69 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
                   type="button"
                   onClick={removeDrafts}
                   disabled={saving || draftContracts.length === 0}
-                  title="Delete this project's draft (uncommitted) contracts"
+                  title="Delete this project's saved (contract-pending) contracts"
                   className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-xs font-semibold rounded transition-colors"
                 >
-                  Remove
+                  Remove Saved Contracts
                 </button>
+
+                {/* Divider separates the Commit action — it acts on the saved
+                    contracts but is a distinct, irreversible step. */}
+                <span className="w-px h-6 bg-slate-300 mx-1.5" aria-hidden="true" />
+
                 <button
                   type="button"
                   onClick={commitDrafts}
                   disabled={saving || draftContracts.length === 0}
-                  title="Lock the draft contracts — permanent and non-removable"
+                  title="Commit to contracting — locks the saved contracts as permanent and non-removable. Committed contracts chart as Contracted (solid black pattern); contract-pending ones chart in medium gray."
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white text-xs font-semibold rounded transition-colors"
                 >
-                  Commit
+                  Commit to Contracting
                 </button>
               </div>
             </div>
+
+            {/* Unbundled components to contract — check/uncheck before save/commit.
+                Components the project doesn't offer are disabled and flagged. */}
+            <div className="bg-white border border-slate-200 rounded p-2 mb-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Components to contract</span>
+                {productSet && !hasAnyProduct && (
+                  <span className="text-[10px] text-slate-400 italic">no product profile — all available</span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {([
+                  { key: 'capacity' as const, label: 'Capacity (MW)' },
+                  { key: 'energy' as const, label: 'Energy (MWh)' },
+                  { key: 'rec' as const, label: 'RECs' },
+                ]).map(({ key, label }) => (
+                  <label
+                    key={key}
+                    className={`flex items-center gap-1.5 text-xs ${offered[key] ? 'text-slate-700 cursor-pointer' : 'text-slate-400'}`}
+                    title={offered[key] ? `Contract the ${label} component` : 'Not offered by this project'}
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={!offered[key]}
+                      checked={offered[key] && selectedComponents[key]}
+                      onChange={() => toggleComponent(key)}
+                      className="w-3.5 h-3.5 accent-teal-600 disabled:opacity-50"
+                    />
+                    <span className={offered[key] ? '' : 'line-through'}>{label}</span>
+                    {!offered[key] && <span className="text-[10px] italic">not offered</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* How committing affects the chart */}
+            <p className="text-[11px] text-slate-500 mb-2 leading-snug">
+              <span className="font-semibold text-slate-700">Commit to Contracting</span> locks the saved
+              contracts as permanent and non-removable. Committed contracts then chart as{' '}
+              <span className="font-semibold">Contracted</span> (solid black pattern); saved-but-uncommitted
+              contracts chart as contract-pending (medium gray).
+            </p>
 
             {/* Per-data-center amounts (from the slider × allocation) */}
             <div className="bg-white border border-slate-200 rounded p-2 mb-2">
@@ -465,7 +553,6 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
               activeYear={activeYear}
               setActiveYear={setActiveYear}
               yearOptions={yearOptions}
-              onCommit={() => setDialogOpen(true)}
             />
           )}
 

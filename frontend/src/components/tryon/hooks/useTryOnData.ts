@@ -84,7 +84,11 @@ export function useTryOnData({
     const codYear = cod ? cod.getFullYear() : startYear;
     const codMonth = cod ? cod.getMonth() + 1 : 1;
     const term = project.delivery_term_years || 15;
-    const scale = capacityPct / 100;
+    // BTM assets scale by the single capacity-commitment %; multi-site deals carry
+    // each site's own absolute allocation (`splits[k]` = % of project capacity),
+    // so no extra scaling is applied.
+    const isBTM = project.metadata?.btmAssetType != null || project.generation_type === 'Battery';
+    const scale = isBTM ? capacityPct / 100 : 1;
     const tryOnMw = previewSites.reduce(
       (sum, k) => sum + ((project.capacity_mw || 0) * scale * (splits[k] || 0)) / 100,
       0
@@ -97,6 +101,7 @@ export function useTryOnData({
       shape,
       tier,
       pattern: 'diagonal',
+      commitment: 'exploring', // try-on preview — lowest commitment, lightest pattern
       startYear: codYear,
       startMonth: codMonth,
       endYear: codYear + term,

@@ -47,9 +47,11 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Supabase (contains credentials/migrations — keep local)
+# Supabase abandoned — keep local config out, but TRACK the SQL migrations
+# (now AWS RDS migrations) so they can be deployed via git.
 .supabase/
-supabase/
+supabase/*
+!supabase/migrations/
 
 # Scripts (contain credentials — keep local)
 scripts/

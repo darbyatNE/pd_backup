@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE_URL } from '../services/api'
-import type { LinkedContract, ContractShape } from './linkedContracts'
+import type { LinkedContract, ContractShape, CommitmentLevel } from './linkedContracts'
 import { LOAD_PROFILE_MAP } from './loadProfile'
 
 // Row shape returned by GET /api/site-contracts (RDS public.site_contracts).
@@ -14,7 +14,7 @@ export interface SiteContractRow {
   capacity_mw: string | number | null
   energy_mwh: string | number | null
   price_per_mwh: string | number | null
-  price_per_mw_year: string | number | null
+  price_per_mw_day: string | number | null
   lda: string | null
   shape: string
   start_year: number
@@ -22,6 +22,10 @@ export interface SiteContractRow {
   end_year: number
   end_month: number
   committed: boolean
+  // Unbundled REC component (optional)
+  rec_pct?: string | number | null
+  retiring_agency?: string | null
+  matching_format?: string | null
 }
 
 const num = (v: string | number | null): number => (v == null ? 0 : Number(v))
@@ -60,6 +64,9 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
       r.start_year, r.start_month, r.end_year, r.end_month,
       r.shape,
       r.price_per_mwh ?? '',
+      // Keep committed vs contract-pending rows in separate groups so each entry
+      // is a single commitment level (and gets one pattern color).
+      r.committed ? 'c' : 'p',
     ].join('|')
     const list = groups.get(key)
     if (list) list.push(r)
@@ -88,6 +95,8 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
       r0.lda ??
       gr.map((r) => LOAD_PROFILE_MAP[r.fac_id]?.lda).find(Boolean) ??
       'DOM'
+    // committed ⇒ Contracted (near-black pattern); otherwise contract-pending.
+    const commitment: CommitmentLevel = r0.committed ? 'contracted' : 'pending'
     const common = {
       generationType: gen,
       pricePerMwh: num(r0.price_per_mwh),
@@ -97,6 +106,7 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
       startMonth: r0.start_month,
       endYear: r0.end_year,
       endMonth: r0.end_month,
+      commitment,
     }
 
     if (cap > 0) {
@@ -114,7 +124,7 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
           {
             type: 'capacity',
             mwCovered: r2(cap),
-            pricePerMwYear: num(r0.price_per_mw_year),
+            pricePerMwDay: num(r0.price_per_mw_day),
             lda: capLda,
           },
         ],

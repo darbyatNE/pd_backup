@@ -2,11 +2,12 @@ import { useState, useCallback } from 'react';
 import { ALL_SITE_KEYS } from '../types';
 
 export function useSiteSplits() {
-  // Each data center's allocation is independent (0–100% of the project's
-  // committed volume). They are NOT normalized to sum to 100% — the contracted
-  // total is the sum of the per-site allocations and grows/shrinks as each
-  // slider moves. The starting position is an even split (so the total opens at
-  // the full committed volume), freely adjustable up or down from there.
+  // Each data center's allocation is independent and persistent: splits[k] is that
+  // site's OWN volume as a % of the project's max offering (0–100). Setting one
+  // site never changes another, and unchecking a site (chart/save inclusion) does
+  // NOT alter its stored value — it persists until the user changes it. The
+  // contracted total is simply the sum over the checked sites. Starts at an even
+  // split so the deal opens at the full offering, adjustable per site from there.
   const [splits, setSplits] = useState<Record<string, number>>(() => {
     const total = ALL_SITE_KEYS.length;
     const base = Math.floor(100 / total);

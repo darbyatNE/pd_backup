@@ -11,6 +11,9 @@ import {
 import type { SiteLoadProfile } from '../data/loadProfile'
 import type { LinkedContract } from '../data/linkedContracts'
 import { useSiteContracts, siteContractsForSites } from '../data/siteContractsApi'
+import { useProjectProductSummaries, formatProductSummary, formatProductLocale } from '../data/projectProductsApi'
+import ProjectProductsEditor from '../components/ProjectProductsEditor'
+import { useAuth } from '../contexts/AuthContext'
 import { getSuggestedBessMw } from '../utils/capacity'
 import { useScopeContext } from '../contexts/ScopeContext'
 import { useDashboardView } from '../contexts/DashboardViewContext'
@@ -151,6 +154,12 @@ export default function Forecast() {
   const [chartActiveYear, setChartActiveYear] = useState<number>(startYear)
   const [tryOnProject, setTryOnProject] = useState<Project | null>(null)
   const [tryOnSite, setTryOnSite] = useState<string | undefined>(undefined)
+
+  // Unbundled product summaries (Capacity / Energy / RECs) per project.
+  const { user } = useAuth()
+  const canEditProducts = user?.role === 'admin' || user?.role === 'seller'
+  const { byIso: productSummaries, refetch: refetchProductSummaries } = useProjectProductSummaries()
+  const [productsProject, setProductsProject] = useState<Project | null>(null)
 
   const profiles = selectedSites
     .map((k) => LOAD_PROFILE_MAP[k])
@@ -383,7 +392,17 @@ export default function Forecast() {
                   <tbody>
                     {marketProjects.map((p) => (
                       <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/50">
-                        <td className="py-2.5 px-4 font-medium text-slate-800">{p.name}</td>
+                        <td className="py-2.5 px-4 font-medium text-slate-800">
+                          {p.name}
+                          {productSummaries[p.id] && (
+                            <div className="text-[10px] font-normal text-slate-500 mt-0.5 leading-snug">
+                              {formatProductSummary(productSummaries[p.id])}
+                              {formatProductLocale(productSummaries[p.id]) && (
+                                <span className="text-slate-400"> · {formatProductLocale(productSummaries[p.id])}</span>
+                              )}
+                            </div>
+                          )}
+                        </td>
                         <td className="py-2.5 px-3">
                           <span
                             className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border"
@@ -399,14 +418,25 @@ export default function Forecast() {
                         <td className="py-2.5 px-3 text-right font-semibold text-slate-900">{Number(p.capacity_mw || 0).toFixed(0)}</td>
                         <td className="py-2.5 px-3 text-slate-500">{p.zone || p.location || '—'}</td>
                         <td className="py-2.5 px-3">
-                          <button
-                            onClick={() => openExamineFit(p)}
-                            disabled={selectedSites.length === 0}
-                            title={selectedSites.length === 0 ? 'Select a site in the scope bar first' : 'Examine fit and save a contract'}
-                            className="px-2 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-[10px] font-semibold rounded transition-colors"
-                          >
-                            ▶ Examine Fit
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => openExamineFit(p)}
+                              disabled={selectedSites.length === 0}
+                              title={selectedSites.length === 0 ? 'Select a site in the scope bar first' : 'Examine fit and save a contract'}
+                              className="px-2 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-[10px] font-semibold rounded transition-colors"
+                            >
+                              ▶ Examine Fit
+                            </button>
+                            {canEditProducts && (
+                              <button
+                                onClick={() => setProductsProject(p)}
+                                title="Edit unbundled products (Capacity / Energy / RECs)"
+                                className="px-2 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[10px] font-semibold rounded transition-colors"
+                              >
+                                Products
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -491,6 +521,15 @@ export default function Forecast() {
           initialYear={chartActiveYear}
           onSaved={refetchSiteContracts}
           allSiteContracts={siteContractRows}
+        />
+      )}
+
+      {productsProject && (
+        <ProjectProductsEditor
+          isoId={productsProject.id}
+          projectName={productsProject.name}
+          onClose={() => setProductsProject(null)}
+          onSaved={refetchProductSummaries}
         />
       )}
     </div>
