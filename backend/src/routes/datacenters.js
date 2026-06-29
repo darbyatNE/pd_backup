@@ -12,7 +12,12 @@ router.get('/', async (req, res) => {
     const { buyer_id, facility_id } = req.query;
     if (!buyer_id) return res.status(400).json({ error: 'buyer_id is required' });
 
-    let sql = 'SELECT * FROM data_centers WHERE buyer_id = $1';
+    // ST_X/ST_Y expose the PostGIS facility_location as plain lng/lat (SELECT *
+    // alone returns it as WKB hex, which the frontend can't read).
+    let sql = `SELECT *,
+      ST_X(facility_location::geometry) AS longitude,
+      ST_Y(facility_location::geometry) AS latitude
+      FROM data_centers WHERE buyer_id = $1`;
     const params = [buyer_id];
 
     if (facility_id) {

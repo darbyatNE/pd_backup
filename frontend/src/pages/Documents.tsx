@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../services/supabase';
 import { setTariffLink } from '../utils/tariffContracts';
 
 import {
+  API_BASE_URL,
   getPowerPlans,
   getTechnicalDocuments,
   getPowerPlanDownloadUrl,
@@ -68,20 +68,20 @@ export default function Documents() {
   const fetchProjectFolders = useCallback(async () => {
     if (!user) return;
     try {
+      const token = localStorage.getItem('pd_access_token');
+      const headers = { ...(token && { Authorization: `Bearer ${token}` }) };
       if (user.role === 'buyer') {
-        const { data } = await supabase
-          .from('buyer_projects')
-          .select('id, name, project_type')
-          .eq('buyer_id', user.id)
-          .order('created_at', { ascending: false });
-        setProjectFolders((data || []).map(p => ({ id: p.id, name: p.name, type: p.project_type })));
+        const res = await fetch(`${API_BASE_URL}/projects/buyer/my-projects`, { headers });
+        const { projects } = (res.ok ? await res.json() : { projects: [] }) as {
+          projects: Array<{ id: string; name: string; project_type: string }>;
+        };
+        setProjectFolders((projects || []).map(p => ({ id: p.id, name: p.name, type: p.project_type })));
       } else {
-        const { data } = await supabase
-          .from('projects')
-          .select('id, name, generation_type')
-          .eq('seller_id', user.id)
-          .order('created_at', { ascending: false });
-        setProjectFolders((data || []).map(p => ({ id: p.id, name: p.name, type: p.generation_type })));
+        const res = await fetch(`${API_BASE_URL}/projects/my-projects`, { headers });
+        const { projects } = (res.ok ? await res.json() : { projects: [] }) as {
+          projects: Array<{ id: string; name: string; generation_type: string }>;
+        };
+        setProjectFolders((projects || []).map(p => ({ id: p.id, name: p.name, type: p.generation_type })));
       }
     } catch {
       // Non-critical — folders just won't show project names

@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { supabase } from '../services/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../services/api';
 import type { Project, Metadata } from '../types/index';
@@ -21,6 +20,12 @@ import {
   PencilSquareIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
+
+// Attach the Cognito-issued bearer token to backend API requests.
+const authHeaders = (): Record<string, string> => {
+  const token = localStorage.getItem('pd_access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
 
 type GenerationFilter = 'all' | string;
 type SubmissionState = 'idle' | 'submitting' | 'success' | 'error';
@@ -114,14 +119,10 @@ export default function Projects() {
     setLoading(true);
     setError('');
     try {
-      const { data, error: queryError } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('status', 'published')
-        .order('created_at', { ascending: false });
-
-      if (queryError) throw queryError;
-      setProjects(data ?? []);
+      const res = await fetch(`${API_BASE_URL}/projects`, { headers: authHeaders() });
+      if (!res.ok) throw new Error('Unable to load marketplace projects.');
+      const { projects } = (await res.json()) as { projects: Project[] };
+      setProjects(projects ?? []);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unable to load marketplace projects.';
       setError(message);
@@ -135,14 +136,10 @@ export default function Projects() {
     setLoading(true);
     setError('');
     try {
-      const { data, error: queryError } = await supabase
-        .from('buyer_projects')
-        .select('*')
-        .eq('buyer_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (queryError) throw queryError;
-      setBuyerProjects(data ?? []);
+      const res = await fetch(`${API_BASE_URL}/projects/buyer/my-projects`, { headers: authHeaders() });
+      if (!res.ok) throw new Error('Unable to load your projects.');
+      const { projects } = (await res.json()) as { projects: BuyerProject[] };
+      setBuyerProjects(projects ?? []);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unable to load your projects.';
       setError(message);
@@ -156,14 +153,10 @@ export default function Projects() {
     setLoading(true);
     setError('');
     try {
-      const { data, error: queryError } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('seller_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (queryError) throw queryError;
-      setSellerProjects(data ?? []);
+      const res = await fetch(`${API_BASE_URL}/projects/my-projects`, { headers: authHeaders() });
+      if (!res.ok) throw new Error('Unable to load your projects.');
+      const { projects } = (await res.json()) as { projects: Project[] };
+      setSellerProjects(projects ?? []);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unable to load your projects.';
       setError(message);
@@ -214,12 +207,11 @@ export default function Projects() {
 
   const handlePublish = async (projectId: string) => {
     try {
-      const { error } = await supabase
-        .from('projects')
-        .update({ status: 'published' })
-        .eq('id', projectId);
-
-      if (error) throw error;
+      const res = await fetch(`${API_BASE_URL}/projects/${projectId}/publish`, {
+        method: 'PUT',
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Request failed');
       fetchSellerProjects();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -229,12 +221,11 @@ export default function Projects() {
 
   const handleUnpublish = async (projectId: string) => {
     try {
-      const { error } = await supabase
-        .from('projects')
-        .update({ status: 'unpublished' })
-        .eq('id', projectId);
-
-      if (error) throw error;
+      const res = await fetch(`${API_BASE_URL}/projects/${projectId}/unpublish`, {
+        method: 'PUT',
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Request failed');
       fetchSellerProjects();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -268,13 +259,14 @@ export default function Projects() {
     if (!projectToDelete) return;
 
     try {
-      const tableName = user?.role === 'buyer' ? 'buyer_projects' : 'projects';
-      const { error } = await supabase
-        .from(tableName)
-        .delete()
-        .eq('id', projectToDelete);
-
-      if (error) throw error;
+      const path = user?.role === 'buyer'
+        ? `/projects/buyer/${projectToDelete}`
+        : `/projects/${projectToDelete}`;
+      const res = await fetch(`${API_BASE_URL}${path}`, {
+        method: 'DELETE',
+        headers: authHeaders(),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Request failed');
 
       // Refresh appropriate project list based on user role
       if (user?.role === 'seller') {

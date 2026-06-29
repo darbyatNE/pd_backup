@@ -1,8 +1,8 @@
 /**
  * Site Data Service
  * 
- * Fetches load sites from Supabase data_centers table
- * as provided by Profile tab developer.
+ * Fetches load sites from the RDS data_centers table via the backend API
+ * (GET /api/datacenters).
  * 
  * Expected data_centers schema:
  * - FAC_ID: unique facility identifier (used as siteKey)
@@ -14,7 +14,7 @@
  * - iso_zone: ISO zone code
  */
 
-import { supabase } from './supabase';
+import { API_BASE_URL } from './api';
 
 export interface DataCenterSite {
   siteKey: string;           // FAC_ID from data_centers
@@ -30,24 +30,23 @@ export interface DataCenterSite {
 }
 
 /**
- * Fetch all data center sites for a buyer
- * Uses the query pattern provided by Profile tab developer:
- * 
- * const { data, error } = await supabase
- *   .from('data_centers')
- *   .select('FAC_ID')
- *   .eq('buyer_id', 'your-buyer-id-here');
+ * Fetch all data center sites for a buyer via the backend API (RDS-backed):
+ *   GET /api/datacenters?buyer_id=<id>
  */
 export async function fetchDataCenterSites(buyerId: string): Promise<DataCenterSite[]> {
-  const { data, error } = await supabase
-    .from('data_centers')
-    .select('*')
-    .eq('buyer_id', buyerId);
+  const token = localStorage.getItem('pd_access_token');
+  const response = await fetch(
+    `${API_BASE_URL}/datacenters?buyer_id=${encodeURIComponent(buyerId)}`,
+    { headers: { ...(token && { Authorization: `Bearer ${token}` }) } }
+  );
 
-  if (error) {
-    console.error('Error fetching data centers:', error);
-    throw new Error(`Failed to fetch data centers: ${error.message}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Failed to fetch data centers' }));
+    console.error('Error fetching data centers:', err);
+    throw new Error(`Failed to fetch data centers: ${err.error || response.status}`);
   }
+
+  const { data } = await response.json();
 
   if (!data || data.length === 0) {
     return [];
@@ -58,17 +57,17 @@ export async function fetchDataCenterSites(buyerId: string): Promise<DataCenterS
   return data.map((row: any) => {
     // Parse facility_location if it contains coordinates
     // Supabase PostGIS returns as { type: 'Point', coordinates: [lng, lat] } in GeoJSON mode
-    let longitude: number | undefined;
-    let latitude: number | undefined;
-    
-    if (row.facility_location) {
-      if (typeof row.facility_location === 'object' && 
-          row.facility_location.type === 'Point' && 
-          Array.isArray(row.facility_location.coordinates)) {
-        // GeoJSON format: coordinates[0] = lng, coordinates[1] = lat
-        longitude = row.facility_location.coordinates[0];
-        latitude = row.facility_location.coordinates[1];
-      }
+    // Backend returns explicit longitude/latitude (ST_X/ST_Y on facility_location).
+    let longitude: number | undefined = typeof row.longitude === 'number' ? row.longitude : undefined;
+    let latitude: number | undefined = typeof row.latitude === 'number' ? row.latitude : undefined;
+
+    // Fallback: GeoJSON Point shape, if a caller ever supplies facility_location directly.
+    if ((longitude === undefined || latitude === undefined) && row.facility_location &&
+        typeof row.facility_location === 'object' &&
+        row.facility_location.type === 'Point' &&
+        Array.isArray(row.facility_location.coordinates)) {
+      longitude = row.facility_location.coordinates[0];
+      latitude = row.facility_location.coordinates[1];
     }
     
     // Parse JSON from text columns (HIST_MW = capacity_by_year, DELTA_CAP_y = baseload_mwh_by_month)

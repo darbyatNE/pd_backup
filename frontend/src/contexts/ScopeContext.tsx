@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { supabase } from '../services/supabase';
+import { useAuth } from './AuthContext';
+import { API_BASE_URL } from '../services/api';
 import { LOAD_PROFILE_MAP } from '../data/loadProfile';
 
 export interface ScopeState {
@@ -28,6 +29,7 @@ const ScopeContext = createContext<ScopeContextValue | null>(null);
 const FALLBACK_SITE_KEYS = ['ashburn-dc', 'manassas-industrial', 'sterling-hyperscale'];
 
 export function ScopeProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [availableSites, setAvailableSites] = useState<string[]>([]);
   const [selectedSites, setSelectedSites] = useState<string[]>([]);
   const [startYear,  setStartYear]  = useState(2026);
@@ -37,15 +39,12 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch sites from Supabase data_centers table for logged-in user
+  // Fetch sites from the RDS data_centers table for the logged-in user (via the backend API)
   const fetchSites = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      
       if (!user) {
         // No user logged in - use fallback sites
         setAvailableSites(FALLBACK_SITE_KEYS);
@@ -54,21 +53,22 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Fetch sites from data_centers table using Satya's query pattern
-      const { data, error: dbError } = await supabase
-        .from('data_centers')
-        .select('FAC_ID')
-        .eq('buyer_id', user.id);
+      const token = localStorage.getItem('pd_access_token');
+      const res = await fetch(
+        `${API_BASE_URL}/datacenters?buyer_id=${encodeURIComponent(user.id)}`,
+        { headers: { ...(token && { Authorization: `Bearer ${token}` }) } }
+      );
 
-      if (dbError) {
-        console.error('Error fetching sites from DB:', dbError);
-        setError(dbError.message);
-        // Fall back to hardcoded sites on error
-        setAvailableSites(FALLBACK_SITE_KEYS);
-        setSelectedSites(FALLBACK_SITE_KEYS);
-      } else if (data && data.length > 0) {
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to fetch sites' }));
+        throw new Error(err.error || `Failed to fetch sites (${res.status})`);
+      }
+
+      const { data } = (await res.json()) as { data: Array<{ FAC_ID: string }> };
+
+      if (data && data.length > 0) {
         // Only use DB keys that have a known load profile; fall back if none match
-        const dbKeys = data.map((row: { FAC_ID: string }) => row.FAC_ID as string);
+        const dbKeys = data.map((row) => row.FAC_ID as string);
         const knownKeys = dbKeys.filter((k) => k in LOAD_PROFILE_MAP);
         const siteKeys = knownKeys.length > 0 ? knownKeys : FALLBACK_SITE_KEYS;
         setAvailableSites(siteKeys);
@@ -90,21 +90,11 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Fetch sites on mount
+  // Fetch sites on mount and whenever auth state changes (login/logout).
   useEffect(() => {
     fetchSites();
-  }, []);
-
-  // Also refetch when auth state changes (login/logout)
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-        fetchSites();
-      }
-    });
-    
-    return () => subscription.unsubscribe();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const toggleSite = (key: string) => {
     setSelectedSites((prev) => {

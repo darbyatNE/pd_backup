@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { supabase } from '../services/supabase';
+import { API_BASE_URL } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { Transaction, TransactionStatus } from '../types/index';
 import StatusBadge from '../components/StatusBadge';
@@ -245,28 +245,17 @@ export default function Transactions() {
     setError('');
 
     try {
-      let query = supabase
-        .from('transactions')
-        .select(`
-            *,
-            project:projects(*),
-            buyer:users!transactions_buyer_id_fkey(*),
-            seller:users!transactions_seller_id_fkey(*)
-          `)
-        .order('created_at', { ascending: false });
+      // The backend scopes by role (buyer/seller) and joins project/buyer/seller
+      // via row_to_json, returning the same shape the Supabase query did.
+      const token = localStorage.getItem('pd_access_token');
+      const res = await fetch(`${API_BASE_URL}/transactions`, {
+        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+      });
+      if (!res.ok) throw new Error('Unable to load transactions right now.');
+      const { transactions } = (await res.json()) as { transactions: Transaction[] };
 
-      if (user.role === 'buyer') {
-        query = query.eq('buyer_id', user.id);
-      } else if (user.role === 'seller') {
-        query = query.eq('seller_id', user.id);
-      }
-
-      const { data, error: queryError } = await query;
-
-      if (queryError) throw queryError;
-
-      setTransactions(data ?? []);
-      hasDataRef.current = (data?.length ?? 0) > 0;
+      setTransactions(transactions ?? []);
+      hasDataRef.current = (transactions?.length ?? 0) > 0;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unable to load transactions right now.';
       setError(message);
@@ -320,12 +309,13 @@ export default function Transactions() {
     setActionMessage(null);
 
     try {
-      const { error: updateError } = await supabase
-        .from('transactions')
-        .update({ status: newStatus })
-        .eq('id', transactionId);
-
-      if (updateError) throw updateError;
+      const token = localStorage.getItem('pd_access_token');
+      const res = await fetch(`${API_BASE_URL}/transactions/${transactionId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Unable to update transaction status.');
 
       await fetchTransactions();
 

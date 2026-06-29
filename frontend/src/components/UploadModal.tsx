@@ -1,8 +1,7 @@
 import { Fragment, useState, useEffect, useCallback } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon, CloudArrowUpIcon, DocumentTextIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
-import { uploadBuyerDocument, uploadSellerDocument, getExampleDocuments } from '../services/api';
-import { supabase } from '../services/supabase';
+import { API_BASE_URL, uploadBuyerDocument, uploadSellerDocument, getExampleDocuments } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { BuyerDocumentCategory, SellerType, TechnologyType, ExampleDocument } from '../types';
 
@@ -133,14 +132,13 @@ export default function UploadModal({
     // Fetch buyer projects
     const fetchBuyerProjects = useCallback(async () => {
         try {
-            const { data, error } = await supabase
-                .from('buyer_projects')
-                .select('id, name, project_type')
-                .eq('buyer_id', user?.id)
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            setBuyerProjects(data || []);
+            const token = localStorage.getItem('pd_access_token');
+            const res = await fetch(`${API_BASE_URL}/projects/buyer/my-projects`, {
+                headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+            });
+            if (!res.ok) throw new Error('Failed to fetch buyer projects');
+            const { projects } = (await res.json()) as { projects: BuyerProject[] };
+            setBuyerProjects(projects || []);
         } catch (err) {
             console.error('Failed to fetch buyer projects', err);
         }
@@ -148,14 +146,13 @@ export default function UploadModal({
 
     const fetchSellerProjects = useCallback(async () => {
         try {
-            const { data, error } = await supabase
-                .from('projects')
-                .select('id, name, generation_type')
-                .eq('seller_id', user?.id)
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-            setSellerProjects(data || []);
+            const token = localStorage.getItem('pd_access_token');
+            const res = await fetch(`${API_BASE_URL}/projects/my-projects`, {
+                headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+            });
+            if (!res.ok) throw new Error('Failed to fetch seller projects');
+            const { projects } = (await res.json()) as { projects: SellerProject[] };
+            setSellerProjects(projects || []);
         } catch (err) {
             console.error('Failed to fetch seller projects', err);
         }

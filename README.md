@@ -111,7 +111,7 @@ Node container, serve static files over HTTPS, and hold a few secrets will work.
 | `VITE_SUPABASE_ANON_KEY`         | Frontend build, backend         | Supabase anon key (safe to ship to browsers — RLS enforces access)        |
 | `SUPABASE_SERVICE_ROLE_KEY`      | Scripts, optional backend use   | Supabase service role key — **server-only**, never ship to browsers       |
 | `AWS_REGION`                     | Backend (S3 client, error logger) | Defaults to `us-east-1`                                                   |
-| `AWS_S3_BUCKET_NAME`             | Backend (uploads)               | Bucket configured per `AWS-RESOURCES.md` §6                                |
+| `AWS_S3_BUCKET_NAME`             | Backend (uploads)               | `powerdime-prod-uploads-742428948650` (see `AWS-RESOURCES.md` §6). Note: this is the prod bucket — local uploads write to prod storage |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Backend (local dev only) | In production the ECS task role handles auth — leave these blank           |
 | `FRONTEND_ERROR_LOG_GROUP`       | Backend (client error logger)   | CloudWatch log group name                                                  |
 | `VITE_API_URL`                   | Frontend build                  | Only needed for production builds where the API isn't on the same origin   |

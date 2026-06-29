@@ -4,7 +4,7 @@
 // "filled-in by contract" stack visualization.
 
 import { LOAD_PROFILE_MAP, getLoadMultiplierForYearMonth, type SiteLoadProfile } from './loadProfile';
-import { supabase } from '../services/supabase';
+import { API_BASE_URL } from '../services/api';
 import { canDeliverCapacity } from './ldaData';
 
 // Buyer project from database
@@ -543,20 +543,27 @@ function mapBuyerProjectToContract(project: BuyerProject, siteKey: string): Link
 // Fetch real buyer projects from database and convert to hedges
 export async function getRealProjectsAsHedges(siteKey: string): Promise<LinkedContract[]> {
   try {
-    const { data: projects, error } = await supabase
-      .from('buyer_projects')
-      .select('*')
-      .eq('project_type', SITE_FACILITIES[siteKey]?.facilityType ?? 'brownfield')
-      .limit(4);
-    
-    if (error || !projects || projects.length === 0) {
+    const token = localStorage.getItem('pd_access_token');
+    const targetType = SITE_FACILITIES[siteKey]?.facilityType ?? 'brownfield';
+    const response = await fetch(`${API_BASE_URL}/projects/buyer/my-projects`, {
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+    });
+    const { projects } = (response.ok ? await response.json() : { projects: [] }) as {
+      projects: BuyerProject[];
+    };
+
+    const filtered = (projects ?? [])
+      .filter((p) => p.project_type === targetType)
+      .slice(0, 4);
+
+    if (filtered.length === 0) {
       // Fallback to generated hedges if no real projects
       const facility = SITE_FACILITIES[siteKey];
       return facility ? generateHedgesForSite(facility) : [];
     }
-    
-    return projects
-      .map(p => mapBuyerProjectToContract(p, siteKey))
+
+    return filtered
+      .map((p) => mapBuyerProjectToContract(p, siteKey))
       .filter((c): c is LinkedContract => c !== null);
   } catch {
     // Fallback on error

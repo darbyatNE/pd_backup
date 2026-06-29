@@ -84,7 +84,7 @@ untagged images older than 7 days.
 | Task role                | See §7 (`powerdime-prod-backend-task`)                                                                   |
 | Container image          | `${ECR_BACKEND}:latest` built from `backend/Dockerfile`                                                  |
 | Container port           | `3000`                                                                                                   |
-| Environment variables    | `PORT=3000`, `NODE_ENV=production`, `AWS_REGION=us-east-1`, `AWS_S3_BUCKET_NAME=powerdime-prod-uploads`  |
+| Environment variables    | `PORT=3000`, `NODE_ENV=production`, `AWS_REGION=us-east-1`, `AWS_S3_BUCKET_NAME=powerdime-prod-uploads-742428948650`  |
 | Secrets (from Secrets Manager) | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (see §8)                |
 | Log configuration        | `awslogs` driver → `/ecs/powerdime-prod-backend` CloudWatch log group                                    |
 | Service desired count    | `2` (rolling update with min 100% / max 200%)                                                            |
@@ -111,7 +111,7 @@ Same shape as the backend service, but:
 
 | Item             | Value                                                                                             |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
-| Name             | `powerdime-prod-uploads`                                                                          |
+| Name             | `powerdime-prod-uploads-742428948650` (account-ID suffix; account `742428948650`)                |
 | Public access    | Block all public access                                                                           |
 | Versioning       | Enabled (lets operators recover from accidental overwrites)                                       |
 | Default encryption | SSE-S3 (AES256) or SSE-KMS with a CMK if customer-managed keys are required                     |
@@ -182,8 +182,8 @@ Inline policy — S3 + CloudWatch Logs for client error reporter:
         "s3:ListBucket"
       ],
       "Resource": [
-        "arn:aws:s3:::powerdime-prod-uploads",
-        "arn:aws:s3:::powerdime-prod-uploads/*"
+        "arn:aws:s3:::powerdime-prod-uploads-742428948650",
+        "arn:aws:s3:::powerdime-prod-uploads-742428948650/*"
       ]
     },
     {

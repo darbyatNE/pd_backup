@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../services/api';
 import type { SiteLoadProfile, LoadShapePoint } from '../data/loadProfile';
 import { 
   HOUR_SHAPE_DC, HOUR_SHAPE_IND, HOUR_SHAPE_HP,
@@ -33,7 +34,7 @@ interface DataCenterRow {
 }
 
 /**
- * Fetches data centers from Supabase and transforms them into SiteLoadProfile format
+ * Fetches data centers from RDS (via the backend API) and transforms them into SiteLoadProfile format
  * This replaces the hardcoded LOAD_PROFILES with real database data
  */
 export function useLoadProfilesFromDB() {
@@ -53,15 +54,19 @@ export function useLoadProfilesFromDB() {
         return;
       }
 
-      // Fetch data centers for this buyer
-      const { data, error: dbError } = await supabase
-        .from('data_centers')
-        .select('*')
-        .eq('buyer_id', user.id);
+      // Fetch data centers for this buyer (via the backend API → RDS)
+      const token = localStorage.getItem('pd_access_token');
+      const res = await fetch(
+        `${API_BASE_URL}/datacenters?buyer_id=${encodeURIComponent(user.id)}`,
+        { headers: { ...(token && { Authorization: `Bearer ${token}` }) } }
+      );
 
-      if (dbError) {
-        throw new Error(dbError.message);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Failed to fetch profiles' }));
+        throw new Error(err.error || `Failed to fetch profiles (${res.status})`);
       }
+
+      const { data } = (await res.json()) as { data: DataCenterRow[] };
 
       if (!data || data.length === 0) {
         setProfiles([]);
@@ -157,7 +162,7 @@ export function useLoadProfilesFromDB() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchProfiles();
