@@ -8,11 +8,12 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { getForecastCapacityForYear, type SiteLoadProfile, LOAD_PROFILES } from '../../data/loadProfile';
-import { 
-  getCapacitySourcesForSites, 
-  getContractsForSites, 
-  getQualifiedCapacityMwCovered 
+import {
+  getCapacitySourcesForSites,
+  getQualifiedCapacityMwCovered,
+  monthsCoveredInYear
 } from '../../data/linkedContracts';
+import type { LinkedContract } from '../../data/linkedContracts';
 import { r1 } from './utils';
 
 interface TryOnCapacityChartProps {
@@ -21,6 +22,14 @@ interface TryOnCapacityChartProps {
   startYear: number;
   endYear: number;
   projectName: string;
+  existingContracts?: LinkedContract[];
+  // Proposed-deal term (from the save-form selectors). Used to prorate the
+  // proposed capacity so a bilateral deal that doesn't run the full year shows
+  // only its in-delivery share. Defaults to the full scope when omitted.
+  termStartYear?: number;
+  termStartMonth?: number;
+  termEndYear?: number;
+  termEndMonth?: number;
 }
 
 export function TryOnCapacityChart({
@@ -29,7 +38,14 @@ export function TryOnCapacityChart({
   startYear,
   endYear,
   projectName,
+  existingContracts = [],
+  termStartYear,
+  termStartMonth = 1,
+  termEndYear,
+  termEndMonth = 12,
 }: TryOnCapacityChartProps) {
+  const tStartY = termStartYear ?? startYear;
+  const tEndY = termEndYear ?? endYear;
   // Test console logging
   console.log('=== TRY ON CAPACITY CHART LOADED ===');
   
@@ -54,7 +70,7 @@ export function TryOnCapacityChart({
 
     // Get existing capacity from both CapacitySource and LDA-qualified LinkedContract capacity components
     const capacitySources = getCapacitySourcesForSites(sites);
-    const contracts = getContractsForSites(sites);
+    const contracts = existingContracts;
     
     const capacitySourceMw = capacitySources.reduce((sum, source) => sum + source.mwCovered, 0);
     
@@ -66,12 +82,16 @@ export function TryOnCapacityChart({
     
     const contractCapacityMw = getQualifiedCapacityMwCovered(contracts, loadLda, year);
     const existingCapacity = capacitySourceMw + contractCapacityMw;
-    
+
     console.log(`[CapacityChart] Year ${year}: capacitySourceMw=${capacitySourceMw}, contractCapacityMw=${contractCapacityMw}, existingCapacity=${existingCapacity}`);
 
+    // Prorate the proposed deal by the share of this year it actually delivers.
+    const proposedFrac = monthsCoveredInYear(year, tStartY, termStartMonth, tEndY, termEndMonth) / 12;
+    const proposedCapacity = effectiveCapacity * proposedFrac;
+
     // Calculate coverage - simplified logic
-    const totalCapacity = existingCapacity + effectiveCapacity;
-    const actualProjectCapacity = Math.min(effectiveCapacity, Math.max(0, yearSiteCapacity - existingCapacity));
+    const totalCapacity = existingCapacity + proposedCapacity;
+    const actualProjectCapacity = Math.min(proposedCapacity, Math.max(0, yearSiteCapacity - existingCapacity));
     const uncovered = Math.max(0, yearSiteCapacity - existingCapacity - actualProjectCapacity);
     const coveragePercent = yearSiteCapacity > 0 ? ((existingCapacity + actualProjectCapacity) / yearSiteCapacity) * 100 : 0;
 

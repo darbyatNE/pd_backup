@@ -4,6 +4,19 @@ import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// WHERE clause limiting a project write to what the caller may edit:
+//  - admin: any project; everyone else: own seller_id or own company's project.
+// `startAt` = number of params already bound before this clause.
+function projectOwnershipWhere(req, startAt) {
+  if (req.user.role === 'admin') {
+    return { whereSql: `WHERE id = $${startAt + 1}`, whereParams: [req.params.id] };
+  }
+  return {
+    whereSql: `WHERE id = $${startAt + 1} AND (seller_id = $${startAt + 2} OR owner_company_id = $${startAt + 3})`,
+    whereParams: [req.params.id, req.user.id, req.user.companyId],
+  };
+}
+
 // GET /api/projects/my-projects - Get current seller's projects
 router.get('/my-projects', authenticate, async (req, res) => {
   console.log('=== /my-projects endpoint hit ===');
@@ -36,12 +49,23 @@ router.get('/my-projects', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/projects - List published projects (marketplace)
+// GET /api/projects - List projects visible to the caller.
+//  - admin: every project.
+//  - everyone else: published marketplace projects + their own company's private projects.
 router.get('/', authenticate, async (req, res) => {
   try {
-    const { rows: projects } = await query(
-      "SELECT * FROM projects WHERE status = 'published' ORDER BY created_at DESC"
-    );
+    let projects;
+    if (req.user.role === 'admin') {
+      ({ rows: projects } = await query('SELECT * FROM projects ORDER BY created_at DESC'));
+    } else {
+      ({ rows: projects } = await query(
+        `SELECT * FROM projects
+         WHERE (visibility = 'marketplace' AND status = 'published')
+            OR (owner_company_id IS NOT NULL AND owner_company_id = $1)
+         ORDER BY created_at DESC`,
+        [req.user.companyId]
+      ));
+    }
     res.json({ projects });
   } catch (error) {
     console.error('Get projects error:', error);
@@ -78,7 +102,17 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields: name, generation_type, capacity_mw' });
     }
 
-    const insertData = { seller_id: req.user.id, name, generation_type, capacity_mw, location, metadata, status };
+    // Ownership/visibility: admins & sellers may publish to the contractable
+    // marketplace; everyone else only creates projects private to their company.
+    const canPublishMarketplace = req.user.role === 'admin' || req.user.role === 'seller';
+    const requestedMarketplace = canPublishMarketplace && (req.body.visibility ?? 'marketplace') === 'marketplace';
+    const visibility = requestedMarketplace ? 'marketplace' : 'private';
+    const owner_company_id = visibility === 'private' ? req.user.companyId : null;
+
+    const insertData = {
+      seller_id: req.user.id, name, generation_type, capacity_mw, location, metadata, status,
+      visibility, owner_company_id,
+    };
 
     if (fixed_price_per_mwh != null) insertData.fixed_price_per_mwh = fixed_price_per_mwh;
     if (eac_price_per_mwh != null) insertData.eac_price_per_mwh = eac_price_per_mwh;
@@ -147,12 +181,13 @@ router.put('/:id', authenticate, async (req, res) => {
     if (price_schedule !== undefined) updateData.price_schedule = price_schedule;
 
     const { setClause, values } = buildUpdateSet(updateData);
+    const { whereSql, whereParams } = projectOwnershipWhere(req, values.length);
     const { rows } = await query(
-      `UPDATE projects SET ${setClause} WHERE id = $${values.length + 1} AND seller_id = $${values.length + 2} RETURNING *`,
-      [...values, id, req.user.id]
+      `UPDATE projects SET ${setClause} ${whereSql} RETURNING *`,
+      [...values, ...whereParams]
     );
 
-    if (!rows[0]) return res.status(404).json({ error: 'Project not found' });
+    if (!rows[0]) return res.status(404).json({ error: 'Project not found or not yours' });
     res.json({ project: rows[0] });
   } catch (error) {
     console.error('Update project error:', error);
@@ -164,11 +199,12 @@ router.put('/:id', authenticate, async (req, res) => {
 router.put('/:id/publish', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
+    const { whereSql, whereParams } = projectOwnershipWhere(req, 0);
     const { rows } = await query(
-      "UPDATE projects SET status = 'published', updated_at = NOW() WHERE id = $1 AND seller_id = $2 RETURNING *",
-      [id, req.user.id]
+      `UPDATE projects SET status = 'published', updated_at = NOW() ${whereSql} RETURNING *`,
+      whereParams
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Project not found' });
+    if (!rows[0]) return res.status(404).json({ error: 'Project not found or not yours' });
     res.json({ project: rows[0] });
   } catch (error) {
     console.error('Publish project error:', error);
@@ -180,11 +216,12 @@ router.put('/:id/publish', authenticate, async (req, res) => {
 router.put('/:id/unpublish', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
+    const { whereSql, whereParams } = projectOwnershipWhere(req, 0);
     const { rows } = await query(
-      "UPDATE projects SET status = 'unpublished', updated_at = NOW() WHERE id = $1 AND seller_id = $2 RETURNING *",
-      [id, req.user.id]
+      `UPDATE projects SET status = 'unpublished', updated_at = NOW() ${whereSql} RETURNING *`,
+      whereParams
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Project not found' });
+    if (!rows[0]) return res.status(404).json({ error: 'Project not found or not yours' });
     res.json({ project: rows[0] });
   } catch (error) {
     console.error('Unpublish project error:', error);
@@ -195,8 +232,9 @@ router.put('/:id/unpublish', authenticate, async (req, res) => {
 // DELETE /api/projects/:id
 router.delete('/:id', authenticate, async (req, res) => {
   try {
-    const { id } = req.params;
-    await query('DELETE FROM projects WHERE id = $1 AND seller_id = $2', [id, req.user.id]);
+    const { whereSql, whereParams } = projectOwnershipWhere(req, 0);
+    const { rowCount } = await query(`DELETE FROM projects ${whereSql}`, whereParams);
+    if (rowCount === 0) return res.status(404).json({ error: 'Project not found or not yours' });
     res.json({ message: 'Project deleted successfully' });
   } catch (error) {
     console.error('Delete project error:', error);

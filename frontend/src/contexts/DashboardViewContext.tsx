@@ -2,7 +2,7 @@ import { createContext, useContext, useState, type ReactNode } from 'react';
 
 // Internal view ids match the underlying route components; only the user-facing
 // labels were renamed (Forecast → Planning, Planning → Risk).
-export type DashboardView = 'profile' | 'forecast' | 'map' | 'planning';
+export type DashboardView = 'profile' | 'forecast' | 'map' | 'planning' | 'admin';
 
 export const DASHBOARD_VIEWS: { id: DashboardView; label: string }[] = [
   { id: 'profile',  label: 'Load Profile'  }, // user profile and site management
@@ -10,6 +10,9 @@ export const DASHBOARD_VIEWS: { id: DashboardView; label: string }[] = [
   { id: 'map',      label: 'Map'      },
   { id: 'planning', label: 'Evaluate' }, // risk evaluation (basis / hedge / exposure)
 ];
+
+// Admin-only view (PowerDime portfolio). Rendered as an extra toggle for admins.
+export const ADMIN_DASHBOARD_VIEW: { id: DashboardView; label: string } = { id: 'admin', label: 'Admin' };
 
 // Sub-tab applies to the Planning and Risk views (Map ignores it).
 // Shared so toggling between Planning ↔ Risk keeps the same topic open.

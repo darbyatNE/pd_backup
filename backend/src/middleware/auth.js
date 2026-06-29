@@ -9,7 +9,20 @@ export const authenticate = async (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
     const decoded = await verifyToken(token);
-    req.user = { id: decoded.sub, email: decoded.email };
+    // Attach role + the user's company so routes can scope by tenant / authorization.
+    let role = null;
+    let companyId = null;
+    try {
+      const { rows } = await query(
+        `SELECT u.role,
+                (SELECT company_id FROM company_members WHERE user_id = u.id LIMIT 1) AS company_id
+         FROM users u WHERE u.id = $1`,
+        [decoded.sub]
+      );
+      role = rows[0]?.role ?? null;
+      companyId = rows[0]?.company_id ?? null;
+    } catch { /* users row may not exist yet; leave role/company null */ }
+    req.user = { id: decoded.sub, email: decoded.email, role, companyId };
     req.userToken = token;
     next();
   } catch {

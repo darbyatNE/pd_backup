@@ -1,7 +1,12 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { ALL_SITE_KEYS } from '../types';
 
 export function useSiteSplits() {
+  // Each data center's allocation is independent (0–100% of the project's
+  // committed volume). They are NOT normalized to sum to 100% — the contracted
+  // total is the sum of the per-site allocations and grows/shrinks as each
+  // slider moves. The starting position is an even split (so the total opens at
+  // the full committed volume), freely adjustable up or down from there.
   const [splits, setSplits] = useState<Record<string, number>>(() => {
     const total = ALL_SITE_KEYS.length;
     const base = Math.floor(100 / total);
@@ -13,34 +18,10 @@ export function useSiteSplits() {
     return out;
   });
 
-  const splitSum = useMemo(
-    () => ALL_SITE_KEYS.reduce((s, k) => s + (splits[k] || 0), 0),
-    [splits]
-  );
-  const splitValid = splitSum === 100;
-
   const updateSplit = useCallback((key: string, val: number) => {
     const clamped = Math.max(0, Math.min(100, val));
     setSplits((prev) => ({ ...prev, [key]: clamped }));
   }, []);
 
-  const normalizeSplits = useCallback(() => {
-    const sum = ALL_SITE_KEYS.reduce((s, k) => s + (splits[k] || 0), 0);
-    if (sum === 0) return;
-    const normalized: Record<string, number> = {};
-    ALL_SITE_KEYS.forEach((k) => {
-      normalized[k] = Math.round(((splits[k] || 0) / sum) * 100);
-    });
-    let drift = 100 - ALL_SITE_KEYS.reduce((s, k) => s + normalized[k], 0);
-    for (let i = 0; drift !== 0 && i < ALL_SITE_KEYS.length; i++) {
-      const k = ALL_SITE_KEYS[i];
-      if (normalized[k] + drift >= 0 && normalized[k] + drift <= 100) {
-        normalized[k] += drift;
-        drift = 0;
-      }
-    }
-    setSplits(normalized);
-  }, [splits]);
-
-  return { splits, splitSum, splitValid, updateSplit, normalizeSplits };
+  return { splits, updateSplit };
 }

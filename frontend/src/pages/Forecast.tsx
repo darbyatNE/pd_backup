@@ -1,15 +1,16 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { API_BASE_URL } from '../services/api'
 import {
   LOAD_PROFILES,
   LOAD_PROFILE_MAP,
   aggregateProfiles,
 } from '../data/loadProfile'
 import type { SiteLoadProfile } from '../data/loadProfile'
-import { getContractsForSites } from '../data/linkedContracts'
 import type { LinkedContract } from '../data/linkedContracts'
+import { useSiteContracts, siteContractsForSites } from '../data/siteContractsApi'
 import { getSuggestedBessMw } from '../utils/capacity'
 import { useScopeContext } from '../contexts/ScopeContext'
 import { useDashboardView } from '../contexts/DashboardViewContext'
@@ -134,9 +135,15 @@ const PAGE_NAV_LINKS = [
 ]
 
 export default function Forecast() {
-  const { selectedSites, startYear, endYear } = useScopeContext()
-  const { subTab: activeTab } = useDashboardView()
+  const { selectedSites, startYear, endYear, peekActive, endPeek } = useScopeContext()
+  const { subTab: activeTab, setView } = useDashboardView()
   const navigate = useNavigate()
+
+  const returnToMap = () => {
+    endPeek()            // restore the persistent multi-site scope
+    setView('map')
+    navigate('/dashboard')
+  }
   const [recsDialogOpen, setRecsDialogOpen] = useState(false)
   const [transmissionDialogOpen, setTransmissionDialogOpen] = useState(false)
   const [loadXAxis, setLoadXAxis] = useState<XAxisMode>('hours')
@@ -155,10 +162,53 @@ export default function Forecast() {
     ? profiles[0]
     : aggregateProfiles(profiles)
 
-  const contracts = useMemo(() => getContractsForSites(selectedSites), [selectedSites])
+  // Saved contracts come from RDS (public.site_contracts), filtered to the
+  // data centers in scope. refetch after a new contract is saved in "Examine Fit".
+  const { rows: siteContractRows, refetch: refetchSiteContracts } = useSiteContracts()
+  const contracts = useMemo(
+    () => siteContractsForSites(siteContractRows, selectedSites),
+    [siteContractRows, selectedSites],
+  )
+
+  // Published marketplace projects — the generation assets you can "Examine Fit"
+  // against your load and then save as a contract.
+  const [marketProjects, setMarketProjects] = useState<Project[]>([])
+  useEffect(() => {
+    const token = localStorage.getItem('pd_access_token')
+    fetch(`${API_BASE_URL}/projects`, { headers: { ...(token && { Authorization: `Bearer ${token}` }) } })
+      .then((r) => (r.ok ? r.json() : { projects: [] }))
+      .then(({ projects }) =>
+        setMarketProjects(
+          (projects ?? []).map((p: Record<string, unknown>) => ({
+            ...p,
+            capacity_mw: p.capacity_mw == null ? 0 : Number(p.capacity_mw),
+          })) as Project[],
+        ),
+      )
+      .catch(() => setMarketProjects([]))
+  }, [])
+
+  const openExamineFit = (p: Project) => {
+    setTryOnProject(p)
+    setTryOnSite(selectedSites[0])
+  }
 
   return (
     <div className="max-w-full flex flex-col gap-6">
+      {peekActive && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-teal-200 bg-teal-50 px-4 py-2">
+          <span className="text-sm text-teal-800">
+            Viewing load for a single data center (temporary) — your scope selection is preserved.
+          </span>
+          <button
+            type="button"
+            onClick={returnToMap}
+            className="flex-shrink-0 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold rounded transition-colors"
+          >
+            ← Return to map
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900" title="Central hub for energy procurement strategy: Analyze capacity needs, forecast energy demand, optimize contract timing, manage renewable energy credits, and monitor procurement risks across your portfolio.">
@@ -241,6 +291,7 @@ export default function Forecast() {
         <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
           <LoadForecastChart
             profile={profile}
+            contracts={contracts}
             xAxis={loadXAxis}
             onXAxisChange={setLoadXAxis}
             activeYear={chartActiveYear}
@@ -305,6 +356,64 @@ export default function Forecast() {
           </div>
           <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[380px]">
             <RiskAlerts />
+          </div>
+        </div>
+
+        {/* Examine Fit — pick a marketplace project, try it on against load, then save it */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100">
+            <h2 className="text-base font-semibold text-slate-900">Examine Fit — Generation Projects</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Try a marketplace project against your in-scope load, then save it as a contract</p>
+          </div>
+          <div className="p-4">
+            {marketProjects.length === 0 ? (
+              <p className="text-sm text-slate-400 italic px-2">No published projects available.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left py-3 px-4 font-semibold uppercase tracking-wider text-slate-500">Project</th>
+                      <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Type</th>
+                      <th className="text-right py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">MW</th>
+                      <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Location</th>
+                      <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {marketProjects.map((p) => (
+                      <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                        <td className="py-2.5 px-4 font-medium text-slate-800">{p.name}</td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border"
+                            style={{
+                              background: `${GEN_COLORS[p.generation_type] ?? '#64748b'}18`,
+                              color: GEN_COLORS[p.generation_type] ?? '#64748b',
+                              borderColor: `${GEN_COLORS[p.generation_type] ?? '#64748b'}40`,
+                            }}
+                          >
+                            {p.generation_type}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-semibold text-slate-900">{Number(p.capacity_mw || 0).toFixed(0)}</td>
+                        <td className="py-2.5 px-3 text-slate-500">{p.zone || p.location || '—'}</td>
+                        <td className="py-2.5 px-3">
+                          <button
+                            onClick={() => openExamineFit(p)}
+                            disabled={selectedSites.length === 0}
+                            title={selectedSites.length === 0 ? 'Select a site in the scope bar first' : 'Examine fit and save a contract'}
+                            className="px-2 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-[10px] font-semibold rounded transition-colors"
+                          >
+                            ▶ Examine Fit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </>)}
@@ -380,6 +489,8 @@ export default function Forecast() {
           }}
           scopeSite={tryOnSite}
           initialYear={chartActiveYear}
+          onSaved={refetchSiteContracts}
+          allSiteContracts={siteContractRows}
         />
       )}
     </div>

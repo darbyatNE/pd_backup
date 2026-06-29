@@ -6,7 +6,6 @@ import {
   getEffectiveLoadAt,
 } from '../../../data/loadProfile';
 import {
-  getContractsForSites,
   contractMwForHourAvgInYear,
   contractMwForMonthInYear,
   getGenerationTypeOrder,
@@ -32,6 +31,7 @@ function mapGenType(genType: string): { shape: LinkedContract['shape']; tier: Li
 export function useTryOnData({
   project,
   previewSites,
+  existingContracts: existingInput,
   splits,
   capacityPct,
   activeYear,
@@ -45,6 +45,7 @@ export function useTryOnData({
 }: {
   project: Project;
   previewSites: string[];
+  existingContracts: LinkedContract[];
   splits: Record<string, number>;
   capacityPct: number;
   activeYear: number;
@@ -66,15 +67,15 @@ export function useTryOnData({
     return aggregateProfiles(profiles);
   }, [previewSites]);
 
-  // Existing contracts for preview sites — sorted same as LoadShape2D
+  // Existing (already saved/committed) contracts for the preview sites — sorted same as LoadShape2D
   const existingContracts = useMemo(() => {
-    return getContractsForSites(previewSites).sort((a, b) => {
+    return [...existingInput].sort((a, b) => {
       const orderA = getGenerationTypeOrder(a.generationType);
       const orderB = getGenerationTypeOrder(b.generationType);
       if (orderA !== orderB) return orderA - orderB;
       return b.mwCovered - a.mwCovered;
     });
-  }, [previewSites]);
+  }, [existingInput]);
 
   // Try-on contract derived from project — only for preview sites
   const tryOnContract = useMemo<LinkedContract>(() => {

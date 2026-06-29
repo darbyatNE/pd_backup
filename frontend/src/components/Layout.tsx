@@ -6,7 +6,7 @@ import { UserCircleIcon } from './Icons';
 import MobileNav from './MobileNav';
 import { Menu, Transition } from '@headlessui/react';
 import ScopeBar from './ScopeBar';
-import { useDashboardView, DASHBOARD_VIEWS, DASHBOARD_SUBTABS } from '../contexts/DashboardViewContext';
+import { useDashboardView, DASHBOARD_VIEWS, DASHBOARD_SUBTABS, ADMIN_DASHBOARD_VIEW } from '../contexts/DashboardViewContext';
 
 interface LayoutProps {
   children: ReactNode;
@@ -101,6 +101,21 @@ export default function Layout({ children, fullWidth = false, hideFooter = false
                     )}
                   </>
                 ))}
+                {user?.role === 'admin' && (
+                  <>
+                    <span className="w-px h-4 bg-slate-300 mx-0.5" />
+                    <button
+                      onClick={() => setView(ADMIN_DASHBOARD_VIEW.id)}
+                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                        view === ADMIN_DASHBOARD_VIEW.id
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {ADMIN_DASHBOARD_VIEW.label}
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               /* Off-dashboard pages (Projects / Transactions / Documents) get a

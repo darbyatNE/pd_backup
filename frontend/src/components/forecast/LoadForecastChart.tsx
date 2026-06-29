@@ -1,8 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useScopeContext } from '../../contexts/ScopeContext'
-import {
-  getContractsForSites,
-} from '../../data/linkedContracts'
+import type { LinkedContract } from '../../data/linkedContracts'
 import type { SiteLoadProfile } from '../../data/loadProfile'
 import { getForecastCapacityForYear } from '../../data/loadProfile'
 import { LoadShape2D } from './LoadShape2D'
@@ -10,6 +8,7 @@ import { LoadShape3D } from './LoadShape3D'
 
 interface LoadForecastChartProps {
   profile: SiteLoadProfile
+  contracts: LinkedContract[]
   xAxis: 'hours' | 'months'
   onXAxisChange: (v: 'hours' | 'months') => void
   activeYear?: number
@@ -18,10 +17,9 @@ interface LoadForecastChartProps {
   onYearModeChange?: (mode: 'single' | 'all') => void
 }
 
-export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange }: LoadForecastChartProps) {
+export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange }: LoadForecastChartProps) {
   const [view, setView] = useState<'2d' | '3d'>('2d')
-  const { startYear, endYear, startMonth, endMonth, selectedSites } = useScopeContext()
-  const contracts = useMemo(() => getContractsForSites(selectedSites), [selectedSites])
+  const { startYear, endYear, startMonth, endMonth } = useScopeContext()
 
   // Per-asset chart selection — owned here so the 2D and 3D views stay in sync.
   // Every asset defaults to checked; de-selections drop it from whichever chart is shown.

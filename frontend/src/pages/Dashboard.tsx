@@ -5,6 +5,7 @@ import Forecast from './Forecast';
 import MapPage from './Map';
 import Planning from './Planning';
 import Profile from './Profile';
+import AdminPortfolio from './AdminPortfolio';
 
 export default function Dashboard() {
   const { view } = useDashboardView();
@@ -19,6 +20,8 @@ export default function Dashboard() {
       {view === 'forecast' && <Forecast />}
 
       {view === 'planning' && <Planning />}
+
+      {view === 'admin' && user.role === 'admin' && <AdminPortfolio />}
 
       {view === 'map' && (
         // Header = 64px nav + 40px ScopeBar = 104px; Layout py-6 top = 24px → 128px total.

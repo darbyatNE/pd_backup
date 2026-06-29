@@ -496,6 +496,10 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
     const [showDraftPrompt, setShowDraftPrompt] = useState(false);
     const [lastSaved, setLastSaved] = useState<string | null>(null);
     const [saveMode, setSaveMode] = useState<'draft' | 'published'>('published');
+    // Marketplace (available to contract by anyone) vs private (owned by this company).
+    // Only admins/sellers may publish to the marketplace; others are forced private server-side.
+    const canPublishMarketplace = user?.role === 'admin' || user?.role === 'seller';
+    const [genVisibility, setGenVisibility] = useState<'marketplace' | 'private'>('marketplace');
     const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const getMetadataString = (metadata: Record<string, unknown>, key: string, fallback = ''): string => {
@@ -994,6 +998,9 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 capacity_mw: Number(generationForm.capacity_mw),
                 location: generationForm.location,
                 status: saveMode, // 'draft' or 'published'
+                // marketplace = available to contract; private = owned by this company.
+                // Server enforces: only admin/seller may publish to marketplace.
+                visibility: canPublishMarketplace ? genVisibility : 'private',
                 // VPPA Timeline
                 expected_cod: generationForm.expected_cod || null,
                 guaranteed_cod: generationForm.guaranteed_cod || null,
@@ -2387,6 +2394,31 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                         />
                                                     </div>
                                                 </div>
+                                            )}
+                                        </div>
+
+                                        {/* Availability: marketplace (contractable) vs private (company-owned) */}
+                                        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 mt-2">
+                                            <span className="text-xs font-semibold text-slate-600">Availability</span>
+                                            {canPublishMarketplace ? (
+                                                <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                                                    {(['marketplace', 'private'] as const).map((v) => (
+                                                        <button
+                                                            key={v}
+                                                            type="button"
+                                                            onClick={() => setGenVisibility(v)}
+                                                            className={`px-3 py-1 rounded-md font-medium border transition-colors ${
+                                                                genVisibility === v
+                                                                    ? 'bg-teal-600 text-white border-teal-600'
+                                                                    : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                                                            }`}
+                                                        >
+                                                            {v === 'marketplace' ? 'Marketplace (available to contract)' : 'Private (my company)'}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p className="mt-1 text-xs text-slate-500">Private — owned by and visible only to your company.</p>
                                             )}
                                         </div>
 

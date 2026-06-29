@@ -18,6 +18,10 @@ interface ScopeContextValue extends ScopeState {
   toggleSite: (key: string) => void;
   addSite: (key: string) => void;
   removeSite: (key: string) => void;
+  selectOnlySite: (key: string) => void;  // scope to a single data center
+  peekActive: boolean;                     // true while temporarily scoped to one DC
+  peekSite: (key: string) => void;         // temporarily scope to one DC (snapshots current scope)
+  endPeek: () => void;                     // restore the snapshotted scope
   setStartDate: (year: number, month: number) => void;
   setEndDate: (year: number, month: number) => void;
   refreshSites: () => Promise<void>;  // manual refresh from DB
@@ -126,6 +130,26 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // Scope to a single data center. If the key isn't a known site, also make it
+  // available so the chart can render it.
+  const selectOnlySite = (key: string) => {
+    setAvailableSites((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    setSelectedSites([key]);
+  };
+
+  // Temporary single-DC "peek" (from the map's View Load). Snapshots the current
+  // scope so endPeek() can restore it — the multi-site scope stays the persistent view.
+  const [peekSnapshot, setPeekSnapshot] = useState<string[] | null>(null);
+  const peekSite = (key: string) => {
+    setPeekSnapshot((prev) => (prev === null ? selectedSites : prev));
+    setAvailableSites((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    setSelectedSites([key]);
+  };
+  const endPeek = () => {
+    if (peekSnapshot !== null) setSelectedSites(peekSnapshot);
+    setPeekSnapshot(null);
+  };
+
   const setStartDate = (year: number, month: number) => {
     setStartYear(year);
     setStartMonth(month);
@@ -153,7 +177,9 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     <ScopeContext.Provider value={{
       selectedSites, availableSites, startYear, startMonth, endYear, endMonth,
       loading, error,
-      toggleSite, addSite, removeSite, setStartDate, setEndDate,
+      toggleSite, addSite, removeSite, selectOnlySite,
+      peekActive: peekSnapshot !== null, peekSite, endPeek,
+      setStartDate, setEndDate,
       refreshSites: fetchSites,
     }}>
       {children}

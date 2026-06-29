@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../services/api';
 import { getZoneCoords } from '../utils/pjmZones';
 import TryOnOverlay from '../components/TryOnOverlay';
 import { useScopeContext } from '../contexts/ScopeContext';
+import { useDashboardView } from '../contexts/DashboardViewContext';
 import { getLmpPeriodType, LMP_HISTORY_START, LMP_PERIODS_ALL, buildSimulatedLmpMap } from '../data/lmpData';
 import { LOAD_PROFILES, getForecastCapacityForYear } from '../data/loadProfile';
 import { getSuggestedBessMw } from '../utils/capacity';
@@ -158,7 +160,9 @@ const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct',
 type LmpMap = Map<number, number>;
 
 export default function MapPage() {
-  const { selectedSites, startYear, endYear, endMonth, setEndDate, addSite } = useScopeContext();
+  const { selectedSites, startYear, endYear, endMonth, setEndDate, addSite, peekSite } = useScopeContext();
+  const navigate = useNavigate();
+  const { setView, setSubTab } = useDashboardView();
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const markers = useRef<Map<string, maplibregl.Marker>>(new Map());
@@ -170,6 +174,8 @@ export default function MapPage() {
   const visibleGenTypesRef = useRef<Set<GenerationType>>(new Set());
   const selectedSitesRef = useRef<string[]>([]);
   const setTryOnProjectRef = useRef<(p: MappedProject | null) => void>(() => {});
+  // "View Load" from a data center popup: scope to just that site and open the Plan tab.
+  const viewLoadRef = useRef<(siteKey: string) => void>(() => {});
 
   // Keep latest scope values reachable from popup click handlers without
   // forcing marker re-creation every time the scope changes.
@@ -312,6 +318,14 @@ export default function MapPage() {
   useEffect(() => { visibleGenTypesRef.current = visibleGenTypes; }, [visibleGenTypes]);
   useEffect(() => { selectedSitesRef.current = selectedSites; }, [selectedSites]);
   useEffect(() => { setTryOnProjectRef.current = setTryOnProject; }, [setTryOnProject]);
+  useEffect(() => {
+    viewLoadRef.current = (siteKey: string) => {
+      peekSite(siteKey);         // temporarily scope to just this data center (restorable)
+      setSubTab('energy');       // the load chart lives on the Energy sub-tab
+      setView('forecast');       // the "Plan" dashboard view
+      navigate('/dashboard');
+    };
+  }, [peekSite, setSubTab, setView, navigate]);
 
   // Ref for showLabels so renderMarkers can access current value
   const showLabelsRef = useRef(showLabels);
@@ -1106,7 +1120,7 @@ export default function MapPage() {
       }
 
       el.appendChild(icon);
-      const priceStr = project.fixed_price_per_mwh ? `$${project.fixed_price_per_mwh}/MWh` : 'Price TBD';
+      const priceStr = project.fixed_price_per_mwh ? `$${Number(project.fixed_price_per_mwh).toFixed(2)}/MWh` : 'Price TBD';
 
       const popupNode = document.createElement('div');
       popupNode.style.cssText = 'font-family:system-ui,sans-serif;min-width:220px';
@@ -1290,6 +1304,17 @@ export default function MapPage() {
         ${site.settlement_zone ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px">LDA: ${site.settlement_zone}</div>` : ''}
       `;
       
+      // View Load button — scope to just this data center and open the Plan tab
+      if (profile) {
+        const viewLoadBtn = document.createElement('button');
+        viewLoadBtn.textContent = '▶ View Load';
+        viewLoadBtn.style.cssText = 'margin-top:10px;width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 10px;background:#0d9488;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;';
+        viewLoadBtn.addEventListener('mouseenter', () => { viewLoadBtn.style.background = '#0f766e'; });
+        viewLoadBtn.addEventListener('mouseleave', () => { viewLoadBtn.style.background = '#0d9488'; });
+        viewLoadBtn.addEventListener('click', () => viewLoadRef.current(profile.siteKey));
+        popupContent.appendChild(viewLoadBtn);
+      }
+
       // BTM Assets Section
       const btmSection = document.createElement('div');
       btmSection.style.cssText = 'margin-top:12px;padding-top:10px;border-top:1px solid #e2e8f0;';

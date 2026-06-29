@@ -1,5 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useScopeContext } from '../contexts/ScopeContext';
+import { API_BASE_URL } from '../services/api';
+import { siteContractsForSites, type SiteContractRow } from '../data/siteContractsApi';
 import { TryOnControls } from './tryon/TryOnControls';
 import { TryOnSummaryCards } from './tryon/TryOnSummaryCards';
 import { TryOnChart } from './tryon/TryOnChart';
@@ -12,9 +14,45 @@ import { useHedgeStats } from './tryon/hooks/useHedgeStats';
 import { r1 } from './tryon/utils';
 import ModuleHandoffDialog from './ModuleHandoffDialog';
 import type { TryOnOverlayProps, XAxisMode } from './tryon/types';
+import { SITE_NAMES } from './tryon/types';
 
-export default function TryOnOverlay({ project, onClose, scopeSite, initialYear }: TryOnOverlayProps & { scopeSite?: string; initialYear?: number }) {
+export default function TryOnOverlay({ project, onClose, scopeSite, initialYear, onSaved, allSiteContracts = [] }: TryOnOverlayProps & { scopeSite?: string; initialYear?: number; onSaved?: () => void; allSiteContracts?: SiteContractRow[] }) {
   const { selectedSites, startYear, endYear, startMonth, endMonth } = useScopeContext();
+
+  // ── Save-contract form (persists to RDS public.site_contracts → load chart) ──
+  // Amounts are NOT typed in — they come from the "Contracted volume" slider and
+  // the per-site allocation (see saveBreakdown below).
+  const MONTH_OPTS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const [saveStartYear, setSaveStartYear] = useState<number>(startYear);
+  const [saveStartMonth, setSaveStartMonth] = useState<number>(startMonth);
+  const [saveEndYear, setSaveEndYear] = useState<number>(endYear);
+  const [saveEndMonth, setSaveEndMonth] = useState<number>(endMonth);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  // Already-saved contracts for THIS project (across all data centers). Drives the
+  // "Contracted" section and reduces the project volume still available to commit.
+  const [projectContracts, setProjectContracts] = useState<SiteContractRow[]>([]);
+  const refetchProjectContracts = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('pd_access_token');
+      const res = await fetch(`${API_BASE_URL}/site-contracts`, {
+        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+      });
+      if (!res.ok) { setProjectContracts([]); return; }
+      const { contracts } = (await res.json()) as { contracts: SiteContractRow[] };
+      setProjectContracts((contracts ?? []).filter((c) => c.project_name === project.name));
+    } catch {
+      setProjectContracts([]);
+    }
+  }, [project.name]);
+  useEffect(() => { refetchProjectContracts(); }, [refetchProjectContracts]);
+
+  const committedCapacityMw = projectContracts.reduce((s, c) => s + (c.capacity_mw == null ? 0 : Number(c.capacity_mw)), 0);
+  const committedEnergyMwh = projectContracts.reduce((s, c) => s + (c.energy_mwh == null ? 0 : Number(c.energy_mwh)), 0);
+  // MW-equivalent already committed (energy converted at flat annual MW) → remaining nameplate.
+  const committedMwEquivalent = committedCapacityMw + committedEnergyMwh / 8760;
+  const availableCapacityMw = Math.max(0, (project.capacity_mw || 0) - committedMwEquivalent);
 
   // BTM asset detection (Behind The Meter assets can only be at a single site)
   const isBTM = project.metadata?.btmAssetType === 'BESS' ||
@@ -42,7 +80,7 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
   const [bessEfficiency, setBessEfficiency] = useState(85); // round-trip efficiency %
   const [bessMinimized, setBessMinimized] = useState(true);
 
-  const { splits, splitSum, splitValid, updateSplit, normalizeSplits } = useSiteSplits();
+  const { splits, updateSplit } = useSiteSplits();
 
   // For BTM assets in capacity view: limit to one site.
   // Energy view always shows all sites regardless of BTM status.
@@ -52,13 +90,142 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
       if (scopeSite) return [scopeSite];
       if (selectedSites.length > 0) return [selectedSites[0]];
     }
-    return selectedSites;
-  }, [isBTM, scopeSite, selectedSites, viewMode]);
+    // Follow the checked data centers in the breakout, so toggling a site adds or
+    // removes its load from the charted amount.
+    return previewSites;
+  }, [isBTM, scopeSite, selectedSites, viewMode, previewSites]);
+
+  // Per-data-center volume from the "Contracted volume" slider × the site allocation.
+  // BTM assets sit at a single site; otherwise the committed MW is split across the
+  // checked sites by their breakout percentage. This is what gets written to the DB —
+  // one row per data center — so the summed volume is parsed back out per site.
+  // Commitments draw from the volume still available (nameplate − already committed).
+  const effectiveCapacityMw = availableCapacityMw * (capacityPct / 100);
+  const saveBreakdown = useMemo(() => {
+    if (isBTM) {
+      const facId = effectiveSites[0];
+      return facId ? [{ facId, mw: effectiveCapacityMw }] : [];
+    }
+    return previewSites
+      .map((facId) => ({ facId, mw: effectiveCapacityMw * ((splits[facId] || 0) / 100) }))
+      .filter((s) => s.mw > 0);
+  }, [isBTM, effectiveSites, previewSites, splits, effectiveCapacityMw]);
+
+  const saveContract = async () => {
+    if (saveBreakdown.length === 0) {
+      setSaveMsg({ kind: 'err', text: 'No volume to save — set the slider and site allocation above.' });
+      return;
+    }
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const token = localStorage.getItem('pd_access_token');
+      const headers = { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) };
+      const results = await Promise.all(
+        saveBreakdown.map(({ facId, mw }) => {
+          // Capacity view → MW-year baseload. Energy view → annual MWh (flat MW × 8760) peaking.
+          const capacity_mw = viewMode === 'capacity' ? Math.round(mw * 100) / 100 : null;
+          const energy_mwh = viewMode === 'energy' ? Math.round(mw * 8760 * 100) / 100 : null;
+          return fetch(`${API_BASE_URL}/site-contracts`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              fac_id: facId,
+              // Link to the real generation project when contracting one; synthetic
+              // (BTM/try-on) projects use non-UUID ids, so store null for those.
+              project_id: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(project.id) ? project.id : null,
+              project_name: project.name,
+              generation_type: project.generation_type,
+              capacity_mw,
+              energy_mwh,
+              shape: 'flat',
+              start_year: saveStartYear,
+              start_month: saveStartMonth,
+              end_year: saveEndYear,
+              end_month: saveEndMonth,
+            }),
+          });
+        })
+      );
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed > 0) throw new Error(`${failed} of ${results.length} contract(s) failed to save`);
+      setSaveMsg({ kind: 'ok', text: `Saved ${results.length} contract${results.length > 1 ? 's' : ''} — now in the load chart.` });
+      await refetchProjectContracts();
+      onSaved?.();
+    } catch (err) {
+      setSaveMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Save failed' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Draft (uncommitted) contracts for this project — the only ones Remove/Commit act on.
+  const draftContracts = projectContracts.filter((c) => !c.committed);
+
+  const removeDrafts = async () => {
+    if (draftContracts.length === 0) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const token = localStorage.getItem('pd_access_token');
+      const results = await Promise.all(
+        draftContracts.map((c) =>
+          fetch(`${API_BASE_URL}/site-contracts/${c.id}`, {
+            method: 'DELETE',
+            headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+          })
+        )
+      );
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed > 0) throw new Error(`${failed} of ${results.length} could not be removed`);
+      setSaveMsg({ kind: 'ok', text: `Removed ${results.length} draft contract${results.length > 1 ? 's' : ''}.` });
+      await refetchProjectContracts();
+      onSaved?.();
+    } catch (err) {
+      setSaveMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Remove failed' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const commitDrafts = async () => {
+    if (draftContracts.length === 0) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const token = localStorage.getItem('pd_access_token');
+      const results = await Promise.all(
+        draftContracts.map((c) =>
+          fetch(`${API_BASE_URL}/site-contracts/${c.id}/commit`, {
+            method: 'PUT',
+            headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+          })
+        )
+      );
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed > 0) throw new Error(`${failed} of ${results.length} could not be committed`);
+      setSaveMsg({ kind: 'ok', text: `Committed ${results.length} contract${results.length > 1 ? 's' : ''} — now permanent.` });
+      await refetchProjectContracts();
+      onSaved?.();
+    } catch (err) {
+      setSaveMsg({ kind: 'err', text: err instanceof Error ? err.message : 'Commit failed' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Already-saved/committed contracts at the checked data centers — plotted in the
+  // try-on chart as the existing position (per data center, via fac_id).
+  const existingForSites = useMemo(
+    () => siteContractsForSites(allSiteContracts, effectiveSites),
+    [allSiteContracts, effectiveSites],
+  );
 
   // First get tryOnData with base project to determine uncontracted capacity
   const baseTryOnData = useTryOnData({
     project,
     previewSites: effectiveSites,
+    existingContracts: existingForSites,
     splits,
     capacityPct,
     activeYear,
@@ -80,15 +247,23 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
     return out;
   }, [startYear, endYear]);
 
+  // Contract term years span a fixed 2000–2040 range, independent of the scope
+  // window, so a contract can be backdated or extended past the current scope.
+  const contractYearOptions = useMemo(() => {
+    const out: number[] = [];
+    for (let y = 2000; y <= 2040; y++) out.push(y);
+    return out;
+  }, []);
+
   const chartKey = `tryon-${project.id}-${xAxis}-${activeYear}-${previewSites.join(',')}-${Object.values(splits).join(',')}-${capacityPct}`;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center p-3 pt-[calc(1rem+80px)]">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center p-3 pt-[calc(1rem+50px)]">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[calc(100vh-60px)] flex flex-col">
+      <div className="relative bg-white rounded-lg overflow-hidden shadow-2xl w-full max-w-5xl max-h-[calc(100vh-80px)] flex flex-col">
         {/* Header */}
         <div className="flex-none flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
           <div>
@@ -96,7 +271,7 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
             <p className="text-sm text-slate-500">
               {project.generation_type} · {project.capacity_mw} MW · {project.zone || project.location}
               {capacityPct !== 100 && (
-                <span className="text-slate-400"> · Commitment: {r1((project.capacity_mw || 0) * (capacityPct / 100))} MW</span>
+                <span className="text-slate-400"> · Commitment: {r1(availableCapacityMw * (capacityPct / 100))} MW</span>
               )}
             </p>
           </div>
@@ -135,10 +310,149 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
         </div>
 
         <div className="p-4 space-y-2 overflow-y-auto flex-1 min-h-0">
+          {/* Contracted — what's already been committed from this project */}
+          {projectContracts.length > 0 && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="text-sm font-semibold text-slate-900">Contracted</h3>
+                <span className="text-[11px] text-slate-500">
+                  {r1(committedCapacityMw)} MW{committedEnergyMwh > 0 ? ` · ${r1(committedEnergyMwh).toLocaleString()} MWh/yr` : ''} committed · {r1(availableCapacityMw)} MW available
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[11px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-slate-500">
+                      <th className="text-left py-1 px-2 font-semibold">Data center</th>
+                      <th className="text-right py-1 px-2 font-semibold">Capacity</th>
+                      <th className="text-right py-1 px-2 font-semibold">Energy</th>
+                      <th className="text-left py-1 px-2 font-semibold">Term</th>
+                      <th className="text-left py-1 px-2 font-semibold">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projectContracts.map((c) => {
+                      const cap = c.capacity_mw == null ? 0 : Number(c.capacity_mw);
+                      const energy = c.energy_mwh == null ? 0 : Number(c.energy_mwh);
+                      const term = `${MONTH_OPTS[c.start_month - 1]} '${String(c.start_year).slice(-2)} – ${MONTH_OPTS[c.end_month - 1]} '${String(c.end_year).slice(-2)}`;
+                      return (
+                        <tr key={c.id} className="border-b border-slate-100">
+                          <td className="py-1 px-2 text-slate-700">{SITE_NAMES[c.fac_id] ?? c.fac_id}</td>
+                          <td className="py-1 px-2 text-right text-slate-700">{cap > 0 ? `${r1(cap)} MW` : '—'}</td>
+                          <td className="py-1 px-2 text-right text-slate-700">{energy > 0 ? `${r1(energy).toLocaleString()} MWh/yr` : '—'}</td>
+                          <td className="py-1 px-2 text-slate-500">{term}</td>
+                          <td className="py-1 px-2">
+                            {c.committed ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">🔒 Committed</span>
+                            ) : (
+                              <span className="text-slate-400">Draft</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Save Contract — amounts come from the volume slider + site allocation below */}
+          <div className="bg-teal-50 border border-teal-200 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Save Contract to Load Chart</h3>
+                <p className="text-[11px] text-slate-500">
+                  {project.generation_type} · saving <strong>{viewMode === 'capacity' ? 'Capacity (MW-year, baseload)' : 'Energy (MWh/yr, peaking)'}</strong> from the volume slider — one contract per data center
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={saveContract}
+                  disabled={saving || saveBreakdown.length === 0}
+                  className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-semibold rounded transition-colors"
+                >
+                  {saving ? 'Saving…' : `Save ${saveBreakdown.length || ''} Contract${saveBreakdown.length === 1 ? '' : 's'}`}
+                </button>
+                <button
+                  type="button"
+                  onClick={removeDrafts}
+                  disabled={saving || draftContracts.length === 0}
+                  title="Delete this project's draft (uncommitted) contracts"
+                  className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-xs font-semibold rounded transition-colors"
+                >
+                  Remove
+                </button>
+                <button
+                  type="button"
+                  onClick={commitDrafts}
+                  disabled={saving || draftContracts.length === 0}
+                  title="Lock the draft contracts — permanent and non-removable"
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white text-xs font-semibold rounded transition-colors"
+                >
+                  Commit
+                </button>
+              </div>
+            </div>
+
+            {/* Per-data-center amounts (from the slider × allocation) */}
+            <div className="bg-white border border-slate-200 rounded p-2 mb-2">
+              {saveBreakdown.length === 0 ? (
+                <p className="text-[11px] text-slate-400 italic">Set the volume slider and site allocation below to populate amounts.</p>
+              ) : (
+                <div className="space-y-0.5 text-[11px]">
+                  {saveBreakdown.map(({ facId, mw }) => (
+                    <div key={facId} className="flex items-center justify-between">
+                      <span className="text-slate-600">{SITE_NAMES[facId] ?? facId}</span>
+                      <span className="font-medium text-slate-800">
+                        {viewMode === 'capacity'
+                          ? `${r1(mw)} MW`
+                          : `${r1(mw * 8760).toLocaleString()} MWh/yr`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+              <label className="flex flex-col gap-0.5">
+                <span className="text-slate-500">Term start</span>
+                <div className="flex gap-1">
+                  <select value={saveStartMonth} onChange={(e) => setSaveStartMonth(Number(e.target.value))} className="bg-white border border-slate-200 rounded px-1.5 py-1 text-slate-700">
+                    {MONTH_OPTS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                  </select>
+                  <select value={saveStartYear} onChange={(e) => setSaveStartYear(Number(e.target.value))} className="bg-white border border-slate-200 rounded px-1.5 py-1 text-slate-700">
+                    {contractYearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-slate-500">Term end</span>
+                <div className="flex gap-1">
+                  <select value={saveEndMonth} onChange={(e) => setSaveEndMonth(Number(e.target.value))} className="bg-white border border-slate-200 rounded px-1.5 py-1 text-slate-700">
+                    {MONTH_OPTS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                  </select>
+                  <select value={saveEndYear} onChange={(e) => setSaveEndYear(Number(e.target.value))} className="bg-white border border-slate-200 rounded px-1.5 py-1 text-slate-700">
+                    {contractYearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </label>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-slate-500">Generation type</span>
+                <span className="px-2 py-1 bg-white border border-slate-200 rounded text-slate-700">{project.generation_type}</span>
+              </div>
+            </div>
+            {saveMsg && (
+              <p className={`mt-2 text-[11px] font-medium ${saveMsg.kind === 'ok' ? 'text-teal-700' : 'text-red-600'}`}>{saveMsg.text}</p>
+            )}
+          </div>
+
           {viewMode === 'energy' && (
             <TryOnControls
               isBTM={isBTM}
-              projectCapacity={project.capacity_mw || 0}
+              projectCapacity={availableCapacityMw}
               capacityPct={capacityPct}
               setCapacityPct={setCapacityPct}
               selectedSites={selectedSites}
@@ -146,9 +460,6 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
               setPreviewSites={setPreviewSites}
               splits={splits}
               updateSplit={updateSplit}
-              splitSum={splitSum}
-              splitValid={splitValid}
-              normalizeSplits={normalizeSplits}
               xAxis={xAxis}
               setXAxis={setXAxis}
               activeYear={activeYear}
@@ -283,12 +594,12 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
                     className="w-24 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-600"
                   />
                   <span className="text-sm font-medium text-slate-900 w-12 text-right">
-                    {capacityPct}%
+                    {Math.round(capacityPct)}%
                   </span>
                 </div>
               </div>
               <div className="mt-2 text-xs text-slate-600">
-                Effective Capacity: {r1((project.capacity_mw || 0) * (capacityPct / 100))} MW
+                Effective Capacity: {r1(availableCapacityMw * (capacityPct / 100))} MW
               </div>
               <div className="mt-2">
                 <button
@@ -322,23 +633,29 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
             <>
               <TryOnCapacitySummary
                 capacityPct={capacityPct}
-                effectiveCapacity={(project.capacity_mw || 0) * (capacityPct / 100)}
+                effectiveCapacity={availableCapacityMw * (capacityPct / 100)}
                 sites={effectiveSites}
                 startYear={startYear}
                 endYear={endYear}
                 projectName={project.name}
+                existingContracts={existingContracts}
+                termStartYear={saveStartYear}
+                termStartMonth={saveStartMonth}
+                termEndYear={saveEndYear}
+                termEndMonth={saveEndMonth}
               />
 
               <TryOnCapacityChart
-                effectiveCapacity={(() => {
-                  const effective = (project.capacity_mw || 0) * (capacityPct / 100);
-                  console.log(`[TryOnOverlay] Capacity calc: project.capacity_mw=${project.capacity_mw}, capacityPct=${capacityPct}, effectiveCapacity=${effective}`);
-                  return effective;
-                })()}
+                effectiveCapacity={availableCapacityMw * (capacityPct / 100)}
                 sites={effectiveSites}
                 startYear={startYear}
                 endYear={endYear}
                 projectName={project.name}
+                existingContracts={existingContracts}
+                termStartYear={saveStartYear}
+                termStartMonth={saveStartMonth}
+                termEndYear={saveEndYear}
+                termEndMonth={saveEndMonth}
               />
 
               <TryOnPatternDefs />
@@ -355,7 +672,7 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear 
             <div className="space-y-1">
               <p><span className="text-slate-500">Project:</span> <span className="font-medium">{project.name}</span></p>
               <p><span className="text-slate-500">View:</span> <span className="font-medium capitalize">{viewMode}</span></p>
-              <p><span className="text-slate-500">Capacity:</span> <span className="font-medium">{r1((project.capacity_mw || 0) * (capacityPct / 100))} MW</span></p>
+              <p><span className="text-slate-500">Capacity:</span> <span className="font-medium">{r1(availableCapacityMw * (capacityPct / 100))} MW</span></p>
               <p><span className="text-slate-500">Sites:</span> <span className="font-medium">{viewMode === 'energy' ? previewSites.length : effectiveSites.length}</span></p>
             </div>
           }

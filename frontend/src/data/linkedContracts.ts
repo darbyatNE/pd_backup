@@ -99,6 +99,32 @@ export function isContractActiveAt(c: LinkedContract, year: number, month: numbe
   return !before && !after;
 }
 
+/**
+ * How many of a calendar year's 12 months the contract is in delivery (0–12).
+ * Lets bilateral deals that don't run cleanly through a calendar year or auction
+ * cycle (e.g. Jul'27–Mar'29) be prorated month-accurately rather than treated as
+ * all-or-nothing for the year.
+ */
+export function contractActiveMonthsInYear(c: LinkedContract, year: number): number {
+  return monthsCoveredInYear(year, c.startYear, c.startMonth, c.endYear, c.endMonth);
+}
+
+/** Months (0–12) of `year` covered by an arbitrary term — same proration used
+ *  for raw term bounds (e.g. a proposed contract's start/end selectors). */
+export function monthsCoveredInYear(
+  year: number, startYear: number, startMonth: number, endYear: number, endMonth: number,
+): number {
+  if (year < startYear || year > endYear) return 0;
+  const firstMonth = year === startYear ? startMonth : 1;
+  const lastMonth = year === endYear ? endMonth : 12;
+  return Math.max(0, lastMonth - firstMonth + 1);
+}
+
+/** Fraction of a calendar year a contract is in delivery (0–1), months ÷ 12. */
+export function contractYearCoverageFraction(c: LinkedContract, year: number): number {
+  return contractActiveMonthsInYear(c, year) / 12;
+}
+
 // ─── Component-based contract utilities ─────────────────────────────────────
 
 /** Get the total MW covered for a specific component type across multiple contracts */
@@ -108,15 +134,17 @@ export function getComponentMwCovered(
   year?: number
 ): number {
   return contracts.reduce((total, contract) => {
-    // Filter by year if specified
-    if (year && !isContractActiveAt(contract, year, 6)) return total;
-    
+    // Prorate by the share of the year the contract actually delivers, so a
+    // partial-term (bilateral) deal counts only for its in-delivery months.
+    const frac = year ? contractYearCoverageFraction(contract, year) : 1;
+    if (frac === 0) return total;
+
     // Ensure contract has components
     const normalizedContract = ensureContractComponents(contract);
-    
+
     // Find the component (components is guaranteed to exist after ensureContractComponents)
     const component = normalizedContract.components!.find(c => c.type === componentType);
-    return total + (component?.mwCovered || 0);
+    return total + (component?.mwCovered || 0) * frac;
   }, 0);
 }
 
@@ -126,37 +154,26 @@ export function getQualifiedCapacityMwCovered(
   loadLda: string,
   year?: number
 ): number {
-  console.log(`[getQualifiedCapacityMwCovered] loadLda=${loadLda}, year=${year}, total contracts=${contracts.length}`);
-  
   return contracts.reduce((total, contract) => {
-    // Filter by year if specified
-    if (year && !isContractActiveAt(contract, year, 6)) {
-      console.log(`[getQualifiedCapacityMwCovered] Contract ${contract.projectName} - not active in year ${year}`);
-      return total;
-    }
-    
+    // Prorate by the in-delivery share of the year — a bilateral capacity deal
+    // that covers only part of the year contributes only that fraction of its MW.
+    const frac = year ? contractYearCoverageFraction(contract, year) : 1;
+    if (frac === 0) return total;
+
     // Ensure contract has components
     const normalizedContract = ensureContractComponents(contract);
-    
+
     // Find capacity components
     const capacityComponents = normalizedContract.components!.filter(c => c.type === 'capacity');
-    
-    console.log(`[getQualifiedCapacityMwCovered] Contract ${contract.projectName} - capacity components=${capacityComponents.length}`);
-    
+
     for (const component of capacityComponents) {
       // Check LDA qualification - use contract LDA if component LDA not specified
       const genLda = component.lda || contract.lda;
-      
-      console.log(`[getQualifiedCapacityMwCovered] Component: genLda=${genLda}, loadLda=${loadLda}, mwCovered=${component.mwCovered}`);
-      
       if (genLda && canDeliverCapacity(genLda, loadLda)) {
-        console.log(`[getQualifiedCapacityMwCovered] ✓ LDA qualified - adding ${component.mwCovered}MW`);
-        total += component.mwCovered;
-      } else {
-        console.log(`[getQualifiedCapacityMwCovered] ✗ LDA not qualified - genLda=${genLda}, loadLda=${loadLda}`);
+        total += component.mwCovered * frac;
       }
     }
-    
+
     return total;
   }, 0);
 }
@@ -168,7 +185,7 @@ export function getContractsWithComponent(
   year?: number
 ): LinkedContract[] {
   return contracts.filter(contract => {
-    if (year && !isContractActiveAt(contract, year, 6)) return false;
+    if (year && contractActiveMonthsInYear(contract, year) === 0) return false;
     return contract.components?.some(c => c.type === componentType) || false;
   });
 }
@@ -767,10 +784,10 @@ export function getContractsForSites(siteKeys: string[]): LinkedContract[] {
   const earlier = (ay: number, am: number, by: number, bm: number) =>
     ay < by || (ay === by && am < bm);
   for (const key of siteKeys) {
-    // Prefer static LINKED_CONTRACTS; fall back to generated hedges only when absent
-    const staticContracts = LINKED_CONTRACTS[key];
-    const facility = SITE_FACILITIES[key];
-    const list = staticContracts ?? (facility ? generateHedgesForSite(facility) : []);
+    // Mock fixtures cleared: a data center's contracts now come from RDS
+    // (public.site_contracts via useSiteContracts) and are fed to the load chart
+    // directly. With no fixtures, this merges nothing and returns [].
+    const list: LinkedContract[] = [];
     for (const c of list) {
       const existing = merged.get(c.projectName);
       if (existing) {

@@ -13,6 +13,8 @@ import datacenterRoutes from './routes/datacenters.js';
 import facilitiesRoutes from './routes/facilities.js';
 import datacentersForecastRoutes from './routes/datacentersForecast.js';
 import mapRoutes from './routes/map.js';
+import siteContractRoutes from './routes/siteContracts.js';
+import adminRoutes from './routes/admin.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import clientErrorLogger from './middleware/clientErrorLogger.js';
@@ -48,6 +50,8 @@ app.use('/api/datacenters', datacenterRoutes);
 app.use('/api/facilities', facilitiesRoutes);
 app.use('/api/datacenters-forecast', datacentersForecastRoutes);
 app.use('/api/map', mapRoutes);
+app.use('/api/site-contracts', siteContractRoutes);
+app.use('/api/admin', adminRoutes);
 
 // ==========================================
 // Optional: Client Error Reporting

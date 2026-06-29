@@ -1,8 +1,9 @@
-import { 
-  getCapacitySourcesForSites, 
-  getContractsForSites, 
-  getQualifiedCapacityMwCovered 
+import {
+  getCapacitySourcesForSites,
+  getQualifiedCapacityMwCovered,
+  monthsCoveredInYear
 } from '../../data/linkedContracts';
+import type { LinkedContract } from '../../data/linkedContracts';
 import { getForecastCapacityForYear, type SiteLoadProfile, LOAD_PROFILES } from '../../data/loadProfile';
 import { r1 } from './utils';
 
@@ -13,6 +14,13 @@ interface TryOnCapacitySummaryProps {
   startYear: number;
   endYear: number;
   projectName: string;
+  existingContracts?: LinkedContract[];
+  // Proposed-deal term (save-form selectors) — prorates the proposed capacity by
+  // its in-delivery share so partial-year bilateral deals aren't overstated.
+  termStartYear?: number;
+  termStartMonth?: number;
+  termEndYear?: number;
+  termEndMonth?: number;
 }
 
 export function TryOnCapacitySummary({
@@ -22,7 +30,14 @@ export function TryOnCapacitySummary({
   startYear,
   endYear,
   projectName,
+  existingContracts = [],
+  termStartYear,
+  termStartMonth = 1,
+  termEndYear,
+  termEndMonth = 12,
 }: TryOnCapacitySummaryProps) {
+  const tStartY = termStartYear ?? startYear;
+  const tEndY = termEndYear ?? endYear;
   // Calculate capacity metrics - using averages instead of totals
   let totalSiteCapacity = 0;
   let totalExistingCapacity = 0;
@@ -48,7 +63,7 @@ export function TryOnCapacitySummary({
 
     // Get existing capacity from both CapacitySource and LDA-qualified LinkedContract capacity components
     const capacitySources = getCapacitySourcesForSites(sites);
-    const contracts = getContractsForSites(sites);
+    const contracts = existingContracts;
     
     const capacitySourceMw = capacitySources.reduce((sum, source) => sum + source.mwCovered, 0);
     
@@ -59,9 +74,13 @@ export function TryOnCapacitySummary({
     const contractCapacityMw = getQualifiedCapacityMwCovered(contracts, loadLda, year);
     const existingCapacity = capacitySourceMw + contractCapacityMw;
 
+    // Prorate the proposed deal by the share of this year it actually delivers.
+    const proposedFrac = monthsCoveredInYear(year, tStartY, termStartMonth, tEndY, termEndMonth) / 12;
+    const proposedCapacity = effectiveCapacity * proposedFrac;
+
     // Calculate coverage before and after project - fix overfit logic
     const uncoveredBefore = Math.max(0, yearSiteCapacity - existingCapacity);
-    const actualProjectCapacity = Math.min(effectiveCapacity, Math.max(0, yearSiteCapacity - existingCapacity));
+    const actualProjectCapacity = Math.min(proposedCapacity, Math.max(0, yearSiteCapacity - existingCapacity));
     const uncoveredAfter = Math.max(0, yearSiteCapacity - existingCapacity - actualProjectCapacity);
     const coveragePercent = yearSiteCapacity > 0 ? ((existingCapacity + actualProjectCapacity) / yearSiteCapacity) * 100 : 0;
 

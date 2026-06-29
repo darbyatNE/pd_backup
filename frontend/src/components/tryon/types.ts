@@ -28,10 +28,7 @@ export interface SummaryStats {
 
 export interface SplitState {
   splits: Record<string, number>;
-  splitSum: number;
-  splitValid: boolean;
   updateSplit: (key: string, val: number) => void;
-  normalizeSplits: () => void;
 }
 
 export type XAxisMode = 'hours' | 'months';
