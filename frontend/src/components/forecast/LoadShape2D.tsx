@@ -16,7 +16,7 @@ import {
 } from '../../data/loadProfile'
 import type { SiteLoadProfile } from '../../data/loadProfile'
 import {
-  contractMwForHourAvgInYear,
+  contractMwAtHourInYear,
   contractMwForMonthInYear,
   LOAD_COLORS,
   PATTERN_FG,
@@ -167,6 +167,8 @@ interface LoadShape2DProps {
   startMonth?: number
   endYear?: number
   endMonth?: number
+  // Hours view: which month(s) feed the typical-day average ('all' = every in-scope month)
+  selectedMonth?: number | 'all'
   // Per-asset chart selection (owned by the parent so it stays in sync with 3D)
   selected: Set<string>
   onToggleAsset: (projectName: string) => void
@@ -174,7 +176,7 @@ interface LoadShape2DProps {
   onDeselectAllAssets: () => void
 }
 
-export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, startYear, startMonth = 1, endYear, endMonth = 12, selected, onToggleAsset, onSelectAllAssets, onDeselectAllAssets }: LoadShape2DProps) {
+export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, startYear, startMonth = 1, endYear, endMonth = 12, selectedMonth = 'all', selected, onToggleAsset, onSelectAllAssets, onDeselectAllAssets }: LoadShape2DProps) {
   // Only selected contracts are charted; the legend still lists them all.
   const chartContracts = useMemo(
     () => contracts.filter((c) => selected.has(c.projectName)),
@@ -231,25 +233,49 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     })
   }, [chartContracts])
 
+  // The (year, month) pairs the typical-day profile averages over. Honours the
+  // selected month ('all' = every month), the selected year (or all scope years
+  // when fullScopeYears is set), and the scope's start/end-month bounds.
+  const hoursPairs = useMemo(() => {
+    const years = fullScopeYears && fullScopeYears.length > 1 ? fullScopeYears : [year]
+    const effStartYear = startYear ?? years[0]
+    const effEndYear = endYear ?? years[years.length - 1]
+    const pairs: Array<{ y: number; m: number }> = []
+    for (const y of years) {
+      for (let m = 1; m <= 12; m++) {
+        if (selectedMonth !== 'all' && m !== selectedMonth) continue
+        if (y === effStartYear && m < startMonth) continue
+        if (y === effEndYear && m > endMonth) continue
+        pairs.push({ y, m })
+      }
+    }
+    // Fallback: if the selected month falls outside the scope, still show it for the active year.
+    if (pairs.length === 0) pairs.push({ y: year, m: selectedMonth === 'all' ? 1 : selectedMonth })
+    return pairs
+  }, [fullScopeYears, year, selectedMonth, startYear, startMonth, endYear, endMonth])
+
   const hourlyData = useMemo(() => {
+    const n = hoursPairs.length || 1
     return Array.from({ length: 24 }, (_, h) => {
       let baseSum = 0
       let peakSum = 0
-      for (let m = 1; m <= 12; m++) {
-        const eff = getEffectiveLoadAt(profile, h, m, year)
+      for (const { y, m } of hoursPairs) {
+        const eff = getEffectiveLoadAt(profile, h, m, y)
         baseSum += eff.baseloadMw
         peakSum += eff.peakMw
       }
-      const avgBase = baseSum / 12
-      const avgPeak = peakSum / 12
       // Use HE (Hour Ending) format for energy industry standard
       const hourHE = `HE${h + 1}`
-      return buildRow(hourHE, avgBase, avgPeak,
-        sortedContracts.map((c) => contractMwForHourAvgInYear(c, h, year)),
+      return buildRow(hourHE, baseSum / n, peakSum / n,
+        sortedContracts.map((c) => {
+          let s = 0
+          for (const { y, m } of hoursPairs) s += contractMwAtHourInYear(c, h, m, y)
+          return s / n
+        }),
       )
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, sortedContracts, year])
+  }, [profile, sortedContracts, hoursPairs])
 
   const monthRows = useMemo(() => {
     const yy = (y: number) => `'${String(y).slice(-2)}`
@@ -301,6 +327,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     contracts.map((c) => `${c.projectName}:${c.mwCovered}`).join('|') +
     '|sel:' + Array.from(selected).sort().join(',') +
     '|x:' + xAxis +
+    '|m:' + String(selectedMonth) +
     '|y:' + yearsKey
 
   // Calculate max capacity to ensure Y-axis includes the capacity line
@@ -451,9 +478,9 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
         </ResponsiveContainer>
 
         {/* Pattern Legend - Below X-axis */}
-        <div className="mt-4 border-t border-slate-200 pt-3">
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            {/* Load type swatches — relocated here from the left "LOAD TYPE" column */}
+        <div className="mt-4 border-t border-slate-200 pt-3 space-y-2 text-xs">
+          {/* Load type swatches — relocated here from the left "LOAD TYPE" column */}
+          <div className="flex flex-wrap items-center gap-4">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Load Type:</span>
             <div className="flex items-center gap-2">
               <svg width="20" height="12" className="flex-shrink-0"><rect width="20" height="12" fill={LOAD_COLORS.base} /></svg>
@@ -470,16 +497,17 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
               </svg>
               <span className="text-slate-600 font-medium">Over-hedge</span>
             </div>
-            <span className="mx-1 h-3 w-px bg-slate-200" aria-hidden />
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Generation Type Patterns:</span>
             {GENERATION_TYPE_ORDER.map((genType) => {
               const visibleYears = fullScopeYears ?? [year];
-              const hasActiveContracts = contracts.some(c => 
-                c.generationType === genType && 
+              const hasActiveContracts = contracts.some(c =>
+                c.generationType === genType &&
                 visibleYears.some((y) => y >= c.startYear && y <= c.endYear)
               );
               if (!hasActiveContracts) return null;
-              
+
               return (
                 <div key={genType} className="flex items-center gap-2">
                   <svg width="20" height="12" className="flex-shrink-0">

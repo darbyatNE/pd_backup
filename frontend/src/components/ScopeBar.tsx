@@ -55,7 +55,7 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
   const dateRangeLabel = `${MONTH_NAMES[startMonth - 1]} ${startYear} – ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
 
   return (
-    <div className="border-t border-slate-100 bg-white/90">
+    <div className="border-t border-slate-100 bg-slate-50/60">
       <div className={`mx-auto flex min-h-10 items-center gap-3 px-4 sm:px-6 lg:px-8 py-1.5 ${fullWidth ? 'max-w-full' : 'max-w-7xl'}`}>
 
         {!editing ? (

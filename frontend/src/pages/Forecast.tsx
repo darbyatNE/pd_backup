@@ -140,7 +140,7 @@ export default function Forecast() {
   const [recsDialogOpen, setRecsDialogOpen] = useState(false)
   const [transmissionDialogOpen, setTransmissionDialogOpen] = useState(false)
   const [loadXAxis, setLoadXAxis] = useState<XAxisMode>('hours')
-  const [chartYearMode, setChartYearMode] = useState<'single' | 'all'>('single')
+  const [chartYearMode, setChartYearMode] = useState<'single' | 'all'>('all')
   const [chartActiveYear, setChartActiveYear] = useState<number>(startYear)
   const [tryOnProject, setTryOnProject] = useState<Project | null>(null)
   const [tryOnSite, setTryOnSite] = useState<string | undefined>(undefined)

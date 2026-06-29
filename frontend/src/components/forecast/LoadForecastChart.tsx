@@ -55,11 +55,28 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
 
   const [internalYearMode, setInternalYearMode] = useState<'single' | 'all'>('single')
   const [internalSelectedYear, setInternalSelectedYear] = useState<number>(startYear)
+  // Hours view: which month feeds the typical-day average ('all' = every in-scope month)
+  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all')
 
   const yearMode = externalYearMode ?? internalYearMode
   const selectedYear = externalYear ?? internalSelectedYear
   const activeYear = yearOptions.includes(selectedYear) ? selectedYear : (yearOptions[0] ?? startYear)
-  const showFullScope = view === '2d' && xAxis === 'months' && yearMode === 'all' && yearOptions.length > 1
+  const allYears = yearMode === 'all' && yearOptions.length > 1
+  const showFullScope = view === '2d' && xAxis === 'months' && allYears
+  const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+  // Caption describing the period currently charted.
+  const periodCaption = (() => {
+    const yearLabel = allYears && yearOptions.length > 1
+      ? `${yearOptions[0]}–${yearOptions[yearOptions.length - 1]}`
+      : String(activeYear)
+    if (xAxis === 'hours') {
+      if (allYears && selectedMonth === 'all') return `Entire period · ${yearLabel} · avg typical day`
+      const monthLabel = selectedMonth === 'all' ? 'All months' : MONTH_LABELS[selectedMonth - 1]
+      return `${monthLabel} · ${yearLabel} · avg typical day`
+    }
+    return allYears ? `All months · ${yearLabel}` : yearLabel
+  })()
 
   const setYearMode = (mode: 'single' | 'all') => {
     if (onYearModeChange) {
@@ -103,7 +120,7 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
                   {yr}
                 </button>
               ))}
-              {view === '2d' && xAxis === 'months' && (
+              {view === '2d' && (
                 <button
                   onClick={() => setYearMode('all')}
                   className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
@@ -111,12 +128,30 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
                       ? 'bg-white shadow-sm text-slate-900'
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
-                  title="Show every month in scope side-by-side"
+                  title={xAxis === 'months' ? 'Show every month in scope side-by-side' : 'Average across every year in scope'}
                 >
                   All
                 </button>
               )}
             </div>
+
+            {/* Month selector — narrows the typical-day average to one month (Hours view) */}
+            {view === '2d' && xAxis === 'hours' && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Month</span>
+                <select
+                  value={String(selectedMonth)}
+                  onChange={(e) => setSelectedMonth(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                  className="text-xs font-medium bg-slate-100 rounded-md px-2 py-1 text-slate-700 border-0 focus:ring-1 focus:ring-teal-500"
+                  title="Average the whole period or isolate a single month"
+                >
+                  <option value="all">All months (avg)</option>
+                  {MONTH_LABELS.map((label, i) => (
+                    <option key={label} value={i + 1}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* View tabs with 2d/3d and hours/months */}
@@ -162,6 +197,13 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
       </div>
 
       {view === '2d' && (
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-sm font-bold text-slate-800">{periodCaption}</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{xAxis === 'hours' ? 'Hours (HE)' : 'Months'}</span>
+        </div>
+      )}
+
+      {view === '2d' && (
         <div className="flex items-center gap-5 mb-3 text-xs text-slate-500 flex-wrap">
           <div className="flex items-center gap-1.5">
             <span className="inline-block w-6 h-0 border-t-2 border-dashed border-red-400" />
@@ -188,12 +230,13 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
           profile={profile}
           xAxis={xAxis}
           year={activeYear}
-          fullScopeYears={showFullScope ? yearOptions : undefined}
+          fullScopeYears={allYears ? yearOptions : undefined}
           contracts={contracts}
           startYear={startYear}
           startMonth={startMonth}
           endYear={endYear}
           endMonth={endMonth}
+          selectedMonth={selectedMonth}
           selected={selectedAssets}
           onToggleAsset={toggleAsset}
           onSelectAllAssets={selectAllAssets}
