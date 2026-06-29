@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useScopeContext } from '../../contexts/ScopeContext'
 import {
   getContractsForSites,
@@ -22,6 +22,30 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
   const [view, setView] = useState<'2d' | '3d'>('2d')
   const { startYear, endYear, startMonth, endMonth, selectedSites } = useScopeContext()
   const contracts = useMemo(() => getContractsForSites(selectedSites), [selectedSites])
+
+  // Per-asset chart selection — owned here so the 2D and 3D views stay in sync.
+  // Every asset defaults to checked; de-selections drop it from whichever chart is shown.
+  const [selectedAssets, setSelectedAssets] = useState<Set<string>>(() => new Set(contracts.map((c) => c.projectName)))
+  const knownNamesRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    setSelectedAssets((prev) => {
+      const current = new Set(contracts.map((c) => c.projectName))
+      const next = new Set<string>()
+      prev.forEach((n) => { if (current.has(n)) next.add(n) })
+      contracts.forEach((c) => { if (!knownNamesRef.current.has(c.projectName)) next.add(c.projectName) })
+      knownNamesRef.current = current
+      return next
+    })
+  }, [contracts])
+  const toggleAsset = (projectName: string) =>
+    setSelectedAssets((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectName)) next.delete(projectName)
+      else next.add(projectName)
+      return next
+    })
+  const selectAllAssets = () => setSelectedAssets(new Set(contracts.map((c) => c.projectName)))
+  const deselectAllAssets = () => setSelectedAssets(new Set())
 
   const yearOptions = useMemo(() => {
     const out: number[] = []
@@ -170,9 +194,23 @@ export function LoadForecastChart({ profile, xAxis, onXAxisChange, activeYear: e
           startMonth={startMonth}
           endYear={endYear}
           endMonth={endMonth}
+          selected={selectedAssets}
+          onToggleAsset={toggleAsset}
+          onSelectAllAssets={selectAllAssets}
+          onDeselectAllAssets={deselectAllAssets}
         />
       )}
-      {view === '3d' && <LoadShape3D profile={profile} year={activeYear} contracts={contracts} />}
+      {view === '3d' && (
+        <LoadShape3D
+          profile={profile}
+          year={activeYear}
+          contracts={contracts}
+          selected={selectedAssets}
+          onToggleAsset={toggleAsset}
+          onSelectAllAssets={selectAllAssets}
+          onDeselectAllAssets={deselectAllAssets}
+        />
+      )}
     </div>
   )
 }

@@ -6,14 +6,21 @@ import {
 import type { SiteLoadProfile } from '../../data/loadProfile'
 import { contractMwAtHourInYear } from '../../data/linkedContracts'
 import type { LinkedContract } from '../../data/linkedContracts'
+import { AssetSelectionLegend } from './AssetSelectionLegend'
 
 interface LoadShape3DProps {
   profile: SiteLoadProfile
   year: number
   contracts: LinkedContract[]
+  selected: Set<string>
+  onToggleAsset: (projectName: string) => void
+  onSelectAllAssets: () => void
+  onDeselectAllAssets: () => void
 }
 
-export function LoadShape3D({ profile, year, contracts }: LoadShape3DProps) {
+export function LoadShape3D({ profile, year, contracts, selected, onToggleAsset, onSelectAllAssets, onDeselectAllAssets }: LoadShape3DProps) {
+  // Only selected contracts contribute to the contracted-generation surface.
+  const chartContracts = contracts.filter((c) => selected.has(c.projectName))
   const CELL_W  = 15
   const Z_DX    = 18
   const Z_DY    = 11
@@ -70,7 +77,7 @@ export function LoadShape3D({ profile, year, contracts }: LoadShape3DProps) {
   const genPath = (mi: number) => {
     const pts = Array.from({ length: 24 }, (_, h) => ({
       hour: h,
-      genMw: contracts.reduce((sum, c) => sum + contractMwAtHourInYear(c, h, mi + 1, year), 0),
+      genMw: chartContracts.reduce((sum, c) => sum + contractMwAtHourInYear(c, h, mi + 1, year), 0),
     }))
 
     const start = proj(0, 0, mi)
@@ -134,6 +141,16 @@ export function LoadShape3D({ profile, year, contracts }: LoadShape3DProps) {
         )}
       </div>
 
+      <div className="flex gap-4">
+      <AssetSelectionLegend
+        contracts={contracts}
+        selected={selected}
+        onToggle={onToggleAsset}
+        onSelectAll={onSelectAllAssets}
+        onDeselectAll={onDeselectAllAssets}
+        year={year}
+      />
+      <div className="flex-1">
       <svg
         viewBox={`0 0 ${SVG_W} ${SVG_H}`}
         className="w-full h-auto"
@@ -277,6 +294,8 @@ export function LoadShape3D({ profile, year, contracts }: LoadShape3DProps) {
           Months →
         </text>
       </svg>
+      </div>
+      </div>
     </div>
   )
 }
