@@ -17,7 +17,7 @@ import ModuleHandoffDialog from './ModuleHandoffDialog';
 import type { TryOnOverlayProps, XAxisMode } from './tryon/types';
 import { SITE_NAMES } from './tryon/types';
 
-export default function TryOnOverlay({ project, onClose, scopeSite, initialYear, onSaved, allSiteContracts = [] }: TryOnOverlayProps & { scopeSite?: string; initialYear?: number; onSaved?: () => void; allSiteContracts?: SiteContractRow[] }) {
+export default function TryOnOverlay({ project, onClose, scopeSite, initialYear, onSaved, allSiteContracts = [], startMinimized = true }: TryOnOverlayProps & { scopeSite?: string; initialYear?: number; onSaved?: () => void; allSiteContracts?: SiteContractRow[]; startMinimized?: boolean }) {
   const { selectedSites, startYear, endYear, startMonth, endMonth } = useScopeContext();
 
   // ── Save-contract form (persists to RDS public.site_contracts → load chart) ──
@@ -74,6 +74,9 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
   const [viewMode, setViewMode] = useState<'energy' | 'capacity'>(
     isBESS ? 'capacity' : 'energy'
   );
+  // Start minimized (default): opens as a compact docked bar so the dashboard
+  // stays usable. Deep links from the Projects "Examine" action open expanded.
+  const [minimized, setMinimized] = useState(startMinimized);
 
   // Unbundled components this project OFFERS (from planning.project_products).
   // null while loading; if a project has no product metadata we treat all three
@@ -297,6 +300,35 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
 
   const chartKey = `tryon-${project.id}-${xAxis}-${activeYear}-${previewSites.join(',')}-${Object.values(splits).join(',')}-${capacityPct}`;
 
+  // Minimized: a compact docked bar (no backdrop) so the dashboard stays usable.
+  if (minimized) {
+    return (
+      <div className="fixed bottom-4 right-4 z-[100] flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-2xl max-w-[90vw]">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900 truncate">Try On: {project.name}</p>
+          <p className="text-[11px] text-slate-500 truncate">
+            {project.generation_type} · {project.capacity_mw} MW · minimized
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setMinimized(false)}
+          className="flex-shrink-0 rounded-md bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700"
+        >
+          Expand
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex-shrink-0 text-slate-400 hover:text-slate-600 text-lg px-1"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center p-3 pt-[calc(1rem+50px)]">
       {/* Backdrop */}
@@ -339,6 +371,14 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
                 Capacity
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setMinimized(true)}
+              title="Minimize"
+              className="text-slate-400 hover:text-slate-600 text-xl font-light px-2 leading-none"
+            >
+              –
+            </button>
             <button
               type="button"
               onClick={onClose}

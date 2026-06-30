@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useDashboardView } from '../contexts/DashboardViewContext';
+import { useProjectProductSummaries } from '../data/projectProductsApi';
+import { pnum, projectStatus, projectTerm, energyRange } from '../data/projectDisplay';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL } from '../services/api';
@@ -32,21 +35,16 @@ type SubmissionState = 'idle' | 'submitting' | 'success' | 'error';
 type TabType = 'marketplace' | 'my-projects';
 
 // Sortable columns of the marketplace projects table.
-type SortKey =
-  | 'name' | 'generation_type' | 'capacity_mw' | 'location' | 'iso' | 'zone'
-  | 'fixed_price_per_mwh' | 'eac_price_per_mwh' | 'capacity_price_per_mw_day';
+type SortKey = 'name' | 'generation_type' | 'capacity_mw';
 
 // Comparable value for a project on a given sort key (string lower-cased, number as-is).
-// Unpriced rows sink to the bottom (ascending) via -Infinity.
 const projectSortValue = (p: Project, key: SortKey): string | number => {
   switch (key) {
     case 'capacity_mw': return Number(p.capacity_mw) || 0;
-    case 'fixed_price_per_mwh': return p.fixed_price_per_mwh == null ? -Infinity : Number(p.fixed_price_per_mwh);
-    case 'eac_price_per_mwh': return p.eac_price_per_mwh == null ? -Infinity : Number(p.eac_price_per_mwh);
-    case 'capacity_price_per_mw_day': return p.capacity_price_per_mw_day == null ? -Infinity : Number(p.capacity_price_per_mw_day);
     default: return (p[key] ?? '').toString().toLowerCase();
   }
 };
+
 
 interface InterestFormState {
   energy_amount_mwh: string;
@@ -120,14 +118,24 @@ export default function Projects() {
   const [error, setError] = useState('');
   const [generationFilter, setGenerationFilter] = useState<GenerationFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const navigate = useNavigate();
+  const { setView, setSubTab } = useDashboardView();
+  const { byIso: productSummaries } = useProjectProductSummaries();
+  // "Examine" → open the Examine-Fit chart (Plan view) with this project selected.
+  const examineProject = (p: Project) => {
+    setView('forecast');
+    setSubTab('energy');
+    navigate(`/dashboard?examine=${p.id}`);
+  };
   // Marketplace table column sort.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
   const toggleSort = (key: SortKey) =>
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
   // Clickable, sort-aware table header cell for the marketplace table.
-  const SortTh = ({ label, col, className }: { label: string; col: SortKey; className?: string }) => (
+  const SortTh = ({ label, col, className, rowSpan }: { label: string; col: SortKey; className?: string; rowSpan?: number }) => (
     <th
-      className={`px-3 sm:px-4 py-2 whitespace-nowrap cursor-pointer select-none hover:text-slate-900 ${className ?? ''}`}
+      rowSpan={rowSpan}
+      className={`px-2 py-1.5 cursor-pointer select-none hover:text-slate-900 ${className ?? ''}`}
       onClick={() => toggleSort(col)}
       aria-sort={sort.key === col ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
@@ -768,72 +776,94 @@ export default function Projects() {
                     />
                   </div>
                 ) : (
-                  <div className="mt-4 sm:mt-6 overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="min-w-full divide-y divide-slate-200">
-                      <thead className="bg-slate-50 text-left text-xs font-medium text-slate-700">
-                        <tr>
-                          <SortTh label="Project" col="name" />
-                          <SortTh label="Type" col="generation_type" />
-                          <SortTh label="Capacity" col="capacity_mw" />
-                          <SortTh label="Location" col="location" className="hidden sm:table-cell" />
-                          <SortTh label="ISO" col="iso" className="hidden md:table-cell" />
-                          <SortTh label="Zone" col="zone" className="hidden md:table-cell" />
-                          <SortTh label="Energy ($/MWh)" col="fixed_price_per_mwh" className="hidden md:table-cell" />
-                          <SortTh label="EAC ($/MWh)" col="eac_price_per_mwh" className="hidden lg:table-cell" />
-                          <SortTh label="Capacity ($/MW-day)" col="capacity_price_per_mw_day" className="hidden lg:table-cell" />
-                          <th className="px-2 sm:px-3 py-2 text-right w-[130px]">Actions</th>
+                  <div className="mt-4 sm:mt-6 rounded-lg border border-slate-200 overflow-hidden">
+                    <table className="w-full table-fixed text-[11px] leading-tight">
+                      <colgroup>
+                        <col style={{ width: '9%' }} />{/* Status */}
+                        <col style={{ width: '15%' }} />{/* Project */}
+                        <col style={{ width: '8%' }} />{/* Type */}
+                        <col style={{ width: '7%' }} />{/* Cap MW */}
+                        <col style={{ width: '8%' }} />{/* Cap LDA */}
+                        <col style={{ width: '8%' }} />{/* Egy MWh */}
+                        <col style={{ width: '8%' }} />{/* Egy Zone */}
+                        <col style={{ width: '6%' }} />{/* REC % */}
+                        <col style={{ width: '10%' }} />{/* REC Tracking */}
+                        <col style={{ width: '7%' }} />{/* Start */}
+                        <col style={{ width: '7%' }} />{/* Stop */}
+                        <col style={{ width: '7%' }} />{/* Examine */}
+                      </colgroup>
+                      <thead className="bg-slate-50 text-left text-slate-600">
+                        {/* Group row */}
+                        <tr className="border-b border-slate-200">
+                          <th rowSpan={2} className="px-2 py-1.5 align-bottom font-semibold">Status</th>
+                          <SortTh label="Project" col="name" rowSpan={2} className="align-bottom font-semibold" />
+                          <SortTh label="Type" col="generation_type" rowSpan={2} className="align-bottom font-semibold" />
+                          <th colSpan={2} className="px-2 py-1 text-center font-semibold text-teal-700 border-l border-slate-200 bg-teal-50/40">Capacity</th>
+                          <th colSpan={2} className="px-2 py-1 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
+                          <th colSpan={2} className="px-2 py-1 text-center font-semibold text-indigo-700 border-l border-slate-200 bg-indigo-50/40">RECs</th>
+                          <th colSpan={2} className="px-2 py-1 text-center font-semibold border-l border-slate-200">Term</th>
+                          <th rowSpan={2} className="px-2 py-1.5 align-bottom text-right font-semibold border-l border-slate-200">Examine</th>
+                        </tr>
+                        {/* Leaf row */}
+                        <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-400">
+                          <SortTh label="MW" col="capacity_mw" className="border-l border-slate-200 font-medium" />
+                          <th className="px-2 py-1 font-medium">LDA</th>
+                          <th className="px-2 py-1 border-l border-slate-200 font-medium">MWh</th>
+                          <th className="px-2 py-1 font-medium">Zone</th>
+                          <th className="px-2 py-1 border-l border-slate-200 font-medium">%</th>
+                          <th className="px-2 py-1 font-medium">Tracking</th>
+                          <th className="px-2 py-1 border-l border-slate-200 font-medium">Start</th>
+                          <th className="px-2 py-1 font-medium">Stop</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 bg-white text-sm">
-                        {filteredProjects.map((project) => (
-                          <tr key={project.id} className={`hover:bg-slate-50 ${project.seller_id === user?.id ? 'bg-indigo-50/40' : ''}`}>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5">
-                              <div className="font-medium text-slate-900 max-w-[150px] sm:max-w-none truncate">
+                      <tbody className="divide-y divide-slate-100 bg-white text-slate-700">
+                        {filteredProjects.map((project) => {
+                          const s = productSummaries[project.id];
+                          const st = projectStatus(project);
+                          const tm = projectTerm(project);
+                          const lda = s?.eda || project.zone || '—';
+                          const zone = s?.zone || project.zone || '—';
+                          const recPct = s?.has_rec && pnum(s.rec_pct) != null ? `${pnum(s.rec_pct)}%` : '—';
+                          const tracking = s?.has_rec && s.retiring_agency ? s.retiring_agency : '—';
+                          const dim = (v: string) => (v === '—' ? 'text-slate-300' : '');
+                          return (
+                            <tr key={project.id} className={`hover:bg-slate-50 ${project.seller_id === user?.id ? 'bg-indigo-50/30' : ''}`}>
+                              <td className="px-2 py-1.5">
+                                <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${st.available ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                                  {st.label}
+                                </span>
+                              </td>
+                              <td className="px-2 py-1.5 font-medium text-slate-900 truncate" title={project.name}>
+                                {project.seller_id === user?.id && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-indigo-500 align-middle" title="Your project" />}
                                 {project.name}
-                                {project.seller_id === user?.id && (
-                                  <span className="ml-2 inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
-                                    Your Project
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5">
-                              <StatusBadge status={project.generation_type} type="info" />
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-900 whitespace-nowrap">
-                              {project.capacity_mw} MW
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden sm:table-cell">
-                              <span className="max-w-[120px] truncate inline-block">{project.location}</span>
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden md:table-cell whitespace-nowrap">
-                              {project.iso || '—'}
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden md:table-cell whitespace-nowrap">
-                              {project.zone || '—'}
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-900 hidden md:table-cell whitespace-nowrap">
-                              {project.fixed_price_per_mwh != null ? `$${project.fixed_price_per_mwh}` : '—'}
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden lg:table-cell whitespace-nowrap">
-                              {project.eac_price_per_mwh != null ? `$${project.eac_price_per_mwh}` : '—'}
-                            </td>
-                            <td className="px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 hidden lg:table-cell whitespace-nowrap">
-                              {project.capacity_price_per_mw_day != null ? `$${project.capacity_price_per_mw_day}` : '—'}
-                            </td>
-                            <td className="px-2 sm:px-3 py-2 sm:py-2.5 text-right">
-                              <RowActionGroup>
-                                <RowActionButton
-                                  label="View"
-                                  icon={EyeIcon}
-                                  tone="neutral"
-                                  ariaLabel={`View ${project.name}`}
-                                  onClick={() => setActiveProject(project)}
-                                />
-                              </RowActionGroup>
-                            </td>
-                          </tr>
-                        ))}
+                              </td>
+                              <td className="px-2 py-1.5 truncate" title={project.generation_type}>{project.generation_type}</td>
+                              {/* Capacity */}
+                              <td className="px-2 py-1.5 border-l border-slate-100 text-slate-900 whitespace-nowrap">{pnum(project.capacity_mw) ?? '—'}</td>
+                              <td className={`px-2 py-1.5 truncate ${dim(lda)}`} title={lda}>{lda}</td>
+                              {/* Energy */}
+                              <td className={`px-2 py-1.5 border-l border-slate-100 whitespace-nowrap ${dim(energyRange(s))}`}>{energyRange(s)}</td>
+                              <td className={`px-2 py-1.5 truncate ${dim(zone)}`} title={zone}>{zone}</td>
+                              {/* RECs */}
+                              <td className={`px-2 py-1.5 border-l border-slate-100 whitespace-nowrap ${dim(recPct)}`}>{recPct}</td>
+                              <td className={`px-2 py-1.5 truncate ${dim(tracking)}`} title={tracking}>{tracking}</td>
+                              {/* Term */}
+                              <td className={`px-2 py-1.5 border-l border-slate-100 whitespace-nowrap ${dim(tm.start)}`}>{tm.start}</td>
+                              <td className={`px-2 py-1.5 whitespace-nowrap ${dim(tm.stop)}`}>{tm.stop}</td>
+                              {/* Examine */}
+                              <td className="px-2 py-1.5 text-right border-l border-slate-100">
+                                <button
+                                  type="button"
+                                  onClick={() => examineProject(project)}
+                                  className="rounded bg-teal-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-teal-700"
+                                  aria-label={`Examine ${project.name}`}
+                                >
+                                  Examine
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

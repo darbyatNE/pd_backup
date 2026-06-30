@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { API_BASE_URL } from '../services/api'
 import {
   LOAD_PROFILES,
@@ -11,7 +11,8 @@ import {
 import type { SiteLoadProfile } from '../data/loadProfile'
 import type { LinkedContract } from '../data/linkedContracts'
 import { useSiteContracts, siteContractsForSites } from '../data/siteContractsApi'
-import { useProjectProductSummaries, formatProductSummary, formatProductLocale } from '../data/projectProductsApi'
+import { useProjectProductSummaries } from '../data/projectProductsApi'
+import { pnum, projectStatus, projectTerm, energyRange } from '../data/projectDisplay'
 import ProjectProductsEditor from '../components/ProjectProductsEditor'
 import { useAuth } from '../contexts/AuthContext'
 import { getSuggestedBessMw } from '../utils/capacity'
@@ -154,6 +155,8 @@ export default function Forecast() {
   const [chartActiveYear, setChartActiveYear] = useState<number>(startYear)
   const [tryOnProject, setTryOnProject] = useState<Project | null>(null)
   const [tryOnSite, setTryOnSite] = useState<string | undefined>(undefined)
+  // Whether the Try-On opens expanded (Examine deep link) or minimized (default).
+  const [tryOnExpanded, setTryOnExpanded] = useState(false)
 
   // Unbundled product summaries (Capacity / Energy / RECs) per project.
   const { user } = useAuth()
@@ -201,6 +204,21 @@ export default function Forecast() {
     setTryOnProject(p)
     setTryOnSite(selectedSites[0])
   }
+
+  // Deep link from the Projects list: /dashboard?examine=<projectId> opens the
+  // Try-On for that project once the marketplace list has loaded.
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const examineId = searchParams.get('examine')
+    if (!examineId || marketProjects.length === 0) return
+    const match = marketProjects.find((p) => p.id === examineId)
+    if (match) { setTryOnExpanded(true); openExamineFit(match) }
+    // consume the param so it doesn't re-trigger on re-render
+    const next = new URLSearchParams(searchParams)
+    next.delete('examine')
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketProjects, searchParams])
 
   return (
     <div className="max-w-full flex flex-col gap-6">
@@ -379,67 +397,95 @@ export default function Forecast() {
               <p className="text-sm text-slate-400 italic px-2">No published projects available.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs border-collapse">
+                <table className="w-full table-fixed text-[11px] leading-tight border-collapse">
+                  <colgroup>
+                    <col style={{ width: '8%' }} />{/* Status */}
+                    <col style={{ width: '15%' }} />{/* Project */}
+                    <col style={{ width: '8%' }} />{/* Type */}
+                    <col style={{ width: '6%' }} />{/* Cap MW */}
+                    <col style={{ width: '7%' }} />{/* LDA */}
+                    <col style={{ width: '7%' }} />{/* MWh */}
+                    <col style={{ width: '7%' }} />{/* Zone */}
+                    <col style={{ width: '5%' }} />{/* REC % */}
+                    <col style={{ width: '9%' }} />{/* Tracking */}
+                    <col style={{ width: '6%' }} />{/* Start */}
+                    <col style={{ width: '6%' }} />{/* Stop */}
+                    <col style={{ width: '16%' }} />{/* Action */}
+                  </colgroup>
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left py-3 px-4 font-semibold uppercase tracking-wider text-slate-500">Project</th>
-                      <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Type</th>
-                      <th className="text-right py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">MW</th>
-                      <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Location</th>
-                      <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Action</th>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-left text-slate-500">
+                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Status</th>
+                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Project</th>
+                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Type</th>
+                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-teal-700 border-l border-slate-200 bg-teal-50/40">Capacity</th>
+                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
+                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-indigo-700 border-l border-slate-200 bg-indigo-50/40">RECs</th>
+                      <th colSpan={2} className="py-1 px-2 text-center font-semibold border-l border-slate-200">Term</th>
+                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Action</th>
+                    </tr>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400">
+                      <th className="py-1 px-2 border-l border-slate-200 font-medium">MW</th>
+                      <th className="py-1 px-2 font-medium">LDA</th>
+                      <th className="py-1 px-2 border-l border-slate-200 font-medium">MWh</th>
+                      <th className="py-1 px-2 font-medium">Zone</th>
+                      <th className="py-1 px-2 border-l border-slate-200 font-medium">%</th>
+                      <th className="py-1 px-2 font-medium">Tracking</th>
+                      <th className="py-1 px-2 border-l border-slate-200 font-medium">Start</th>
+                      <th className="py-1 px-2 font-medium">Stop</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {marketProjects.map((p) => (
-                      <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/50">
-                        <td className="py-2.5 px-4 font-medium text-slate-800">
-                          {p.name}
-                          {productSummaries[p.id] && (
-                            <div className="text-[10px] font-normal text-slate-500 mt-0.5 leading-snug">
-                              {formatProductSummary(productSummaries[p.id])}
-                              {formatProductLocale(productSummaries[p.id]) && (
-                                <span className="text-slate-400"> · {formatProductLocale(productSummaries[p.id])}</span>
+                    {marketProjects.map((p) => {
+                      const s = productSummaries[p.id];
+                      const st = projectStatus(p);
+                      const tm = projectTerm(p);
+                      const lda = s?.eda || p.zone || '—';
+                      const zone = s?.zone || p.zone || '—';
+                      const recPct = s?.has_rec && pnum(s.rec_pct) != null ? `${pnum(s.rec_pct)}%` : '—';
+                      const tracking = s?.has_rec && s.retiring_agency ? s.retiring_agency : '—';
+                      const egy = energyRange(s);
+                      const dim = (v: string) => (v === '—' ? 'text-slate-300' : '');
+                      return (
+                        <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                          <td className="py-2 px-2">
+                            <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${st.available ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{st.label}</span>
+                          </td>
+                          <td className="py-2 px-2 font-medium text-slate-800 truncate" title={p.name}>{p.name}</td>
+                          <td className="py-2 px-2">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border truncate" style={{ background: `${GEN_COLORS[p.generation_type] ?? '#64748b'}18`, color: GEN_COLORS[p.generation_type] ?? '#64748b', borderColor: `${GEN_COLORS[p.generation_type] ?? '#64748b'}40` }}>{p.generation_type}</span>
+                          </td>
+                          <td className="py-2 px-2 border-l border-slate-100 text-slate-900 whitespace-nowrap">{Number(p.capacity_mw || 0).toFixed(0)}</td>
+                          <td className={`py-2 px-2 truncate ${dim(lda)}`} title={lda}>{lda}</td>
+                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(egy)}`}>{egy}</td>
+                          <td className={`py-2 px-2 truncate ${dim(zone)}`} title={zone}>{zone}</td>
+                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(recPct)}`}>{recPct}</td>
+                          <td className={`py-2 px-2 truncate ${dim(tracking)}`} title={tracking}>{tracking}</td>
+                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(tm.start)}`}>{tm.start}</td>
+                          <td className={`py-2 px-2 whitespace-nowrap ${dim(tm.stop)}`}>{tm.stop}</td>
+                          <td className="py-2 px-2 border-l border-slate-100">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => openExamineFit(p)}
+                                disabled={selectedSites.length === 0}
+                                title={selectedSites.length === 0 ? 'Select a site in the scope bar first' : 'Examine fit and save a contract'}
+                                className="px-2 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-[10px] font-semibold rounded transition-colors whitespace-nowrap"
+                              >
+                                ▶ Examine
+                              </button>
+                              {canEditProducts && (
+                                <button
+                                  onClick={() => setProductsProject(p)}
+                                  title="Edit unbundled products (Capacity / Energy / RECs)"
+                                  className="px-2 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[10px] font-semibold rounded transition-colors"
+                                >
+                                  Products
+                                </button>
                               )}
                             </div>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border"
-                            style={{
-                              background: `${GEN_COLORS[p.generation_type] ?? '#64748b'}18`,
-                              color: GEN_COLORS[p.generation_type] ?? '#64748b',
-                              borderColor: `${GEN_COLORS[p.generation_type] ?? '#64748b'}40`,
-                            }}
-                          >
-                            {p.generation_type}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right font-semibold text-slate-900">{Number(p.capacity_mw || 0).toFixed(0)}</td>
-                        <td className="py-2.5 px-3 text-slate-500">{p.zone || p.location || '—'}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => openExamineFit(p)}
-                              disabled={selectedSites.length === 0}
-                              title={selectedSites.length === 0 ? 'Select a site in the scope bar first' : 'Examine fit and save a contract'}
-                              className="px-2 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-[10px] font-semibold rounded transition-colors"
-                            >
-                              ▶ Examine Fit
-                            </button>
-                            {canEditProducts && (
-                              <button
-                                onClick={() => setProductsProject(p)}
-                                title="Edit unbundled products (Capacity / Energy / RECs)"
-                                className="px-2 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[10px] font-semibold rounded transition-colors"
-                              >
-                                Products
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -516,11 +562,13 @@ export default function Forecast() {
           onClose={() => {
             setTryOnProject(null);
             setTryOnSite(undefined);
+            setTryOnExpanded(false);
           }}
           scopeSite={tryOnSite}
           initialYear={chartActiveYear}
           onSaved={refetchSiteContracts}
           allSiteContracts={siteContractRows}
+          startMinimized={!tryOnExpanded}
         />
       )}
 

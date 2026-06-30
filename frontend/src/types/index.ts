@@ -61,6 +61,9 @@ export interface Project {
   metadata?: Metadata;
   created_at?: string;
   updated_at?: string;
+  // Offered contract delivery term (Mo/Yr), independent of COD/status.
+  term_start_date?: string | null;
+  term_end_date?: string | null;
   // VPPA Pricing — unbundled: energy ($/MWh), EAC ($/MWh), capacity ($/MW-day)
   fixed_price_per_mwh?: number;
   eac_price_per_mwh?: number;
