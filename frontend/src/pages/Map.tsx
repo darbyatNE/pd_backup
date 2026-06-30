@@ -27,10 +27,11 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 // Additional ISO zone overlays beyond PJM (toggleable from legend).
 // Each ISO's geojson is fetched from /public on map load; layers start hidden
 // unless the user previously enabled them (persisted in localStorage).
-type IsoZoneKey = 'MISO' | 'ERCOT';
+type IsoZoneKey = 'MISO' | 'ERCOT' | 'SWPP';
 const ISO_ZONE_OVERLAYS: Record<IsoZoneKey, { file: string; color: string }> = {
   MISO:  { file: '/MISO_zones.geojson',  color: '#6d28d9' }, // violet
   ERCOT: { file: '/ERCOT_zones.geojson', color: '#be123c' }, // crimson
+  SWPP:  { file: '/SWPP_zones.geojson',  color: '#ea580c' }, // orange
 };
 
 // Centroid + bbox per ISO (precomputed from the geojsons). PJM is always shown;
@@ -44,6 +45,7 @@ const ISO_META: Record<IsoKey, {
   PJM:   { centroid: [-82.10, 39.05], bbox: [[-90.30, 35.59], [-73.89, 42.51]] },
   MISO:  { centroid: [-94.89, 39.16], bbox: [[-107.36, 28.93], [-82.42, 49.38]] },
   ERCOT: { centroid: [-99.55, 30.95], bbox: [[-104.98, 25.84], [-94.13, 36.06]] },
+  SWPP:  { centroid: [-105.10, 38.28], bbox: [[-112.99, 31.76], [-89.55, 49.00]] },
 };
 
 const PJM_ZONE_LABELS: { label: string; coords: [number, number] }[] = [
@@ -172,6 +174,7 @@ export default function MapPage() {
   const projectsRef = useRef<MappedProject[]>([]);
   const buyerSitesRef = useRef<BuyerSite[]>([]);
   const visibleGenTypesRef = useRef<Set<GenerationType>>(new Set());
+  const visibleIsoZonesRef = useRef<Set<IsoKey>>(new Set());
   const selectedSitesRef = useRef<string[]>([]);
   const setTryOnProjectRef = useRef<(p: MappedProject | null) => void>(() => {});
   // "View Load" from a data center popup: scope to just that site and open the Plan tab.
@@ -316,6 +319,7 @@ export default function MapPage() {
   useEffect(() => { projectsRef.current = projects; }, [projects]);
   useEffect(() => { buyerSitesRef.current = buyerSites; }, [buyerSites]);
   useEffect(() => { visibleGenTypesRef.current = visibleGenTypes; }, [visibleGenTypes]);
+  useEffect(() => { visibleIsoZonesRef.current = visibleIsoZones; }, [visibleIsoZones]);
   useEffect(() => { selectedSitesRef.current = selectedSites; }, [selectedSites]);
   useEffect(() => { setTryOnProjectRef.current = setTryOnProject; }, [setTryOnProject]);
   useEffect(() => {
@@ -359,11 +363,11 @@ export default function MapPage() {
     localStorage.setItem('map-visibleGenTypes', JSON.stringify(Array.from(visibleGenTypes)));
   }, [visibleGenTypes]);
 
-  // Persist + apply visibility for all three ISO zone overlays.
+  // Persist + apply visibility for all ISO zone overlays.
   useEffect(() => {
     localStorage.setItem('map-visibleIsoZones', JSON.stringify(Array.from(visibleIsoZones)));
     if (!map.current) return;
-    (['PJM', 'MISO', 'ERCOT'] as IsoKey[]).forEach((iso) => {
+    (['PJM', 'MISO', 'ERCOT', 'SWPP'] as IsoKey[]).forEach((iso) => {
       const visible = visibleIsoZones.has(iso) ? 'visible' : 'none';
       const prefix = iso.toLowerCase();
       (['fill', 'line', 'border'] as const).forEach((suffix) => {
@@ -973,6 +977,8 @@ export default function MapPage() {
     currentProjects.forEach((project) => {
       if (!project.coords || !map.current) return;
       if (!currentVisible.has(project.generation_type)) return;
+      // Hide a project's gen-type marker when its ISO overlay is toggled off.
+      if (!visibleIsoZonesRef.current.has((project.iso || 'PJM') as IsoKey)) return;
 
       // Marker container with label (label above marker)
       const el = document.createElement('div');
@@ -1476,7 +1482,7 @@ export default function MapPage() {
     markers.current.forEach((marker) => {
       marker.getElement().style.display = showGenMarkers ? '' : 'none';
     });
-  }, [projects, buyerSites, visibleGenTypes, selectedSites, showLabels, showGenMarkers, renderMarkers]);
+  }, [projects, buyerSites, visibleGenTypes, visibleIsoZones, selectedSites, showLabels, showGenMarkers, renderMarkers]);
 
   // Toggle gen-type project marker visibility (for toggle-only changes)
   useEffect(() => {
@@ -1732,13 +1738,13 @@ export default function MapPage() {
         {/* Legend panel — toggles between Gen Types and LMP Price Scale */}
         <div className="absolute bottom-6 left-3 z-10 bg-white/95 backdrop-blur-sm rounded-lg border border-slate-200 shadow-md text-xs" style={{ minWidth: 192 }}>
 
-          {/* ISO zone overlay toggles — all three are independently toggleable. */}
+          {/* ISO zone overlay toggles — each is independently toggleable. */}
           <div className="px-3 py-2 border-b border-slate-200">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 mb-1.5">
               ISO Zones
             </div>
-            <div className="flex gap-1.5">
-              {(['PJM', 'MISO', 'ERCOT'] as IsoKey[]).map((iso) => {
+            <div className="flex flex-wrap gap-1.5">
+              {(['PJM', 'MISO', 'ERCOT', 'SWPP'] as IsoKey[]).map((iso) => {
                 const active = visibleIsoZones.has(iso);
                 const color = iso === 'PJM' ? '#0f766e' : ISO_ZONE_OVERLAYS[iso as IsoZoneKey].color;
                 const isLast = active && visibleIsoZones.size === 1;

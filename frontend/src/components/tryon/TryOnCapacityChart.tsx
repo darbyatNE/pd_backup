@@ -5,6 +5,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  ReferenceLine,
   ResponsiveContainer,
 } from 'recharts';
 import { getForecastCapacityForYear, type SiteLoadProfile, LOAD_PROFILES } from '../../data/loadProfile';
@@ -15,6 +16,7 @@ import {
 } from '../../data/linkedContracts';
 import type { LinkedContract } from '../../data/linkedContracts';
 import { r1 } from './utils';
+import { OVERHEDGE_PATTERN_ID } from './types';
 
 interface TryOnCapacityChartProps {
   effectiveCapacity: number;
@@ -91,8 +93,14 @@ export function TryOnCapacityChart({
 
     // Calculate coverage - simplified logic
     const totalCapacity = existingCapacity + proposedCapacity;
+    // Above the zero line we only ever stack up to the requirement; existing is
+    // counted first, then the proposed deal fills the remaining need.
+    const coveredExisting = Math.min(existingCapacity, yearSiteCapacity);
     const actualProjectCapacity = Math.min(proposedCapacity, Math.max(0, yearSiteCapacity - existingCapacity));
     const uncovered = Math.max(0, yearSiteCapacity - existingCapacity - actualProjectCapacity);
+    // Anything beyond the requirement is excess (over-procured) — charted below 0
+    // with the same pattern as excess energy.
+    const excess = Math.max(0, totalCapacity - yearSiteCapacity);
     const coveragePercent = yearSiteCapacity > 0 ? ((existingCapacity + actualProjectCapacity) / yearSiteCapacity) * 100 : 0;
 
     // Detailed debugging for Sterling
@@ -109,8 +117,9 @@ export function TryOnCapacityChart({
       coveragePercent: coveragePercent || 0,
       // For capacity tab style structure
       cap_uncovered: uncovered || 0,
-      s_existing: existingCapacity || 0,
+      s_existing: coveredExisting || 0,
       s_tryon: actualProjectCapacity || 0,
+      cap_excess: excess ? -excess : 0, // below the zero line
       _year: year,
     });
 
@@ -148,12 +157,13 @@ export function TryOnCapacityChart({
           />
           <Tooltip
             formatter={(value: any, name: any) => {
-              const numValue = Number(value) || 0;
+              const numValue = Math.abs(Number(value) || 0);
               return [`${r1(numValue)} MW`, name];
             }}
             labelFormatter={(label) => `Year ${label}`}
             contentStyle={{ fontSize: 11 }}
           />
+          <ReferenceLine y={0} stroke="#0f172a" strokeWidth={1.5} />
           {/* Existing capacity - blue base with wavy pattern like capacity tab */}
           <Bar
             dataKey="s_existing"
@@ -205,6 +215,17 @@ export function TryOnCapacityChart({
             name="Capacity"
             isAnimationActive={false}
           />
+
+          {/* Excess (over-procured) capacity — below the zero line, same pattern as excess energy */}
+          <Bar
+            dataKey="cap_excess"
+            stackId="cap"
+            fill={`url(#${OVERHEDGE_PATTERN_ID})`}
+            stroke="#b91c1c"
+            strokeWidth={0.5}
+            name="Excess Capacity"
+            isAnimationActive={false}
+          />
         </ReBarChart>
       </ResponsiveContainer>
 
@@ -227,6 +248,12 @@ export function TryOnCapacityChart({
             <rect width="20" height="12" fill="url(#capacity-tryon-green-pattern)" stroke="#10b981" strokeWidth="0.5" />
           </svg>
           <span className="font-medium text-slate-700">Proposed Capacity Contract</span>
+        </div>
+        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200">
+          <svg width="20" height="12">
+            <rect width="20" height="12" fill={`url(#${OVERHEDGE_PATTERN_ID})`} stroke="#b91c1c" strokeWidth="0.5" />
+          </svg>
+          <span className="font-medium text-slate-700">Excess Capacity (below 0)</span>
         </div>
       </div>
 
