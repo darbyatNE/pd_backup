@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useScopeContext } from '../contexts/ScopeContext';
 import { API_BASE_URL } from '../services/api';
 import { siteContractsForSites, type SiteContractRow } from '../data/siteContractsApi';
+import { defaultShapeForGenType } from '../data/linkedContracts';
 import { fetchProductSet, type ProductSet } from '../data/projectProductsApi';
 import { TryOnControls } from './tryon/TryOnControls';
 import { TryOnSummaryCards } from './tryon/TryOnSummaryCards';
@@ -88,19 +89,26 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
     return () => { alive = false; };
   }, [project.id]);
   const hasAnyProduct = !!productSet && (!!productSet.capacity || !!productSet.energy || !!productSet.rec);
+  // A Virtual deal is a financial contract-for-differences: energy only, no
+  // capacity or RECs, priced off its LMP node (which is also its location).
+  const isVirtual = project.generation_type === 'Virtual';
   const offered = {
-    capacity: !hasAnyProduct || !!productSet?.capacity,
-    energy: !hasAnyProduct || !!productSet?.energy,
-    rec: !hasAnyProduct || !!productSet?.rec,
+    capacity: !isVirtual && (!hasAnyProduct || !!productSet?.capacity),
+    energy: isVirtual || !hasAnyProduct || !!productSet?.energy,
+    rec: !isVirtual && (!hasAnyProduct || !!productSet?.rec),
   };
   // Which components the user will save/commit. Initialised to whatever's offered.
   const [selectedComponents, setSelectedComponents] = useState({ capacity: false, energy: true, rec: false });
   useEffect(() => {
     setSelectedComponents({ capacity: offered.capacity, energy: offered.energy, rec: offered.rec });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productSet]);
+  }, [productSet, isVirtual]);
   const toggleComponent = (k: 'capacity' | 'energy' | 'rec') =>
     setSelectedComponents((prev) => ({ ...prev, [k]: !prev[k] }));
+
+  // LMP pricing node the deal settles at — entered at creation, shown as the
+  // "Pricing LMP" column in the Contracts ledger/portfolio.
+  const [lmpNode, setLmpNode] = useState('');
 
   // BESS configuration state
   const [bessDischargeHours, setBessDischargeHours] = useState<number[]>([15, 16, 17, 18]);
@@ -180,8 +188,11 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
               generation_type: project.generation_type,
               capacity_mw,
               energy_mwh,
+              lmp_node: lmpNode.trim() || null,
               ...recFields,
-              shape: 'flat',
+              // Charge the deal with its real hourly shape (e.g. a Peaker
+              // delivers on the evening peak, not flat across all hours).
+              shape: defaultShapeForGenType(project.generation_type),
               start_year: saveStartYear,
               start_month: saveStartMonth,
               end_year: saveEndYear,
@@ -474,7 +485,7 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
                   type="button"
                   onClick={commitDrafts}
                   disabled={saving || draftContracts.length === 0}
-                  title="Commit to contracting — locks the saved contracts as permanent and non-removable. Committed contracts chart as Contracted (solid black pattern); contract-pending ones chart in medium gray."
+                  title="Commit to contracting — moves the saved contracts forward for decision. Saved-but-uncommitted contracts chart as Exploring (white pattern); committed ones chart as Contract-pending (brown); accepted ones chart as Contracted (solid black)."
                   className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white text-xs font-semibold rounded transition-colors"
                 >
                   Commit to Contracting
@@ -516,12 +527,31 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
               </div>
             </div>
 
+            {/* Pricing LMP node — settlement point the deal prices at. For a
+                Virtual (CfD) deal this node is also the deal's location. */}
+            <div className="bg-white border border-slate-200 rounded p-2 mb-2">
+              <label className="flex items-center gap-2 text-xs text-slate-700">
+                <span className="font-semibold uppercase tracking-wide text-[11px] text-slate-600 whitespace-nowrap">Pricing LMP node</span>
+                <input
+                  type="text"
+                  value={lmpNode}
+                  onChange={(e) => setLmpNode(e.target.value)}
+                  placeholder="e.g. DOM, WESTERN HUB, or a specific pnode"
+                  className="flex-1 min-w-0 border border-slate-200 rounded px-2 py-1 text-xs focus:border-teal-400 focus:outline-none"
+                />
+              </label>
+              {isVirtual && (
+                <p className="text-[10px] text-slate-400 mt-1">Virtual deal — energy-only CfD priced and located at this LMP node.</p>
+              )}
+            </div>
+
             {/* How committing affects the chart */}
             <p className="text-[11px] text-slate-500 mb-2 leading-snug">
-              <span className="font-semibold text-slate-700">Commit to Contracting</span> locks the saved
-              contracts as permanent and non-removable. Committed contracts then chart as{' '}
-              <span className="font-semibold">Contracted</span> (solid black pattern); saved-but-uncommitted
-              contracts chart as contract-pending (medium gray).
+              <span className="font-semibold text-slate-700">Commit to Contracting</span> moves the saved
+              contracts forward for decision. Saved-but-uncommitted contracts chart as{' '}
+              <span className="font-semibold">Exploring</span> (white pattern); once committed they chart as{' '}
+              <span className="font-semibold">Contract-pending</span> (brown), and as{' '}
+              <span className="font-semibold">Contracted</span> (solid black) once accepted.
             </p>
 
             {/* Per-data-center amounts (from the slider × allocation) */}

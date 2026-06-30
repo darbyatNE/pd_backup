@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext';
 import { ScopeProvider } from './contexts/ScopeContext';
 import { DashboardViewProvider } from './contexts/DashboardViewContext';
+import { RecommendationProvider } from './contexts/RecommendationContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -19,6 +20,7 @@ function App() {
     <AuthProvider>
       <ScopeProvider>
       <DashboardViewProvider>
+      <RecommendationProvider>
       <JamMetadata />
       <Router>
         <Routes>
@@ -86,6 +88,7 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>
+      </RecommendationProvider>
       </DashboardViewProvider>
       </ScopeProvider>
     </AuthProvider>

@@ -2,17 +2,16 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { API_BASE_URL } from '../services/api'
 import {
   LOAD_PROFILES,
   LOAD_PROFILE_MAP,
   aggregateProfiles,
 } from '../data/loadProfile'
 import type { SiteLoadProfile } from '../data/loadProfile'
-import type { LinkedContract } from '../data/linkedContracts'
 import { useSiteContracts, siteContractsForSites } from '../data/siteContractsApi'
-import { useProjectProductSummaries } from '../data/projectProductsApi'
 import { pnum, projectStatus, projectTerm, energyRange } from '../data/projectDisplay'
+import { useRecommendation } from '../contexts/RecommendationContext'
+import RecommendationFilters from '../components/forecast/RecommendationFilters'
 import ProjectProductsEditor from '../components/ProjectProductsEditor'
 import { useAuth } from '../contexts/AuthContext'
 import { getSuggestedBessMw } from '../utils/capacity'
@@ -22,13 +21,13 @@ import { SiteCapacityCard, CapacityRollup } from '../components/CapacitySettleme
 import CapacityCoverageChart from '../components/CapacityCoverageChart'
 import ModuleHandoffDialog from '../components/ModuleHandoffDialog'
 import TryOnOverlay from '../components/TryOnOverlay'
+import PageNav from '../components/PageNav'
 import type { Project } from '../types'
 import {
   CapacityBox,
   LoadForecastChart,
   CostTimeChart,
   EnergyMixChart,
-  RiskAlerts,
 } from '../components/forecast'
 
 const GEN_COLORS: Record<string, string> = {
@@ -40,103 +39,10 @@ const GEN_COLORS: Record<string, string> = {
   'Combined Cycle': '#64748b',
   Peaker: '#ef4444',
   Hydro: '#06b6d4', // Same as Hybrid for now
-}
-
-const TIER_STYLES: Record<string, string> = {
-  baseload: 'bg-teal-50 text-teal-700 border-teal-200',
-  peak:     'bg-amber-50 text-amber-700 border-amber-200',
-}
-
-function HedgeContractsTable({ contracts, onExamineFit }: { contracts: LinkedContract[]; onExamineFit?: (contract: LinkedContract) => void }) {
-  if (contracts.length === 0) {
-    return (
-      <p className="text-sm text-slate-400 italic px-2">
-        No contracts linked — select sites in the scope bar.
-      </p>
-    )
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
-            <th className="text-left py-3 px-4 font-semibold uppercase tracking-wider text-slate-500">Project</th>
-            <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Type</th>
-            <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Tier</th>
-            <th className="text-right py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">MW</th>
-            <th className="text-right py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">$/MWh</th>
-            <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Shape</th>
-            <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Term Start</th>
-            <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Term End</th>
-            <th className="text-left py-3 px-3 font-semibold uppercase tracking-wider text-slate-500">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {contracts.map((c, i) => (
-            <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/50">
-              <td className="py-2.5 px-4 font-medium text-slate-800">{c.projectName}</td>
-              <td className="py-2.5 px-3">
-                <span
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border"
-                  style={{
-                    background: `${GEN_COLORS[c.generationType] ?? '#64748b'}18`,
-                    color: GEN_COLORS[c.generationType] ?? '#64748b',
-                    borderColor: `${GEN_COLORS[c.generationType] ?? '#64748b'}40`,
-                  }}
-                >
-                  <span
-                    className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
-                    style={{ background: GEN_COLORS[c.generationType] ?? '#64748b' }}
-                  />
-                  {c.generationType}
-                </span>
-              </td>
-              <td className="py-2.5 px-3">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border capitalize ${TIER_STYLES[c.tier] ?? ''}`}>
-                  {c.tier}
-                </span>
-              </td>
-              <td className="py-2.5 px-3 text-right font-semibold text-slate-900">{c.mwCovered.toFixed(1)}</td>
-              <td className="py-2.5 px-3 text-right text-slate-700">${c.pricePerMwh.toFixed(2)}</td>
-              <td className="py-2.5 px-3 text-slate-500 capitalize">{c.shape}</td>
-              <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
-                {new Date(c.startYear, c.startMonth - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-              </td>
-              <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
-                {new Date(c.endYear, c.endMonth - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
-              </td>
-              <td className="py-2.5 px-3">
-                {c.generationType === 'Battery' && onExamineFit && (
-                  <button
-                    onClick={() => onExamineFit(c)}
-                    className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-semibold rounded transition-colors"
-                  >
-                    ▶ Examine Fit
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td colSpan={8} className="px-4 py-2.5 border-t border-slate-100 text-[10px] text-slate-400 italic">
-              {contracts.length} contract{contracts.length !== 1 ? 's' : ''} · {contracts.reduce((s, c) => s + c.mwCovered, 0).toFixed(1)} MW total contracted
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  )
+  Virtual: '#db2777', // financial CfD
 }
 
 type XAxisMode = 'hours' | 'months'
-
-const PAGE_NAV_LINKS = [
-  { label: 'Projects',     path: '/projects' },
-  { label: 'Transactions', path: '/transactions' },
-  { label: 'Documents',    path: '/documents' },
-]
 
 export default function Forecast() {
   const { selectedSites, startYear, endYear, peekActive, endPeek } = useScopeContext()
@@ -161,8 +67,16 @@ export default function Forecast() {
   // Unbundled product summaries (Capacity / Energy / RECs) per project.
   const { user } = useAuth()
   const canEditProducts = user?.role === 'admin' || user?.role === 'seller'
-  const { byIso: productSummaries, refetch: refetchProductSummaries } = useProjectProductSummaries()
   const [productsProject, setProductsProject] = useState<Project | null>(null)
+
+  // Shared "Recommended for <Company>" preferences + computed set (synced with
+  // the Map page via RecommendationContext).
+  const {
+    prefs, setPrefs, reset: resetPrefs,
+    recommended, marketProjects, productSummaries,
+    availableIsos, availableGenTypes, companyName, scopeWindow,
+    refetch: refetchProducts,
+  } = useRecommendation()
 
   const profiles = selectedSites
     .map((k) => LOAD_PROFILE_MAP[k])
@@ -181,24 +95,6 @@ export default function Forecast() {
     () => siteContractsForSites(siteContractRows, selectedSites),
     [siteContractRows, selectedSites],
   )
-
-  // Published marketplace projects — the generation assets you can "Examine Fit"
-  // against your load and then save as a contract.
-  const [marketProjects, setMarketProjects] = useState<Project[]>([])
-  useEffect(() => {
-    const token = localStorage.getItem('pd_access_token')
-    fetch(`${API_BASE_URL}/projects`, { headers: { ...(token && { Authorization: `Bearer ${token}` }) } })
-      .then((r) => (r.ok ? r.json() : { projects: [] }))
-      .then(({ projects }) =>
-        setMarketProjects(
-          (projects ?? []).map((p: Record<string, unknown>) => ({
-            ...p,
-            capacity_mw: p.capacity_mw == null ? 0 : Number(p.capacity_mw),
-          })) as Project[],
-        ),
-      )
-      .catch(() => setMarketProjects([]))
-  }, [])
 
   const openExamineFit = (p: Project) => {
     setTryOnProject(p)
@@ -245,17 +141,7 @@ export default function Forecast() {
             Capacity settlement · Energy forecast &amp; offers · REC procurement
           </p>
         </div>
-        <nav className="flex items-center gap-1">
-          {PAGE_NAV_LINKS.map((link) => (
-            <button
-              key={link.path}
-              onClick={() => navigate(link.path)}
-              className="px-3 py-1.5 rounded-md text-sm font-medium text-slate-500 hover:text-teal-600 hover:bg-slate-50 transition-colors"
-            >
-              {link.label}
-            </button>
-          ))}
-        </nav>
+        <PageNav />
       </div>
 
       {activeTab === 'capacity' && (
@@ -327,115 +213,72 @@ export default function Forecast() {
             onYearModeChange={setChartYearMode}
           />
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[400px]">
-            <CostTimeChart
-              contracts={contracts}
-              profile={profile}
-              startYear={startYear}
-              endYear={endYear}
-              granularity={loadXAxis}
-            />
-          </div>
-          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[400px]">
-            <EnergyMixChart
-              contracts={contracts}
-              profile={profile}
-              startYear={startYear}
-              endYear={endYear}
-            />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-semibold text-slate-900" title="Manage your energy contract portfolio: View all active PPAs, VPPAs, and hedge agreements, track contract terms and pricing, monitor delivery obligations, and ensure adequate coverage for your energy needs across all facilities.">
-                Hedge Contracts
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">All contracted positions linked to sites in scope</p>
-            </div>
-            <HedgeContractsTable 
-              contracts={contracts} 
-              onExamineFit={(contract) => {
-                // Convert LinkedContract to Project for TryOn
-                const isBess = contract.generationType === 'Battery';
-                const tryOnProject: Project = {
-                  id: `tryon-contract-${contract.projectName}`,
-                  seller_id: 'contract-list',
-                  name: contract.projectName,
-                  generation_type: contract.generationType,
-                  capacity_mw: contract.mwCovered,
-                  location: '',
-                  status: 'published',
-                  expected_cod: new Date(contract.startYear, contract.startMonth - 1).toISOString(),
-                  delivery_term_years: contract.endYear - contract.startYear,
-                  metadata: isBess ? {
-                    isBTMOption: true,
-                    btmAssetType: 'BESS',
-                    bessDischargeHours: contract.bessDischargeHours,
-                    bessChargeHours: contract.bessChargeHours,
-                    bessEfficiency: contract.bessEfficiency,
-                  } : undefined
-                };
-                setTryOnProject(tryOnProject);
-              }}
-            />
-          </div>
-          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[380px]">
-            <RiskAlerts />
-          </div>
-        </div>
-
-        {/* Examine Fit — pick a marketplace project, try it on against load, then save it */}
+        {/* Recommended projects — sits directly under the load chart */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100">
-            <h2 className="text-base font-semibold text-slate-900">Examine Fit — Generation Projects</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Try a marketplace project against your in-scope load, then save it as a contract</p>
-          </div>
+          <RecommendationFilters
+            prefs={prefs}
+            onChange={setPrefs}
+            scope={scopeWindow}
+            availableIsos={availableIsos}
+            availableGenTypes={availableGenTypes}
+            matchedCount={recommended.length}
+            totalCount={marketProjects.length}
+            companyName={companyName}
+            onReset={resetPrefs}
+          />
           <div className="p-4">
             {marketProjects.length === 0 ? (
               <p className="text-sm text-slate-400 italic px-2">No published projects available.</p>
+            ) : recommended.length === 0 ? (
+              <p className="text-sm text-slate-400 italic px-2">
+                No projects match your preferences. Try widening the distance, clearing a generation-type or
+                component filter, or turning off “fully covers” to see partial-term deals.
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full table-fixed text-[11px] leading-tight border-collapse">
                   <colgroup>
                     <col style={{ width: '8%' }} />{/* Status */}
-                    <col style={{ width: '15%' }} />{/* Project */}
-                    <col style={{ width: '8%' }} />{/* Type */}
-                    <col style={{ width: '6%' }} />{/* Cap MW */}
-                    <col style={{ width: '7%' }} />{/* LDA */}
-                    <col style={{ width: '7%' }} />{/* MWh */}
-                    <col style={{ width: '7%' }} />{/* Zone */}
-                    <col style={{ width: '5%' }} />{/* REC % */}
-                    <col style={{ width: '9%' }} />{/* Tracking */}
+                    <col style={{ width: '10%' }} />{/* Project */}
                     <col style={{ width: '6%' }} />{/* Start */}
                     <col style={{ width: '6%' }} />{/* Stop */}
-                    <col style={{ width: '16%' }} />{/* Action */}
+                    <col style={{ width: '6%' }} />{/* Cap MW */}
+                    <col style={{ width: '7%' }} />{/* LDA */}
+                    <col style={{ width: '6%' }} />{/* MWh */}
+                    <col style={{ width: '7%' }} />{/* Zone */}
+                    <col style={{ width: '7%' }} />{/* Pricing Pt */}
+                    <col style={{ width: '5%' }} />{/* REC % */}
+                    <col style={{ width: '7%' }} />{/* Tracking */}
+                    <col style={{ width: '7%' }} />{/* Type */}
+                    <col style={{ width: '7%' }} />{/* Distance */}
+                    <col style={{ width: '11%' }} />{/* Action */}
                   </colgroup>
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-left text-slate-500">
                       <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Status</th>
                       <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Project</th>
-                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Type</th>
-                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-teal-700 border-l border-slate-200 bg-teal-50/40">Capacity</th>
-                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
-                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-indigo-700 border-l border-slate-200 bg-indigo-50/40">RECs</th>
                       <th colSpan={2} className="py-1 px-2 text-center font-semibold border-l border-slate-200">Term</th>
+                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-teal-700 border-l border-slate-200 bg-teal-50/40">Capacity</th>
+                      <th colSpan={3} className="py-1 px-2 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
+                      <th colSpan={2} className="py-1 px-2 text-center font-semibold text-indigo-700 border-l border-slate-200 bg-indigo-50/40">RECs</th>
+                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Type</th>
+                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Dist (mi)</th>
                       <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Action</th>
                     </tr>
                     <tr className="bg-slate-50 border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400">
+                      <th className="py-1 px-2 border-l border-slate-200 font-medium">Start</th>
+                      <th className="py-1 px-2 font-medium">Stop</th>
                       <th className="py-1 px-2 border-l border-slate-200 font-medium">MW</th>
                       <th className="py-1 px-2 font-medium">LDA</th>
                       <th className="py-1 px-2 border-l border-slate-200 font-medium">MWh</th>
                       <th className="py-1 px-2 font-medium">Zone</th>
+                      <th className="py-1 px-2 font-medium">Pricing Pt</th>
                       <th className="py-1 px-2 border-l border-slate-200 font-medium">%</th>
                       <th className="py-1 px-2 font-medium">Tracking</th>
-                      <th className="py-1 px-2 border-l border-slate-200 font-medium">Start</th>
-                      <th className="py-1 px-2 font-medium">Stop</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {marketProjects.map((p) => {
+                    {recommended.map(({ project: p, distanceMiles }) => {
                       const s = productSummaries[p.id];
                       const st = projectStatus(p);
                       const tm = projectTerm(p);
@@ -451,17 +294,29 @@ export default function Forecast() {
                             <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${st.available ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{st.label}</span>
                           </td>
                           <td className="py-2 px-2 font-medium text-slate-800 truncate" title={p.name}>{p.name}</td>
-                          <td className="py-2 px-2">
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border truncate" style={{ background: `${GEN_COLORS[p.generation_type] ?? '#64748b'}18`, color: GEN_COLORS[p.generation_type] ?? '#64748b', borderColor: `${GEN_COLORS[p.generation_type] ?? '#64748b'}40` }}>{p.generation_type}</span>
-                          </td>
-                          <td className="py-2 px-2 border-l border-slate-100 text-slate-900 whitespace-nowrap">{Number(p.capacity_mw || 0).toFixed(0)}</td>
-                          <td className={`py-2 px-2 truncate ${dim(lda)}`} title={lda}>{lda}</td>
-                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(egy)}`}>{egy}</td>
-                          <td className={`py-2 px-2 truncate ${dim(zone)}`} title={zone}>{zone}</td>
-                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(recPct)}`}>{recPct}</td>
-                          <td className={`py-2 px-2 truncate ${dim(tracking)}`} title={tracking}>{tracking}</td>
+                          {/* Term */}
                           <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(tm.start)}`}>{tm.start}</td>
                           <td className={`py-2 px-2 whitespace-nowrap ${dim(tm.stop)}`}>{tm.stop}</td>
+                          {/* Capacity */}
+                          <td className="py-2 px-2 border-l border-slate-100 text-slate-900 whitespace-nowrap">{Number(p.capacity_mw || 0).toFixed(0)}</td>
+                          <td className={`py-2 px-2 truncate ${dim(lda)}`} title={lda}>{lda}</td>
+                          {/* Energy */}
+                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(egy)}`}>{egy}</td>
+                          <td className={`py-2 px-2 truncate ${dim(zone)}`} title={zone}>{zone}</td>
+                          {(() => { const pt = p.settlement_point || p.zone || '—'; return (
+                            <td className={`py-2 px-2 truncate ${dim(pt)}`} title={pt}>{pt}</td>
+                          ); })()}
+                          {/* RECs */}
+                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${dim(recPct)}`}>{recPct}</td>
+                          <td className={`py-2 px-2 truncate ${dim(tracking)}`} title={tracking}>{tracking}</td>
+                          {/* Type */}
+                          <td className="py-2 px-2 border-l border-slate-100">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border truncate" style={{ background: `${GEN_COLORS[p.generation_type] ?? '#64748b'}18`, color: GEN_COLORS[p.generation_type] ?? '#64748b', borderColor: `${GEN_COLORS[p.generation_type] ?? '#64748b'}40` }}>{p.generation_type}</span>
+                          </td>
+                          {/* Distance */}
+                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${distanceMiles == null ? 'text-slate-300' : 'text-slate-700'}`} title={distanceMiles == null ? 'Location not mapped' : `${Math.round(distanceMiles)} mi from nearest in-scope site`}>
+                            {distanceMiles == null ? '—' : Math.round(distanceMiles)}
+                          </td>
                           <td className="py-2 px-2 border-l border-slate-100">
                             <div className="flex items-center gap-1.5">
                               <button
@@ -490,6 +345,25 @@ export default function Forecast() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[400px]">
+            <CostTimeChart
+              contracts={contracts}
+              profile={profile}
+              startYear={startYear}
+              endYear={endYear}
+              granularity={loadXAxis}
+            />
+          </div>
+          <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[400px]">
+            <EnergyMixChart
+              contracts={contracts}
+              profile={profile}
+              startYear={startYear}
+              endYear={endYear}
+            />
           </div>
         </div>
       </>)}
@@ -577,7 +451,7 @@ export default function Forecast() {
           isoId={productsProject.id}
           projectName={productsProject.name}
           onClose={() => setProductsProject(null)}
-          onSaved={refetchProductSummaries}
+          onSaved={refetchProducts}
         />
       )}
     </div>

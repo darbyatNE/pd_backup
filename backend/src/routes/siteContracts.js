@@ -47,6 +47,7 @@ router.post('/', authenticate, async (req, res) => {
       price_per_mwh = null,
       price_per_mw_day = null,
       lda = null,
+      lmp_node = null,
       shape = 'flat',
       start_year,
       start_month,
@@ -75,15 +76,15 @@ router.post('/', authenticate, async (req, res) => {
     const { rows } = await query(
       `INSERT INTO site_contracts
         (buyer_id, owner_company_id, fac_id, project_id, project_name, generation_type,
-         capacity_mw, energy_mwh, price_per_mwh, price_per_mw_day, lda, shape,
+         capacity_mw, energy_mwh, price_per_mwh, price_per_mw_day, lda, lmp_node, shape,
          start_year, start_month, end_year, end_month,
          rec_pct, retiring_agency, matching_format,
          origin, status, committed, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        RETURNING *`,
       [
         req.user.id, req.user.companyId ?? null, fac_id, project_id, project_name, generation_type,
-        capacity_mw, energy_mwh, price_per_mwh, price_per_mw_day, lda, shape,
+        capacity_mw, energy_mwh, price_per_mwh, price_per_mw_day, lda, lmp_node, shape,
         start_year, start_month, end_year, end_month,
         rec_pct, retiring_agency, matching_format,
         origin, status, committed, JSON.stringify(metadata),

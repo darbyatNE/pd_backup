@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Transaction, TransactionStatus } from '../types/index';
 import StatusBadge from '../components/StatusBadge';
 import ContractsLedger from '../components/ContractsLedger';
+import HedgeContractsTable from '../components/HedgeContractsTable';
+import { useSiteContracts, mapSiteContractRowsToLinked } from '../data/siteContractsApi';
 import EmptyState from '../components/EmptyState';
 import { DocumentCheckIcon } from '../components/Icons';
 import {
@@ -216,6 +218,16 @@ export default function Transactions() {
   const { user } = useAuth();
   const userRole = user?.role ?? 'buyer';
 
+  // Charted contract portfolio (the former dashboard "Hedge Contracts" lens),
+  // now unified onto the Contracts page alongside the ledger. Only ACCEPTED
+  // (truly contracted) positions belong here — proposed/in-progress deals live
+  // in the lifecycle ledger above until accepted.
+  const { rows: contractRows, refetch: refetchPortfolio } = useSiteContracts();
+  const portfolio = useMemo(
+    () => mapSiteContractRowsToLinked(contractRows.filter((r) => r.status === 'accepted')),
+    [contractRows],
+  );
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -339,11 +351,11 @@ export default function Transactions() {
     <div className="space-y-4 sm:space-y-6">
       <header className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-3 sm:gap-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl truncate">Transactions</h1>
+          <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl truncate">Contracts</h1>
           <p className="mt-1.5 text-sm sm:text-base text-slate-600">
             {userRole === 'buyer'
-              ? 'View and manage your project interest submissions.'
-              : 'Review and respond to buyer interest submissions.'}
+              ? 'Your contract portfolio, committed contracts, and project interest submissions.'
+              : 'Your contract portfolio plus buyer interest submissions to review.'}
           </p>
         </div>
         <button
@@ -357,7 +369,16 @@ export default function Transactions() {
 
       {/* Committed contracts (Examine-Fit) + existing onboarded contracts —
           accept (→ permanent, charted) or reject (→ archive). */}
-      <ContractsLedger />
+      <ContractsLedger onChanged={refetchPortfolio} />
+
+      {/* Charted contract portfolio — the former dashboard "Hedge Contracts" lens. */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm">
+        <div className="mb-3">
+          <h2 className="text-base font-semibold text-slate-900">Contract portfolio</h2>
+          <p className="text-xs text-slate-500">Accepted (contracted) positions across your company's sites — tier, shape, price, and term.</p>
+        </div>
+        <HedgeContractsTable contracts={portfolio} emptyMessage="No accepted contracts yet." />
+      </section>
 
       {loading ? (
         <div className="space-y-6">

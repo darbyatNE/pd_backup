@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { FormEvent } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { useDashboardView } from '../contexts/DashboardViewContext';
+import { useSearchParams } from 'react-router-dom';
 import { useProjectProductSummaries } from '../data/projectProductsApi';
 import { pnum, projectStatus, projectTerm, energyRange } from '../data/projectDisplay';
 import { createPortal } from 'react-dom';
@@ -12,6 +11,7 @@ import type { PriceCurrency, SettlementType, EACScheme } from '../types/ppa';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import CreateProjectModal from '../components/CreateProjectModal';
+import ProjectProductsEditor from '../components/ProjectProductsEditor';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { RowActionButton, RowActionGroup } from '../components/RowActions';
 import { RocketLaunchIcon } from '../components/Icons';
@@ -118,15 +118,8 @@ export default function Projects() {
   const [error, setError] = useState('');
   const [generationFilter, setGenerationFilter] = useState<GenerationFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const navigate = useNavigate();
-  const { setView, setSubTab } = useDashboardView();
-  const { byIso: productSummaries } = useProjectProductSummaries();
-  // "Examine" → open the Examine-Fit chart (Plan view) with this project selected.
-  const examineProject = (p: Project) => {
-    setView('forecast');
-    setSubTab('energy');
-    navigate(`/dashboard?examine=${p.id}`);
-  };
+  const { byIso: productSummaries, refetch: refetchProductSummaries } = useProjectProductSummaries();
+  const [productsProject, setProductsProject] = useState<Project | null>(null);
   // Marketplace table column sort.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
   const toggleSort = (key: SortKey) =>
@@ -779,18 +772,19 @@ export default function Projects() {
                   <div className="mt-4 sm:mt-6 rounded-lg border border-slate-200 overflow-hidden">
                     <table className="w-full table-fixed text-[11px] leading-tight">
                       <colgroup>
-                        <col style={{ width: '9%' }} />{/* Status */}
-                        <col style={{ width: '15%' }} />{/* Project */}
-                        <col style={{ width: '8%' }} />{/* Type */}
-                        <col style={{ width: '7%' }} />{/* Cap MW */}
-                        <col style={{ width: '8%' }} />{/* Cap LDA */}
-                        <col style={{ width: '8%' }} />{/* Egy MWh */}
-                        <col style={{ width: '8%' }} />{/* Egy Zone */}
-                        <col style={{ width: '6%' }} />{/* REC % */}
-                        <col style={{ width: '10%' }} />{/* REC Tracking */}
-                        <col style={{ width: '7%' }} />{/* Start */}
-                        <col style={{ width: '7%' }} />{/* Stop */}
-                        <col style={{ width: '7%' }} />{/* Examine */}
+                        <col style={{ width: '8%' }} />{/* Status */}
+                        <col style={{ width: '13%' }} />{/* Project */}
+                        <col style={{ width: '7%' }} />{/* Type */}
+                        <col style={{ width: '6%' }} />{/* Cap MW */}
+                        <col style={{ width: '7%' }} />{/* Cap LDA */}
+                        <col style={{ width: '7%' }} />{/* Egy MWh */}
+                        <col style={{ width: '7%' }} />{/* Egy Zone */}
+                        <col style={{ width: '8%' }} />{/* Egy Pricing Pt */}
+                        <col style={{ width: '5%' }} />{/* REC % */}
+                        <col style={{ width: '8%' }} />{/* REC Tracking */}
+                        <col style={{ width: '6%' }} />{/* Start */}
+                        <col style={{ width: '6%' }} />{/* Stop */}
+                        <col style={{ width: '12%' }} />{/* Actions */}
                       </colgroup>
                       <thead className="bg-slate-50 text-left text-slate-600">
                         {/* Group row */}
@@ -799,10 +793,10 @@ export default function Projects() {
                           <SortTh label="Project" col="name" rowSpan={2} className="align-bottom font-semibold" />
                           <SortTh label="Type" col="generation_type" rowSpan={2} className="align-bottom font-semibold" />
                           <th colSpan={2} className="px-2 py-1 text-center font-semibold text-teal-700 border-l border-slate-200 bg-teal-50/40">Capacity</th>
-                          <th colSpan={2} className="px-2 py-1 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
+                          <th colSpan={3} className="px-2 py-1 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
                           <th colSpan={2} className="px-2 py-1 text-center font-semibold text-indigo-700 border-l border-slate-200 bg-indigo-50/40">RECs</th>
                           <th colSpan={2} className="px-2 py-1 text-center font-semibold border-l border-slate-200">Term</th>
-                          <th rowSpan={2} className="px-2 py-1.5 align-bottom text-right font-semibold border-l border-slate-200">Examine</th>
+                          <th rowSpan={2} className="px-2 py-1.5 align-bottom text-right font-semibold border-l border-slate-200">Actions</th>
                         </tr>
                         {/* Leaf row */}
                         <tr className="border-b border-slate-200 text-[10px] uppercase tracking-wide text-slate-400">
@@ -810,6 +804,7 @@ export default function Projects() {
                           <th className="px-2 py-1 font-medium">LDA</th>
                           <th className="px-2 py-1 border-l border-slate-200 font-medium">MWh</th>
                           <th className="px-2 py-1 font-medium">Zone</th>
+                          <th className="px-2 py-1 font-medium">Pricing Pt</th>
                           <th className="px-2 py-1 border-l border-slate-200 font-medium">%</th>
                           <th className="px-2 py-1 font-medium">Tracking</th>
                           <th className="px-2 py-1 border-l border-slate-200 font-medium">Start</th>
@@ -844,22 +839,36 @@ export default function Projects() {
                               {/* Energy */}
                               <td className={`px-2 py-1.5 border-l border-slate-100 whitespace-nowrap ${dim(energyRange(s))}`}>{energyRange(s)}</td>
                               <td className={`px-2 py-1.5 truncate ${dim(zone)}`} title={zone}>{zone}</td>
+                              {(() => { const pt = project.settlement_point || project.zone || '—'; return (
+                                <td className={`px-2 py-1.5 truncate ${dim(pt)}`} title={pt}>{pt}</td>
+                              ); })()}
                               {/* RECs */}
                               <td className={`px-2 py-1.5 border-l border-slate-100 whitespace-nowrap ${dim(recPct)}`}>{recPct}</td>
                               <td className={`px-2 py-1.5 truncate ${dim(tracking)}`} title={tracking}>{tracking}</td>
                               {/* Term */}
                               <td className={`px-2 py-1.5 border-l border-slate-100 whitespace-nowrap ${dim(tm.start)}`}>{tm.start}</td>
                               <td className={`px-2 py-1.5 whitespace-nowrap ${dim(tm.stop)}`}>{tm.stop}</td>
-                              {/* Examine */}
+                              {/* Actions */}
                               <td className="px-2 py-1.5 text-right border-l border-slate-100">
-                                <button
-                                  type="button"
-                                  onClick={() => examineProject(project)}
-                                  className="rounded bg-teal-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-teal-700"
-                                  aria-label={`Examine ${project.name}`}
-                                >
-                                  Examine
-                                </button>
+                                <div className="inline-flex items-center gap-1">
+                                  {/* Open to everyone for now — ownership/role gating comes in a later security round. */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleEditSeller(e, project)}
+                                    className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+                                    aria-label={`Edit ${project.name}`}
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setProductsProject(project)}
+                                    className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+                                    aria-label={`Edit products for ${project.name}`}
+                                  >
+                                    Products
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -898,20 +907,35 @@ export default function Projects() {
           status: editingSellerProject.status,
           fixed_price_per_mwh: editingSellerProject.fixed_price_per_mwh,
           eac_price_per_mwh: editingSellerProject.eac_price_per_mwh,
+          capacity_price_per_mw_day: editingSellerProject.capacity_price_per_mw_day,
           price_currency: editingSellerProject.price_currency as PriceCurrency | undefined,
           annual_escalator_percent: editingSellerProject.annual_escalator_percent,
           expected_cod: editingSellerProject.expected_cod,
           guaranteed_cod: editingSellerProject.guaranteed_cod,
           delivery_term_years: editingSellerProject.delivery_term_years,
+          term_start_date: editingSellerProject.term_start_date,
+          term_end_date: editingSellerProject.term_end_date,
           guaranteed_availability_year1_percent: editingSellerProject.guaranteed_availability_year1_percent,
           guaranteed_availability_ongoing_percent: editingSellerProject.guaranteed_availability_ongoing_percent,
           eac_scheme: editingSellerProject.eac_scheme as EACScheme | '' | undefined,
-          settlement_point: editingSellerProject.settlement_point,
+          // Pre-fill the settlement-point box with the on-screen LMP node (falls
+          // back to zone, matching the marketplace "LMP Node" column).
+          settlement_point: editingSellerProject.settlement_point || editingSellerProject.zone,
           connection_point: editingSellerProject.connection_point,
           iso: editingSellerProject.iso,
           zone: editingSellerProject.zone,
         } : null)}
       />
+
+      {/* Unbundled products (Capacity / Energy / RECs) editor for a marketplace project */}
+      {productsProject && (
+        <ProjectProductsEditor
+          isoId={productsProject.id}
+          projectName={productsProject.name}
+          onClose={() => setProductsProject(null)}
+          onSaved={refetchProductSummaries}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

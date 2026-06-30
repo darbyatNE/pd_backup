@@ -9,6 +9,7 @@ import { useDashboardView } from '../contexts/DashboardViewContext';
 import { getLmpPeriodType, LMP_HISTORY_START, LMP_PERIODS_ALL, buildSimulatedLmpMap } from '../data/lmpData';
 import { LOAD_PROFILES, getForecastCapacityForYear } from '../data/loadProfile';
 import { getSuggestedBessMw } from '../utils/capacity';
+import { useRecommendation } from '../contexts/RecommendationContext';
 import type { Project, GenerationType, BTMAssetType } from '../types';
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
@@ -82,6 +83,7 @@ const MARKER_COLORS: Record<GenerationType, string> = {
   Hybrid:           '#06b6d4',
   'Combined Cycle': '#64748b',
   Peaker:           '#ef4444',
+  Virtual:          '#db2777',
 };
 
 // Map icon functions for generation types
@@ -163,6 +165,7 @@ type LmpMap = Map<number, number>;
 
 export default function MapPage() {
   const { selectedSites, startYear, endYear, endMonth, setEndDate, addSite, peekSite } = useScopeContext();
+  const { recommendedIds: ctxRecommendedIds } = useRecommendation();
   const navigate = useNavigate();
   const { setView, setSubTab } = useDashboardView();
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -222,6 +225,8 @@ export default function MapPage() {
   const [legendMode, setLegendMode] = useState<'gen' | 'lmp'>('gen');
   const [showGenMarkers, setShowGenMarkers] = useState(true);
   const [showLmpDots, setShowLmpDots] = useState(false);
+  // Show only Plan-tab "Recommended" projects (default on). Off = explore all.
+  const [recommendedOnly, setRecommendedOnly] = useState(true);
   // Which ISO zone overlays are visible. All three (PJM/MISO/ERCOT) are
   // independently toggleable; default on first load is PJM only.
   const [visibleIsoZones, setVisibleIsoZones] = useState<Set<IsoKey>>(() => {
@@ -330,6 +335,16 @@ export default function MapPage() {
       navigate('/dashboard');
     };
   }, [peekSite, setSubTab, setView, navigate]);
+
+  // Recommended-project filter — shares the Plan tab's live preferences via
+  // RecommendationContext, so slider edits there update the map in real time.
+  // When the toggle is off, null = no filtering (explore all projects).
+  const recommendedIds = useMemo<Set<string> | null>(
+    () => (recommendedOnly ? ctxRecommendedIds : null),
+    [recommendedOnly, ctxRecommendedIds],
+  );
+  const recommendedIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => { recommendedIdsRef.current = recommendedIds; }, [recommendedIds]);
 
   // Ref for showLabels so renderMarkers can access current value
   const showLabelsRef = useRef(showLabels);
@@ -890,7 +905,9 @@ export default function MapPage() {
     const allMarkers: MarkerPos[] = [];
 
     // Add visible projects
+    const recIds = recommendedIdsRef.current;
     currentProjects.forEach((p) => {
+      if (recIds && !recIds.has(p.id)) return;
       if (p.coords && currentVisible.has(p.generation_type)) {
         allMarkers.push({ id: p.id, lng: p.coords[0], lat: p.coords[1], type: 'project' });
       }
@@ -976,6 +993,8 @@ export default function MapPage() {
     // Generation markers — filled circles
     currentProjects.forEach((project) => {
       if (!project.coords || !map.current) return;
+      // Recommended-only filter (mirrors the Plan tab's Recommended section).
+      if (recommendedIdsRef.current && !recommendedIdsRef.current.has(project.id)) return;
       if (!currentVisible.has(project.generation_type)) return;
       // Hide a project's gen-type marker when its ISO overlay is toggled off.
       if (!visibleIsoZonesRef.current.has((project.iso || 'PJM') as IsoKey)) return;
@@ -1482,7 +1501,7 @@ export default function MapPage() {
     markers.current.forEach((marker) => {
       marker.getElement().style.display = showGenMarkers ? '' : 'none';
     });
-  }, [projects, buyerSites, visibleGenTypes, visibleIsoZones, selectedSites, showLabels, showGenMarkers, renderMarkers]);
+  }, [projects, buyerSites, visibleGenTypes, visibleIsoZones, selectedSites, showLabels, showGenMarkers, recommendedIds, renderMarkers]);
 
   // Toggle gen-type project marker visibility (for toggle-only changes)
   useEffect(() => {
@@ -1534,7 +1553,9 @@ export default function MapPage() {
     markers.current.get(site.id)?.togglePopup();
   };
 
-  const visibleProjects = projects.filter((p) => visibleGenTypes.has(p.generation_type));
+  const visibleProjects = projects.filter(
+    (p) => (!recommendedIds || recommendedIds.has(p.id)) && visibleGenTypes.has(p.generation_type),
+  );
   const mapped = visibleProjects.filter((p) => p.coords);
   const unmapped = visibleProjects.filter((p) => !p.coords);
   // Sites linked to scope: only show buyer sites that match a selected scope key
@@ -1578,6 +1599,15 @@ export default function MapPage() {
                   {mapped.length} gen · {mappedSites.length} load · {unmapped.length} unmapped
                 </p>
               )}
+              <label className="mt-1 flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={recommendedOnly}
+                  onChange={(e) => setRecommendedOnly(e.target.checked)}
+                  className="h-3 w-3 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                />
+                <span className="text-[10px] text-slate-500 whitespace-nowrap">Recommended for my portfolio only</span>
+              </label>
               <p className="text-[10px] text-slate-400 mt-1 whitespace-nowrap">Click the Gen Type in the map legend to filter types.</p>
             </div>
             <button

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE_URL } from '../services/api'
 import type { LinkedContract, ContractShape, CommitmentLevel } from './linkedContracts'
+import { defaultShapeForGenType } from './linkedContracts'
 import { LOAD_PROFILE_MAP } from './loadProfile'
 
 // Row shape returned by GET /api/site-contracts (RDS public.site_contracts).
@@ -16,6 +17,7 @@ export interface SiteContractRow {
   price_per_mwh: string | number | null
   price_per_mw_day: string | number | null
   lda: string | null
+  lmp_node?: string | null
   shape: string
   start_year: number
   start_month: number
@@ -76,7 +78,8 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
       r.shape,
       r.price_per_mwh ?? '',
       // Keep each lifecycle status in its own group so the entry gets a single
-      // commitment color (accepted = contracted/black; everything else gray).
+      // commitment color (pending = exploring/white, committed = pending/brown,
+      // accepted = contracted/black).
       r.status ?? (r.committed ? 'accepted' : 'pending'),
     ].join('|')
     const list = groups.get(key)
@@ -106,14 +109,21 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
       r0.lda ??
       gr.map((r) => LOAD_PROFILE_MAP[r.fac_id]?.lda).find(Boolean) ??
       'DOM'
-    // accepted ⇒ Contracted (near-black); committed/pending ⇒ contract-pending (gray).
+    // Commitment shade follows the lifecycle:
+    //   pending (saved, not committed)        ⇒ exploring  (white)
+    //   committed (committed, awaiting decision) ⇒ pending  (brown)
+    //   accepted (permanent)                  ⇒ contracted (black)
     const effectiveStatus = r0.status ?? (r0.committed ? 'accepted' : 'pending')
-    const commitment: CommitmentLevel = effectiveStatus === 'accepted' ? 'contracted' : 'pending'
+    const commitment: CommitmentLevel =
+      effectiveStatus === 'accepted' ? 'contracted'
+      : effectiveStatus === 'committed' ? 'pending'
+      : 'exploring'
     const common = {
       generationType: gen,
       pricePerMwh: num(r0.price_per_mwh),
       pattern: 'diagonal' as const,
       lda: r0.lda ?? undefined,
+      lmpNode: r0.lmp_node ?? undefined,
       startYear: r0.start_year,
       startMonth: r0.start_month,
       endYear: r0.end_year,
@@ -147,11 +157,17 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
     }
 
     if (energy > 0) {
+      // Self-heal legacy rows: contracts saved before the per-gen-type shape fix
+      // stored 'flat' for everything. When the stored shape is the legacy 'flat'
+      // default, fall back to the gen type's natural shape (e.g. Peaker → evening
+      // peak); baseload gen types map back to 'flat', so they're unaffected.
+      const storedShape = (r0.shape as ContractShape) || 'flat'
+      const energyShape: ContractShape = storedShape === 'flat' ? defaultShapeForGenType(gen) : storedShape
       out.push({
         ...common,
         projectName: `${baseName}${both ? ' · Energy' : ''}`,
         mwCovered: r2(energy / 8760),
-        shape: ((r0.shape as ContractShape) || 'flat'),
+        shape: energyShape,
         tier: 'peak',
         perSiteMw: gr
           .filter((r) => num(r.energy_mwh) > 0)
@@ -229,12 +245,28 @@ export function useContractLedger() {
   return { rows, loading, refetch }
 }
 
-/** Move a contract along its lifecycle: accept (permanent + charted) or reject
- *  (soft archive). Returns true on success. */
-export async function setContractStatus(id: string, action: 'accept' | 'reject'): Promise<boolean> {
+/** Move a contract along its lifecycle:
+ *   commit → 'committed' (Proposed → In Progress, awaiting decision)
+ *   accept → 'accepted'  (permanent + charted)
+ *   reject → 'rejected'  (soft archive)
+ *  Returns true on success. */
+export async function setContractStatus(id: string, action: 'commit' | 'accept' | 'reject'): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE_URL}/site-contracts/${id}/${action}`, {
       method: 'PUT',
+      headers: { ...authHeaders() },
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+/** Hard-delete a proposed (pending) draft contract. Returns true on success. */
+export async function removeContract(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/site-contracts/${id}`, {
+      method: 'DELETE',
       headers: { ...authHeaders() },
     })
     return res.ok

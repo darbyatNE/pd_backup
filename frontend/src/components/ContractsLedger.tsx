@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import {
   useContractLedger,
   setContractStatus,
+  removeContract,
   type SiteContractRow,
   type ContractStatus,
 } from '../data/siteContractsApi'
@@ -12,13 +13,13 @@ const num = (v: string | number | null | undefined) => (v == null || v === '' ? 
 const siteName = (facId: string) => LOAD_PROFILE_MAP[facId]?.name ?? facId
 
 const STATUS_STYLE: Record<ContractStatus, string> = {
-  pending: 'bg-slate-100 text-slate-600',
-  committed: 'bg-amber-50 text-amber-700 border border-amber-200',
+  pending: 'bg-amber-50 text-amber-800 border border-amber-200',     // Proposed (exploring)
+  committed: 'bg-orange-50 text-orange-700 border border-orange-200', // In Progress (contract-pending)
   accepted: 'bg-teal-50 text-teal-700 border border-teal-200',
   rejected: 'bg-rose-50 text-rose-600 border border-rose-200',
 }
 const STATUS_LABEL: Record<ContractStatus, string> = {
-  pending: 'Pending', committed: 'Awaiting decision', accepted: 'Accepted', rejected: 'Rejected',
+  pending: 'Proposed', committed: 'In Progress', accepted: 'Accepted', rejected: 'Rejected',
 }
 
 function term(r: SiteContractRow): string {
@@ -33,17 +34,23 @@ function components(r: SiteContractRow): string {
   return parts.join(' · ') || '—'
 }
 
-type Filter = 'committed' | 'accepted' | 'rejected' | 'all'
+// Tab → underlying status. 'proposed' = pending (saved draft), 'committed' =
+// In Progress (awaiting decision).
+type Filter = 'all' | 'proposed' | 'committed' | 'accepted' | 'rejected'
+const FILTER_STATUS: Record<Exclude<Filter, 'all'>, ContractStatus> = {
+  proposed: 'pending', committed: 'committed', accepted: 'accepted', rejected: 'rejected',
+}
 
-export default function ContractsLedger() {
+export default function ContractsLedger({ onChanged }: { onChanged?: () => void }) {
   const { rows, loading, refetch } = useContractLedger()
-  const [filter, setFilter] = useState<Filter>('committed')
+  const [filter, setFilter] = useState<Filter>('all')
   const [busy, setBusy] = useState<string | null>(null)
 
   const counts = useMemo(() => {
-    const c = { committed: 0, accepted: 0, rejected: 0, all: rows.length }
+    const c = { all: rows.length, proposed: 0, committed: 0, accepted: 0, rejected: 0 }
     for (const r of rows) {
-      if (r.status === 'committed') c.committed++
+      if (r.status === 'pending') c.proposed++
+      else if (r.status === 'committed') c.committed++
       else if (r.status === 'accepted') c.accepted++
       else if (r.status === 'rejected') c.rejected++
     }
@@ -51,14 +58,24 @@ export default function ContractsLedger() {
   }, [rows])
 
   const visible = useMemo(
-    () => rows.filter((r) => (filter === 'all' ? r.status !== 'pending' : r.status === filter)),
+    () => rows.filter((r) => (filter === 'all' ? true : r.status === FILTER_STATUS[filter])),
     [rows, filter],
   )
 
-  const act = async (id: string, action: 'accept' | 'reject') => {
+  const afterChange = async () => {
+    await refetch()
+    onChanged?.()
+  }
+  const act = async (id: string, action: 'commit' | 'accept' | 'reject') => {
     setBusy(id)
     const ok = await setContractStatus(id, action)
-    if (ok) await refetch()
+    if (ok) await afterChange()
+    setBusy(null)
+  }
+  const remove = async (id: string) => {
+    setBusy(id)
+    const ok = await removeContract(id)
+    if (ok) await afterChange()
     setBusy(null)
   }
 
@@ -82,13 +99,14 @@ export default function ContractsLedger() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
         <div>
           <h2 className="text-base font-semibold text-slate-900">Contracts</h2>
-          <p className="text-xs text-slate-500">Committed contracts pursued for your company plus existing onboarded contracts. Accept to make permanent (charted against load), or reject to archive.</p>
+          <p className="text-xs text-slate-500">Lifecycle for your company's deals. Proposed drafts can be removed or committed; in-progress deals can be accepted (permanent, charted against load) or rejected. Each action updates the deal's commitment level across the platform.</p>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <FilterTab id="committed" label="Awaiting decision" />
+          <FilterTab id="all" label="All" />
+          <FilterTab id="proposed" label="Proposed" />
+          <FilterTab id="committed" label="In Progress" />
           <FilterTab id="accepted" label="Accepted" />
           <FilterTab id="rejected" label="Rejected" />
-          <FilterTab id="all" label="All" />
         </div>
       </div>
 
@@ -104,6 +122,7 @@ export default function ContractsLedger() {
                 <th className="px-3 py-2">Project</th>
                 <th className="px-3 py-2">Site</th>
                 <th className="px-3 py-2">Components</th>
+                <th className="px-3 py-2 whitespace-nowrap">Pricing LMP</th>
                 <th className="px-3 py-2 whitespace-nowrap">Term</th>
                 <th className="px-3 py-2">Origin</th>
                 <th className="px-3 py-2">Status</th>
@@ -118,10 +137,11 @@ export default function ContractsLedger() {
                     <td className="px-3 py-2 font-medium text-slate-800">{r.project_name}</td>
                     <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{siteName(r.fac_id)}</td>
                     <td className="px-3 py-2 text-slate-600">{components(r)}</td>
+                    <td className={`px-3 py-2 whitespace-nowrap ${r.lmp_node ? 'text-slate-600' : 'text-slate-300'}`}>{r.lmp_node || '—'}</td>
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{term(r)}</td>
                     <td className="px-3 py-2">
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${r.origin === 'existing' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
-                        {r.origin === 'existing' ? 'Existing' : 'Pursued'}
+                        {r.origin === 'existing' ? 'Existing' : 'Marketplace'}
                       </span>
                     </td>
                     <td className="px-3 py-2">
@@ -131,25 +151,50 @@ export default function ContractsLedger() {
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <div className="inline-flex gap-1.5">
-                        {(status === 'committed' || status === 'rejected') && (
-                          <button
-                            type="button"
-                            disabled={busy === r.id}
-                            onClick={() => act(r.id, 'accept')}
-                            className="rounded px-2 py-1 text-xs font-semibold bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
-                          >
-                            Accept
-                          </button>
+                        {/* Proposed (pending): Remove or Commit */}
+                        {status === 'pending' && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy === r.id}
+                              onClick={() => remove(r.id)}
+                              className="rounded px-2 py-1 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              Remove
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy === r.id}
+                              onClick={() => act(r.id, 'commit')}
+                              className="rounded px-2 py-1 text-xs font-semibold bg-slate-800 text-white hover:bg-slate-900 disabled:opacity-50"
+                            >
+                              Commit
+                            </button>
+                          </>
                         )}
-                        {status !== 'rejected' && (
-                          <button
-                            type="button"
-                            disabled={busy === r.id}
-                            onClick={() => act(r.id, 'reject')}
-                            className="rounded px-2 py-1 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                          >
-                            Reject
-                          </button>
+                        {/* In Progress (committed): Accept or Reject */}
+                        {status === 'committed' && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy === r.id}
+                              onClick={() => act(r.id, 'accept')}
+                              className="rounded px-2 py-1 text-xs font-semibold bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy === r.id}
+                              onClick={() => act(r.id, 'reject')}
+                              className="rounded px-2 py-1 text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        )}
+                        {(status === 'accepted' || status === 'rejected') && (
+                          <span className="text-[11px] text-slate-400">—</span>
                         )}
                       </div>
                     </td>

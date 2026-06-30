@@ -17,13 +17,7 @@ import {
   getHedgesForSite,
   SITE_FACILITIES,
 } from '../data/linkedContracts';
-import { useNavigate } from 'react-router-dom';
-
-const PAGE_NAV_LINKS = [
-  { label: 'Projects',     path: '/projects' },
-  { label: 'Transactions', path: '/transactions' },
-  { label: 'Documents',    path: '/documents' },
-];
+import PageNav from '../components/PageNav';
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -341,7 +335,6 @@ const ALL_YEARS = [2026, 2027, 2028, 2029, 2030];
 export default function Planning() {
   const { selectedSites, startYear, endYear, startMonth, endMonth } = useScopeContext();
   const { subTab: activeTab } = useDashboardView();
-  const navigate = useNavigate();
   const [selectedYear, setSelectedYear] = useState<number>(2026);
 
   // ── Aggregated data driven by scope ─────────────────────────────────────
@@ -457,17 +450,7 @@ export default function Planning() {
               P10 / P50 / P90 exposure across capacity, energy, and REC obligations
             </p>
           </div>
-          <nav className="flex items-center gap-1">
-            {PAGE_NAV_LINKS.map((link) => (
-              <button
-                key={link.path}
-                onClick={() => navigate(link.path)}
-                className="px-3 py-1.5 rounded-md text-sm font-medium text-slate-500 hover:text-teal-600 hover:bg-slate-50 transition-colors"
-              >
-                {link.label}
-              </button>
-            ))}
-          </nav>
+          <PageNav />
         </div>
 
         {/* ── Universal: year controls, load-profile strip, summary cards ──

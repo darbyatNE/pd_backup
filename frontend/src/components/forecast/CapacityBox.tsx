@@ -27,9 +27,6 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
   const isSingleYear = chartYearMode === 'single'
   const effectiveYear = isSingleYear && chartActiveYear ? chartActiveYear : endYear
 
-  // Year-specific capacity — uses getForecastCapacityForYear to match Plan tab (applies growth rate when no documented capacity)
-  const yearCapacityMw = getForecastCapacityForYear(profile, effectiveYear)
-
   // Calculate year-specific baseload and peak demand using load multipliers
   // Also calculate project coverage by tier (base vs peak)
   // Overhedge is calculated hour-by-hour since energy in one hour can't offset another hour
@@ -112,130 +109,164 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
 
   const yearStats = getYearlyLoadStats(effectiveYear)
 
-  // Calculate volume-weighted average contracted price for the effective year
   const sitesInScope = selectedSites && selectedSites.length > 0 ? selectedSites : [profile.siteKey]
   const siteContracts = getContractsForSites(sitesInScope)
+
+  // The years the KPI strip summarizes: a single pinned year, otherwise every
+  // year in scope.
+  const displayYears: number[] = []
+  if (isSingleYear && chartActiveYear) displayYears.push(chartActiveYear)
+  else for (let y = startYear; y <= endYear; y++) displayYears.push(y)
+  const scopeLabel = `${displayYears[0]}–${displayYears[displayYears.length - 1]}`
+  const isRange = displayYears.length > 1
+
+  // Per-year, hour-weighted baseload (correct for aggregates) plus the peak
+  // swing scaled by the same year-over-year load growth. "Peak Load" is total
+  // demand = baseload floor + the peak swing above it.
+  const DAYS_PER_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+  const yearAdjustedLoad = (year: number) => {
+    let baseSum = 0
+    let hours = 0
+    for (let m = 1; m <= 12; m++) {
+      const days = DAYS_PER_MONTH[m - 1]
+      for (let h = 0; h < 24; h++) {
+        baseSum += getEffectiveLoadAt(profile, h, m, year).baseloadMw * days
+        hours += days
+      }
+    }
+    const baseloadMw = hours > 0 ? baseSum / hours : profile.baseloadMw
+    const mult = profile.baseloadMw > 0 ? baseloadMw / profile.baseloadMw : 1
+    const peakSwingMw = profile.peakDemandMw * mult
+    return { baseloadMw, peakLoadMw: baseloadMw + peakSwingMw }
+  }
+
+  // Capacity & baseload vary by year, so the all-years view shows their range
+  // across scope (matching the chart's per-year line) rather than a single year.
+  const fmtRange = (vals: number[]) => {
+    const lo = Math.round(Math.min(...vals))
+    const hi = Math.round(Math.max(...vals))
+    return lo === hi ? `${lo}` : `${lo}–${hi}`
+  }
+  const capacityRange = fmtRange(displayYears.map((y) => getForecastCapacityForYear(profile, y)))
+  const adjusted = displayYears.map(yearAdjustedLoad)
+  const baseloadRange = fmtRange(adjusted.map((a) => a.baseloadMw))
+  const peakLoadRange = fmtRange(adjusted.map((a) => a.peakLoadMw))
+
+  // Volume-weighted average contracted price across every year in scope.
   let totalContractedMwh = 0
   let totalContractedValue = 0
-  for (const c of siteContracts) {
-    const annualMwh = getContractAnnualMwhForYear(c, effectiveYear)
-    totalContractedMwh += annualMwh
-    totalContractedValue += annualMwh * c.pricePerMwh
+  for (const y of displayYears) {
+    for (const c of siteContracts) {
+      const annualMwh = getContractAnnualMwhForYear(c, y)
+      totalContractedMwh += annualMwh
+      totalContractedValue += annualMwh * c.pricePerMwh
+    }
   }
-  const avgContractPrice = totalContractedMwh > 0
-    ? totalContractedValue / totalContractedMwh
-    : 0
+  const avgContractPrice = totalContractedMwh > 0 ? totalContractedValue / totalContractedMwh : 0
 
-  // Annual load for the effective year
+  // Avg annual load across scope (or the single pinned year).
   const annualMwh = isSingleYear && chartActiveYear
     ? getEffectiveAnnualLoadMwh(profile, chartActiveYear)
     : getScopeAvgAnnualLoadMwh(profile, startYear, endYear)
   const annualGwh = Math.round(annualMwh / 1000)
 
-  // Calculate % hedged for in-scope sites and projects
-  // When chart is in single year mode, show % hedged for that year only
-  // When in all mode, average across entire scope period
-  const effectiveStartYear = isSingleYear && chartActiveYear ? chartActiveYear : startYear
-  const effectiveEndYear = isSingleYear && chartActiveYear ? chartActiveYear : endYear
-  const yearCount = Math.max(1, effectiveEndYear - effectiveStartYear + 1)
+  // % hedged — averaged across the scope (or single pinned year).
   let totalContractedMwhAll = 0
   let totalLoadMwh = 0
-  for (let y = effectiveStartYear; y <= effectiveEndYear; y++) {
+  for (const y of displayYears) {
     totalLoadMwh += getEffectiveAnnualLoadMwh(profile, y)
-    for (const c of siteContracts) {
-      totalContractedMwhAll += getContractAnnualMwhForYear(c, y)
-    }
+    for (const c of siteContracts) totalContractedMwhAll += getContractAnnualMwhForYear(c, y)
   }
-  const avgLoadMwh = totalLoadMwh / yearCount
-  const avgContractedMwhAll = totalContractedMwhAll / yearCount
+  const avgLoadMwh = totalLoadMwh / displayYears.length
+  const avgContractedMwhAll = totalContractedMwhAll / displayYears.length
   const pctHedged = avgLoadMwh > 0 ? Math.round((avgContractedMwhAll / avgLoadMwh) * 100) : 0
 
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-3 flex items-center justify-between gap-4">
-      <div className="flex flex-col gap-0.5 min-w-[140px]">
-        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">Site</p>
-        <p className="text-base font-bold text-slate-900 truncate">{profile.name}</p>
+      <div className="flex flex-col gap-0.5 w-[112px] flex-shrink-0">
+        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">Site</p>
+        <p className="text-sm font-bold text-slate-900 truncate">{profile.name}</p>
         {(() => {
           const parts = profile.location.split(',').map((s) => s.trim())
           const stateLabel = parts[parts.length - 1] || profile.location
-          return <p className="text-xs text-slate-400">{stateLabel} · {profile.settlementZone}</p>
+          return <p className="text-xs text-slate-400 whitespace-nowrap">{stateLabel} · {profile.settlementZone}</p>
         })()}
       </div>
 
       <span className="w-px h-10 bg-slate-100 flex-shrink-0 hidden sm:block" />
 
-      {/* Fixed-width container for info boxes - prevents graphic from shifting */}
-      <div className="w-[750px] flex-shrink-0 flex items-center gap-4">
-        {/* Annual Load */}
-        <div className="flex flex-col gap-0.5 min-w-[120px]">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">Annual Load</p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-slate-900 leading-none">{annualGwh}</span>
+      {/* Flexible info strip — text-heavy columns get more room, short ones shrink */}
+      <div className="flex-1 min-w-0 flex items-center gap-3">
+        {/* Avg Annual Load */}
+        <div className="flex flex-col gap-0.5 min-w-0 flex-[1.15]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">Avg Annual Load</p>
+          <div className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-2xl font-extrabold text-slate-900 leading-none">{annualGwh}</span>
             <span className="text-sm font-semibold text-slate-700">GWh</span>
           </div>
-          <p className="text-xs text-slate-400">
-            {isSingleYear && chartActiveYear ? `for ${chartActiveYear}` : 'projected'}
+          <p className="text-xs text-slate-400 whitespace-nowrap">
+            {isRange ? `avg · ${scopeLabel}` : `for ${displayYears[0]}`}
           </p>
         </div>
 
         <span className="w-px h-10 bg-slate-100 flex-shrink-0 hidden sm:block" />
 
-        <div className="flex flex-col gap-0.5 min-w-[120px]">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">Market Capacity</p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-slate-900 leading-none">{yearCapacityMw}</span>
+        <div className="flex flex-col gap-0.5 min-w-0 flex-[1.4]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">Market Capacity</p>
+          <div className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-2xl font-extrabold text-slate-900 leading-none">{capacityRange}</span>
             <span className="text-sm font-semibold text-slate-500">MW</span>
           </div>
-          <p className="text-xs text-slate-400">
-            {isSingleYear && chartActiveYear ? `for ${chartActiveYear}` : 'contracted ceiling'}
+          <p className="text-xs text-slate-400 whitespace-nowrap">
+            {isRange ? `ceiling · ${scopeLabel}` : `for ${displayYears[0]}`}
           </p>
         </div>
 
-        <div className="flex flex-col gap-0.5 min-w-[100px]">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">Baseload</p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-teal-600 leading-none">{yearStats.avgBaseloadMw}</span>
+        <div className="flex flex-col gap-0.5 min-w-0 flex-[1.1]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">Baseload</p>
+          <div className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-2xl font-extrabold text-teal-600 leading-none">{baseloadRange}</span>
             <span className="text-sm font-semibold text-teal-500">MW</span>
           </div>
-          <p className="text-xs text-slate-400">
-            {isSingleYear && chartActiveYear ? `avg for ${chartActiveYear}` : 'flat load floor'}
+          <p className="text-xs text-slate-400 whitespace-nowrap">
+            {isRange ? `floor · ${scopeLabel}` : 'flat load floor'}
           </p>
         </div>
 
-        <div className="flex flex-col gap-0.5 min-w-[110px]">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">Peak Demand</p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-amber-500 leading-none">{yearStats.avgPeakMw}</span>
+        <div className="flex flex-col gap-0.5 min-w-0 flex-[1.4]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">Peak Load</p>
+          <div className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-2xl font-extrabold text-amber-500 leading-none">{peakLoadRange}</span>
             <span className="text-sm font-semibold text-amber-400">MW</span>
           </div>
-          <p className="text-xs text-slate-400">
-            {isSingleYear && chartActiveYear ? `avg for ${chartActiveYear}` : 'above baseload'}
+          <p className="text-xs text-slate-400 whitespace-nowrap">
+            {isRange ? `base+peak · ${scopeLabel}` : 'base + peak swing'}
           </p>
         </div>
 
-        <div className="flex flex-col gap-0.5 min-w-[130px]">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">
+        <div className="flex flex-col gap-0.5 min-w-0 flex-[1.3]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">
             Avg Contracted Price
           </p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-slate-900 leading-none">${avgContractPrice.toFixed(2)}</span>
+          <div className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-2xl font-extrabold text-slate-900 leading-none">${avgContractPrice.toFixed(2)}</span>
             <span className="text-sm font-semibold text-slate-700">/MWh</span>
           </div>
-          <p className="text-xs text-slate-400">
-            volume-weighted · {effectiveYear}
+          <p className="text-xs text-slate-400 whitespace-nowrap">
+            vol-wtd · {isRange ? `avg ${scopeLabel}` : displayYears[0]}
           </p>
         </div>
 
         <span className="w-px h-10 bg-slate-100 flex-shrink-0 hidden sm:block" />
 
-        <div className="flex flex-col gap-0.5 min-w-[90px]">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest whitespace-nowrap">% Hedged</p>
-          <div className="flex items-baseline gap-1">
-            <span className="text-3xl font-extrabold text-slate-700 leading-none">{pctHedged}</span>
+        <div className="flex flex-col gap-0.5 min-w-0 flex-[0.7]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">% Hedged</p>
+          <div className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-2xl font-extrabold text-slate-700 leading-none">{pctHedged}</span>
             <span className="text-sm font-semibold text-slate-500">%</span>
           </div>
-          <p className="text-xs text-slate-400">
-            {isSingleYear && chartActiveYear ? `for ${chartActiveYear}` : 'projects / load'}
+          <p className="text-xs text-slate-400 whitespace-nowrap">
+            {isRange ? `avg · ${scopeLabel}` : `for ${displayYears[0]}`}
           </p>
         </div>
       </div>

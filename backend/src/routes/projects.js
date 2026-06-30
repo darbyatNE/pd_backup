@@ -93,7 +93,7 @@ router.post('/', authenticate, async (req, res) => {
     const {
       name, generation_type, capacity_mw, location, metadata, status = 'draft',
       fixed_price_per_mwh, eac_price_per_mwh, capacity_price_per_mw_day, price_currency, annual_escalator_percent,
-      expected_cod, guaranteed_cod, delivery_term_years,
+      expected_cod, guaranteed_cod, delivery_term_years, term_start_date, term_end_date,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
     } = req.body;
@@ -122,6 +122,8 @@ router.post('/', authenticate, async (req, res) => {
     if (expected_cod) insertData.expected_cod = expected_cod;
     if (guaranteed_cod) insertData.guaranteed_cod = guaranteed_cod;
     if (delivery_term_years != null) insertData.delivery_term_years = delivery_term_years;
+    if (term_start_date) insertData.term_start_date = term_start_date;
+    if (term_end_date) insertData.term_end_date = term_end_date;
     if (guaranteed_availability_year1_percent != null) insertData.guaranteed_availability_year1_percent = guaranteed_availability_year1_percent;
     if (guaranteed_availability_ongoing_percent != null) insertData.guaranteed_availability_ongoing_percent = guaranteed_availability_ongoing_percent;
     if (eac_scheme) insertData.eac_scheme = eac_scheme;
@@ -152,7 +154,7 @@ router.put('/:id', authenticate, async (req, res) => {
     const {
       name, generation_type, capacity_mw, location, metadata, status,
       fixed_price_per_mwh, eac_price_per_mwh, capacity_price_per_mw_day, price_currency, annual_escalator_percent,
-      expected_cod, guaranteed_cod, delivery_term_years,
+      expected_cod, guaranteed_cod, delivery_term_years, term_start_date, term_end_date,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
     } = req.body;
@@ -172,6 +174,8 @@ router.put('/:id', authenticate, async (req, res) => {
     if (expected_cod !== undefined) updateData.expected_cod = expected_cod;
     if (guaranteed_cod !== undefined) updateData.guaranteed_cod = guaranteed_cod;
     if (delivery_term_years !== undefined) updateData.delivery_term_years = delivery_term_years;
+    if (term_start_date !== undefined) updateData.term_start_date = term_start_date;
+    if (term_end_date !== undefined) updateData.term_end_date = term_end_date;
     if (guaranteed_availability_year1_percent !== undefined) updateData.guaranteed_availability_year1_percent = guaranteed_availability_year1_percent;
     if (guaranteed_availability_ongoing_percent !== undefined) updateData.guaranteed_availability_ongoing_percent = guaranteed_availability_ongoing_percent;
     if (eac_scheme !== undefined) updateData.eac_scheme = eac_scheme;

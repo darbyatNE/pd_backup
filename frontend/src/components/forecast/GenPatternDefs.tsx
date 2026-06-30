@@ -22,6 +22,7 @@ function genTypePatternsForLevel(commitment: CommitmentLevel) {
       <pattern id={id('Combined Cycle')} patternUnits="userSpaceOnUse" width="5"  height="5"><line x1="2.5" y1="0" x2="2.5" y2="5" stroke={fg} strokeWidth="1.4" /></pattern>
       <pattern id={id('Peaker')}         patternUnits="userSpaceOnUse" width="6"  height="6"><path d="M0,0 L6,0 M0,3 L6,3 M0,0 L0,6 M3,0 L3,6" stroke={fg} strokeWidth="0.7" /></pattern>
       <pattern id={id('Battery')}        patternUnits="userSpaceOnUse" width="6"  height="5"><line x1="0" y1="2.5" x2="6" y2="2.5" stroke={fg} strokeWidth="1.4" /></pattern>
+      <pattern id={id('Virtual')}        patternUnits="userSpaceOnUse" width="8"  height="8"><circle cx="4" cy="4" r="2" fill="none" stroke={fg} strokeWidth="1" /></pattern>
     </Fragment>
   )
 }

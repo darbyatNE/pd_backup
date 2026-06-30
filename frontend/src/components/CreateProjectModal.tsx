@@ -48,6 +48,8 @@ interface EditableProject {
     expected_cod?: string;
     guaranteed_cod?: string;
     delivery_term_years?: number;
+    term_start_date?: string;
+    term_end_date?: string;
     guaranteed_availability_year1_percent?: number;
     guaranteed_availability_ongoing_percent?: number;
     eac_scheme?: EACScheme | '';
@@ -190,6 +192,8 @@ interface GenerationProjectFormData {
     // VPPA Timeline
     guaranteed_cod: string;
     delivery_term_years: string;
+    term_start_date: string;
+    term_end_date: string;
 
     // VPPA Availability
     guaranteed_availability_year1_percent: string;
@@ -309,7 +313,8 @@ const TECHNOLOGY_TYPES = [
     { value: 'Nuclear', label: 'Nuclear' },
     { value: 'Battery', label: 'Battery Storage' },
     { value: 'Hydrogen', label: 'Green Hydrogen' },
-    { value: 'Hybrid', label: 'Hybrid (Solar + Storage)' }
+    { value: 'Hybrid', label: 'Hybrid (Solar + Storage)' },
+    { value: 'Virtual', label: 'Virtual (energy-only CfD)' }
 ];
 
 const PRICE_CURRENCIES: { value: PriceCurrency; label: string; symbol: string }[] = [
@@ -479,6 +484,8 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         // VPPA Timeline
         guaranteed_cod: '',
         delivery_term_years: '15',
+        term_start_date: '',
+        term_end_date: '',
         // VPPA Availability
         guaranteed_availability_year1_percent: '',
         guaranteed_availability_ongoing_percent: '',
@@ -797,6 +804,8 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                     // VPPA Timeline
                     guaranteed_cod: editProject.guaranteed_cod || '',
                     delivery_term_years: editProject.delivery_term_years?.toString() || '',
+                    term_start_date: (editProject.term_start_date || '').slice(0, 10),
+                    term_end_date: (editProject.term_end_date || '').slice(0, 10),
                     // VPPA Availability
                     guaranteed_availability_year1_percent: editProject.guaranteed_availability_year1_percent?.toString() || '',
                     guaranteed_availability_ongoing_percent: editProject.guaranteed_availability_ongoing_percent?.toString() || '',
@@ -1009,6 +1018,8 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 expected_cod: generationForm.expected_cod || null,
                 guaranteed_cod: generationForm.guaranteed_cod || null,
                 delivery_term_years: generationForm.delivery_term_years ? Number(generationForm.delivery_term_years) : null,
+                term_start_date: generationForm.term_start_date || null,
+                term_end_date: generationForm.term_end_date || null,
                 // VPPA Pricing
                 fixed_price_per_mwh: generationForm.fixed_price_per_mwh ? Number(generationForm.fixed_price_per_mwh) : null,
                 eac_price_per_mwh: generationForm.eac_price_per_mwh ? Number(generationForm.eac_price_per_mwh) : null,
@@ -2312,6 +2323,34 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                             ))}
                                                         </select>
                                                         <p className="mt-1 text-xs text-gray-500">Contract duration from COD</p>
+                                                    </div>
+
+                                                    {/* Delivery term window shown in the marketplace (Term Start/Stop). */}
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                                Term Start
+                                                            </label>
+                                                            <input
+                                                                type="date"
+                                                                value={generationForm.term_start_date}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, term_start_date: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                            />
+                                                            <p className="mt-1 text-xs text-gray-500">Delivery start (marketplace Term)</p>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                                Term Stop
+                                                            </label>
+                                                            <input
+                                                                type="date"
+                                                                value={generationForm.term_end_date}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, term_end_date: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                            />
+                                                            <p className="mt-1 text-xs text-gray-500">Delivery end (marketplace Term)</p>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}

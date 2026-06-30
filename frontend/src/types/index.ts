@@ -26,7 +26,7 @@ export interface User {
 }
 
 // Generation types (matches database constraint)
-export type GenerationType = 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hydro' | 'Hybrid' | 'Combined Cycle' | 'Peaker';
+export type GenerationType = 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hydro' | 'Hybrid' | 'Combined Cycle' | 'Peaker' | 'Virtual';
 
 // BTM (Behind The Meter) Asset types - custom build options for load sites
 export type BTMAssetType = 'BESS' | 'NG_Peaker' | 'NG_Combined_Cycle';

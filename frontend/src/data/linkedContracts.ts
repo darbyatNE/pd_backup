@@ -54,7 +54,7 @@ export interface ContractComponent {
 
 export interface LinkedContract {
   projectName: string;
-  generationType: 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hybrid' | 'Combined Cycle' | 'Peaker' | 'Hydro';
+  generationType: 'Solar' | 'Wind' | 'Nuclear' | 'Battery' | 'Hybrid' | 'Combined Cycle' | 'Peaker' | 'Hydro' | 'Virtual';
   
   // Legacy fields for backward compatibility - deprecated in favor of components
   mwCovered: number;       // total contracted MW (legacy)
@@ -67,6 +67,9 @@ export interface LinkedContract {
   
   // LDA (Load Distribution Area) for capacity qualification
   lda?: string;            // Load Distribution Area - required for PPAs to qualify for capacity
+
+  // LMP pricing node the deal settles at (entered at contract creation).
+  lmpNode?: string;
 
   // Commitment level — drives the pattern foreground color (see CommitmentLevel).
   // Absent ⇒ treated as 'contracted' (near-black), the prior default.
@@ -291,7 +294,7 @@ export const COMMITMENT_LEVELS: CommitmentLevel[] = ['exploring', 'pending', 'co
 // its color darkens as commitment firms up.
 export const COMMITMENT_PATTERN_FG: Record<CommitmentLevel, string> = {
   exploring:  '#ffffff', // white — lowest commitment
-  pending:    '#808080', // medium gray — contract-pending
+  pending:    '#8b4513', // brown — contract-pending
   contracted: '#000000', // black — contracted
 };
 
@@ -311,6 +314,7 @@ export const GENERATION_TYPE_PATTERNS: Record<string, 'diagonal' | 'dots' | 'cro
   'Peaker': 'grid',
   'Battery': 'horizontal',
   'Hydro': 'zigzag',
+  'Virtual': 'crosshatch', // financial CfD — rendered with a distinct ring pattern (see GenPatternDefs)
 };
 
 // Stacking order for generation types (bottom to top in stack)
@@ -323,11 +327,23 @@ export const GENERATION_TYPE_ORDER: string[] = [
   'Combined Cycle',
   'Peaker',
   'Battery',
+  'Virtual',
 ];
 
 /** Get pattern for a generation type */
 export function getPatternForGenerationType(generationType: string): 'diagonal' | 'dots' | 'crosshatch' | 'vertical' | 'wave' | 'grid' | 'horizontal' | 'zigzag' {
   return GENERATION_TYPE_PATTERNS[generationType] || 'grid';
+}
+
+/** Default hourly delivery shape for a generation type. Used when saving a deal
+ *  from Examine-Fit so it charts on its real hours — e.g. a Peaker dispatches on
+ *  the evening peak rather than flat (baseload) across all 24 hours. */
+export function defaultShapeForGenType(generationType: string): ContractShape {
+  const g = (generationType || '').toLowerCase();
+  if (g.includes('solar')) return 'solar';
+  if (g.includes('wind')) return 'wind';
+  if (g.includes('peaker') || g.includes('hybrid') || g.includes('battery') || g.includes('storage')) return 'evening';
+  return 'flat'; // nuclear, combined cycle, hydro → baseload
 }
 
 /** Stable SVG pattern ID by gen type + commitment level — shared by chart bars
