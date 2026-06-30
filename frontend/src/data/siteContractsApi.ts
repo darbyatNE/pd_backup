@@ -26,7 +26,16 @@ export interface SiteContractRow {
   rec_pct?: string | number | null
   retiring_agency?: string | null
   matching_format?: string | null
+  // Lifecycle (Transactions tab)
+  origin?: ContractOrigin
+  status?: ContractStatus
+  owner_company_id?: string | null
+  decided_at?: string | null
+  decided_by?: string | null
 }
+
+export type ContractOrigin = 'existing' | 'pursued'
+export type ContractStatus = 'pending' | 'committed' | 'accepted' | 'rejected'
 
 const num = (v: string | number | null): number => (v == null ? 0 : Number(v))
 
@@ -55,18 +64,20 @@ const r2 = (n: number) => Math.round(n * 100) / 100
 export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedContract[] {
   // Group rows that belong to the same contract (same project + generation type
   // + term + shape + price). project_id is the strongest key; fall back to the
-  // project name when a contract predates project linkage.
+  // project name when a contract predates project linkage. Rejected (archived)
+  // contracts are dropped — they don't chart.
   const groups = new Map<string, SiteContractRow[]>()
   for (const r of rows) {
+    if (r.status === 'rejected') continue
     const key = [
       r.project_id ?? r.project_name,
       r.generation_type,
       r.start_year, r.start_month, r.end_year, r.end_month,
       r.shape,
       r.price_per_mwh ?? '',
-      // Keep committed vs contract-pending rows in separate groups so each entry
-      // is a single commitment level (and gets one pattern color).
-      r.committed ? 'c' : 'p',
+      // Keep each lifecycle status in its own group so the entry gets a single
+      // commitment color (accepted = contracted/black; everything else gray).
+      r.status ?? (r.committed ? 'accepted' : 'pending'),
     ].join('|')
     const list = groups.get(key)
     if (list) list.push(r)
@@ -95,8 +106,9 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
       r0.lda ??
       gr.map((r) => LOAD_PROFILE_MAP[r.fac_id]?.lda).find(Boolean) ??
       'DOM'
-    // committed ⇒ Contracted (near-black pattern); otherwise contract-pending.
-    const commitment: CommitmentLevel = r0.committed ? 'contracted' : 'pending'
+    // accepted ⇒ Contracted (near-black); committed/pending ⇒ contract-pending (gray).
+    const effectiveStatus = r0.status ?? (r0.committed ? 'accepted' : 'pending')
+    const commitment: CommitmentLevel = effectiveStatus === 'accepted' ? 'contracted' : 'pending'
     const common = {
       generationType: gen,
       pricePerMwh: num(r0.price_per_mwh),
@@ -186,4 +198,47 @@ export function useSiteContracts() {
   }, [refetch])
 
   return { rows, loading, refetch }
+}
+
+const authHeaders = () => {
+  const token = localStorage.getItem('pd_access_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+/** Full contract ledger for the Transactions tab — ALL statuses incl. rejected,
+ *  scoped to the user's company. */
+export function useContractLedger() {
+  const [rows, setRows] = useState<SiteContractRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const refetch = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/site-contracts?ledger=1`, { headers: { ...authHeaders() } })
+      if (!res.ok) { setRows([]); return }
+      const { contracts } = (await res.json()) as { contracts: SiteContractRow[] }
+      setRows(contracts ?? [])
+    } catch {
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { refetch() }, [refetch])
+  return { rows, loading, refetch }
+}
+
+/** Move a contract along its lifecycle: accept (permanent + charted) or reject
+ *  (soft archive). Returns true on success. */
+export async function setContractStatus(id: string, action: 'accept' | 'reject'): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/site-contracts/${id}/${action}`, {
+      method: 'PUT',
+      headers: { ...authHeaders() },
+    })
+    return res.ok
+  } catch {
+    return false
+  }
 }

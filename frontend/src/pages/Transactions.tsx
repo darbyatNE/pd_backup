@@ -3,6 +3,7 @@ import { API_BASE_URL } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import type { Transaction, TransactionStatus } from '../types/index';
 import StatusBadge from '../components/StatusBadge';
+import ContractsLedger from '../components/ContractsLedger';
 import EmptyState from '../components/EmptyState';
 import { DocumentCheckIcon } from '../components/Icons';
 import {
@@ -353,6 +354,10 @@ export default function Transactions() {
           Refresh
         </button>
       </header>
+
+      {/* Committed contracts (Examine-Fit) + existing onboarded contracts —
+          accept (→ permanent, charted) or reject (→ archive). */}
+      <ContractsLedger />
 
       {loading ? (
         <div className="space-y-6">
