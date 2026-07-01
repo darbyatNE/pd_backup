@@ -458,16 +458,22 @@ export default function Projects() {
   };
 
   const handleCreateSuccess = () => {
+    const wasEditing = !!(editingSellerProject || editingProject);
     setCreateModalOpen(false);
     setEditingProject(null);
-    if (user?.role === 'buyer') {
+    setEditingSellerProject(null);
+
+    // A brand-new buyer/seller project lands in "My Projects" so the creator sees
+    // it. Edits (and any admin action) stay on the current tab and just refetch —
+    // otherwise we'd jump to a My Projects list that's empty for this role.
+    if (!wasEditing && (user?.role === 'buyer' || user?.role === 'seller')) {
       setActiveTab('my-projects');
-      fetchBuyerProjects();
-    } else {
-      setActiveTab('my-projects');
-      fetchSellerProjects();
-      setEditingSellerProject(null);
+      if (user?.role === 'buyer') fetchBuyerProjects(); else fetchSellerProjects();
+      return;
     }
+    if (activeTab === 'marketplace') fetchMarketplaceProjects();
+    else if (user?.role === 'buyer') fetchBuyerProjects();
+    else if (user?.role === 'seller') fetchSellerProjects();
   };
 
   return (
