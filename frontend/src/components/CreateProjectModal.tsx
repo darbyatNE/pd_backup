@@ -2340,7 +2340,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                 onClick={() => setShowVPPAPricing(!showVPPAPricing)}
                                                 className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors"
                                             >
-                                                <span className="text-sm font-semibold text-gray-900">VPPA Pricing Terms</span>
+                                                <span className="text-sm font-semibold text-gray-900">Pricing Terms</span>
                                                 {showVPPAPricing ? (
                                                     <ChevronUpIcon className="h-5 w-5 text-gray-500" />
                                                 ) : (
