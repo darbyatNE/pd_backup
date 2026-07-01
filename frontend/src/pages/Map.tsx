@@ -1563,8 +1563,10 @@ export default function MapPage() {
   const visibleProjects = projects.filter(
     (p) => (!recommendedIds || recommendedIds.has(p.id)) && visibleGenTypes.has(p.generation_type),
   );
-  const mapped = visibleProjects.filter((p) => p.coords);
-  const unmapped = visibleProjects.filter((p) => !p.coords);
+  // Grouped mapped-then-unmapped, each sorted alphabetically by name.
+  const byName = (a: MappedProject, b: MappedProject) => a.name.localeCompare(b.name);
+  const mapped = visibleProjects.filter((p) => p.coords).sort(byName);
+  const unmapped = visibleProjects.filter((p) => !p.coords).sort(byName);
   // Sites linked to scope: only show buyer sites that match a selected scope key
   const mappedSites = buyerSites.filter((s) => s.coords && siteInScope(s.name, selectedSites));
 
