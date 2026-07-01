@@ -6,11 +6,11 @@ import {
 } from '../../data/loadProfile'
 import type { SiteLoadProfile } from '../../data/loadProfile'
 import {
-  getContractsForSites,
   getContractAnnualMwhForYear,
   contractMwAtHourInYear,
   isContractActiveAt,
 } from '../../data/linkedContracts'
+import type { LinkedContract } from '../../data/linkedContracts'
 
 
 interface CapacityBoxProps {
@@ -20,9 +20,13 @@ interface CapacityBoxProps {
   selectedSites?: string[]
   chartYearMode?: 'single' | 'all'
   chartActiveYear?: number
+  // In-scope saved contracts (from RDS). Includes every non-rejected commitment
+  // level — exploring (proposed), pending (committed), and contracted (accepted)
+  // — so the KPI strip reflects all of them.
+  contracts?: LinkedContract[]
 }
 
-export function CapacityBox({ profile, startYear, endYear, selectedSites, chartYearMode, chartActiveYear }: CapacityBoxProps) {
+export function CapacityBox({ profile, startYear, endYear, selectedSites, chartYearMode, chartActiveYear, contracts = [] }: CapacityBoxProps) {
   // Determine effective year based on chart selection
   const isSingleYear = chartYearMode === 'single'
   const effectiveYear = isSingleYear && chartActiveYear ? chartActiveYear : endYear
@@ -40,8 +44,7 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
     let totalLoad = 0
     const daysPerMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-    const sitesInScope = selectedSites && selectedSites.length > 0 ? selectedSites : [profile.siteKey]
-    const siteContracts = getContractsForSites(sitesInScope)
+    const siteContracts = contracts
 
     // Calculate overhedge using hour-by-hour method (this part still needs effective loads)
     for (let m = 1; m <= 12; m++) {
@@ -109,8 +112,7 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
 
   const yearStats = getYearlyLoadStats(effectiveYear)
 
-  const sitesInScope = selectedSites && selectedSites.length > 0 ? selectedSites : [profile.siteKey]
-  const siteContracts = getContractsForSites(sitesInScope)
+  const siteContracts = contracts
 
   // The years the KPI strip summarizes: a single pinned year, otherwise every
   // year in scope.

@@ -1,6 +1,7 @@
 import express from 'express';
 import { query, buildInsert, buildUpdateSet } from '../services/db.js';
 import { authenticate } from '../middleware/auth.js';
+import { upsertProjectProducts } from './projectProducts.js';
 
 const router = express.Router();
 
@@ -15,6 +16,103 @@ function projectOwnershipWhere(req, startAt) {
     whereSql: `WHERE id = $${startAt + 1} AND (seller_id = $${startAt + 2} OR owner_company_id = $${startAt + 3})`,
     whereParams: [req.params.id, req.user.id, req.user.companyId],
   };
+}
+
+const numOrNull = (v) => (v == null || v === '' ? null : Number(v));
+
+// Default hourly delivery shape for a generation type — mirrors the frontend
+// helper in frontend/src/data/linkedContracts.ts (Peaker→evening peak, etc.).
+function defaultShapeForGenType(g) {
+  const s = (g || '').toLowerCase();
+  if (s.includes('solar')) return 'solar';
+  if (s.includes('wind')) return 'wind';
+  if (s.includes('peaker') || s.includes('hybrid') || s.includes('battery') || s.includes('storage')) return 'evening';
+  return 'flat';
+}
+
+// Derive {start, end} year/month for a site_contract from a project's dates:
+// term_start_date/term_end_date, falling back to expected_cod + delivery_term_years.
+function deriveTerm(project) {
+  const ym = (d) => {
+    if (!d) return null;
+    const m = /^(\d{4})-(\d{2})/.exec(String(d));
+    return m ? { year: Number(m[1]), month: Number(m[2]) } : null;
+  };
+  let s = ym(project.term_start_date) || ym(project.expected_cod);
+  let e = ym(project.term_end_date);
+  if (!s) s = { year: new Date().getFullYear(), month: 1 };
+  if (!e) { const yrs = Number(project.delivery_term_years) || 10; e = { year: s.year + yrs, month: 12 }; }
+  return { s, e };
+}
+
+// Flow-through: an existing-contract project (origin='existing') is mirrored into
+// public.site_contracts (one row per assigned facility, origin='existing',
+// status='accepted') so it charts against the customer's load. The project row
+// stays the editable source of truth; this re-syncs on every create/update.
+async function syncExistingContractToSiteContracts(project, facilities, req) {
+  const { rows: prods } = await query(
+    'SELECT * FROM planning.project_products WHERE iso_id = $1', [project.id],
+  );
+  const cap = prods.find((p) => p.product_type === 'capacity');
+  const egy = prods.find((p) => p.product_type === 'energy');
+  const rec = prods.find((p) => p.product_type === 'rec');
+  const hasCap = !!cap, hasEgy = !!egy, hasRec = !!rec;
+
+  // Resolve target facilities: explicit assignment, else preserve the existing
+  // assignment (so a plain edit re-syncs the same facilities).
+  let facs = Array.isArray(facilities) ? facilities.filter((f) => f && f.fac_id) : [];
+  if (facs.length === 0) {
+    const { rows: existing } = await query(
+      "SELECT DISTINCT fac_id FROM site_contracts WHERE project_id = $1 AND origin = 'existing'", [project.id],
+    );
+    facs = existing.map((r) => ({ fac_id: r.fac_id }));
+  }
+
+  await query("DELETE FROM site_contracts WHERE project_id = $1 AND origin = 'existing'", [project.id]);
+  if (facs.length === 0) return;
+
+  const n = facs.length;
+  const pricePerMwh = numOrNull(egy?.price_per_mwh) ?? numOrNull(project.fixed_price_per_mwh);
+  const pricePerMwDay = numOrNull(cap?.price_per_mw_day) ?? numOrNull(project.capacity_price_per_mw_day);
+  const lda = project.zone || null;
+  const lmpNode = project.settlement_point || project.zone || null;
+  const shape = defaultShapeForGenType(project.generation_type);
+  const term = deriveTerm(project);
+  const capTotal = numOrNull(cap?.capacity_mw) ?? numOrNull(project.capacity_mw);
+  const egyMaxTotal = numOrNull(egy?.energy_mwh_max);
+  const r2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
+
+  for (const f of facs) {
+    let capMw = numOrNull(f.capacity_mw);
+    let egyMwh = numOrNull(f.energy_mwh);
+    if (capMw == null && egyMwh == null) {
+      // Even split across facilities, by whichever components the project offers.
+      if (hasCap || (!hasEgy && !hasRec)) capMw = capTotal != null ? r2(capTotal / n) : null;
+      if (hasEgy) {
+        const total = egyMaxTotal != null ? egyMaxTotal : (numOrNull(project.capacity_mw) != null ? Number(project.capacity_mw) * 8760 : null);
+        egyMwh = total != null ? r2(total / n) : null;
+      }
+    }
+    // site_contracts requires at least one of capacity / energy / rec.
+    if (capMw == null && egyMwh == null && !hasRec) {
+      capMw = capTotal != null ? r2(capTotal / n) : 0;
+    }
+    await query(
+      `INSERT INTO site_contracts
+        (buyer_id, owner_company_id, fac_id, project_id, project_name, generation_type,
+         capacity_mw, energy_mwh, price_per_mwh, price_per_mw_day, lda, lmp_node, shape,
+         start_year, start_month, end_year, end_month,
+         rec_pct, retiring_agency, matching_format,
+         origin, status, committed, metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'existing','accepted',true,'{}'::jsonb)`,
+      [
+        req.user.id, req.user.companyId ?? null, f.fac_id, project.id, project.name, project.generation_type,
+        capMw, egyMwh, pricePerMwh, pricePerMwDay, lda, lmpNode, shape,
+        term.s.year, term.s.month, term.e.year, term.e.month,
+        hasRec ? numOrNull(rec.rec_pct) : null, hasRec ? rec.retiring_agency : null, hasRec ? rec.matching_format : null,
+      ],
+    );
+  }
 }
 
 // GET /api/projects/my-projects - Get current seller's projects
@@ -54,18 +152,27 @@ router.get('/my-projects', authenticate, async (req, res) => {
 //  - everyone else: published marketplace projects + their own company's private projects.
 router.get('/', authenticate, async (req, res) => {
   try {
-    let projects;
-    if (req.user.role === 'admin') {
-      ({ rows: projects } = await query('SELECT * FROM projects ORDER BY created_at DESC'));
-    } else {
-      ({ rows: projects } = await query(
-        `SELECT * FROM projects
-         WHERE (visibility = 'marketplace' AND status = 'published')
-            OR (owner_company_id IS NOT NULL AND owner_company_id = $1)
-         ORDER BY created_at DESC`,
-        [req.user.companyId]
-      ));
+    // Visibility scope (admins see all; others see published marketplace + own company).
+    const params = [];
+    const where = [];
+    if (req.user.role !== 'admin') {
+      params.push(req.user.companyId);
+      where.push(`((visibility = 'marketplace' AND status = 'published') OR (owner_company_id IS NOT NULL AND owner_company_id = $${params.length}))`);
     }
+    // Optional filters so both marketplace offerings and existing contracts can be
+    // queried together: ?origin=&iso=&zone=&generation_type=&visibility=
+    for (const col of ['origin', 'iso', 'zone', 'generation_type', 'visibility']) {
+      const val = req.query[col];
+      if (val != null && val !== '') {
+        params.push(val);
+        where.push(`${col} = $${params.length}`);
+      }
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const { rows: projects } = await query(
+      `SELECT * FROM projects ${whereSql} ORDER BY created_at DESC`,
+      params,
+    );
     res.json({ projects });
   } catch (error) {
     console.error('Get projects error:', error);
@@ -96,22 +203,24 @@ router.post('/', authenticate, async (req, res) => {
       expected_cod, guaranteed_cod, delivery_term_years, term_start_date, term_end_date,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
+      origin = 'marketplace', facilities, products,
     } = req.body;
 
     if (!name || !generation_type || !capacity_mw) {
       return res.status(400).json({ error: 'Missing required fields: name, generation_type, capacity_mw' });
     }
 
-    // Ownership/visibility: admins & sellers may publish to the contractable
-    // marketplace; everyone else only creates projects private to their company.
+    // An existing-contract entry is always private to the owning company. Otherwise
+    // admins & sellers may publish to the marketplace; everyone else stays private.
+    const isExisting = origin === 'existing';
     const canPublishMarketplace = req.user.role === 'admin' || req.user.role === 'seller';
-    const requestedMarketplace = canPublishMarketplace && (req.body.visibility ?? 'marketplace') === 'marketplace';
+    const requestedMarketplace = !isExisting && canPublishMarketplace && (req.body.visibility ?? 'marketplace') === 'marketplace';
     const visibility = requestedMarketplace ? 'marketplace' : 'private';
     const owner_company_id = visibility === 'private' ? req.user.companyId : null;
 
     const insertData = {
       seller_id: req.user.id, name, generation_type, capacity_mw, location, metadata, status,
-      visibility, owner_company_id,
+      visibility, owner_company_id, origin: isExisting ? 'existing' : 'marketplace',
     };
 
     if (fixed_price_per_mwh != null) insertData.fixed_price_per_mwh = fixed_price_per_mwh;
@@ -140,6 +249,12 @@ router.post('/', authenticate, async (req, res) => {
       values
     );
 
+    // Persist unbundled products (folded into the Edit form) before the flow-through
+    // so an existing contract's site_contracts derive from fresh product data.
+    if (products) await upsertProjectProducts(rows[0].id, products);
+    // Existing contracts flow through to site_contracts so they chart against load.
+    if (isExisting) await syncExistingContractToSiteContracts(rows[0], facilities, req);
+
     res.status(201).json({ project: rows[0] });
   } catch (error) {
     console.error('Create project error:', error);
@@ -157,9 +272,11 @@ router.put('/:id', authenticate, async (req, res) => {
       expected_cod, guaranteed_cod, delivery_term_years, term_start_date, term_end_date,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
+      origin, facilities, products,
     } = req.body;
 
     const updateData = { updated_at: new Date().toISOString() };
+    if (origin !== undefined) updateData.origin = origin;
     if (name !== undefined) updateData.name = name;
     if (generation_type !== undefined) updateData.generation_type = generation_type;
     if (capacity_mw !== undefined) updateData.capacity_mw = capacity_mw;
@@ -194,6 +311,13 @@ router.put('/:id', authenticate, async (req, res) => {
     );
 
     if (!rows[0]) return res.status(404).json({ error: 'Project not found or not yours' });
+
+    // Persist unbundled products first so the flow-through derives from fresh data.
+    if (products) await upsertProjectProducts(rows[0].id, products);
+    // Re-sync the flow-through whenever an existing-contract project changes
+    // (term/price/products/facilities) so its charted site_contracts stay current.
+    if (rows[0].origin === 'existing') await syncExistingContractToSiteContracts(rows[0], facilities, req);
+
     res.json({ project: rows[0] });
   } catch (error) {
     console.error('Update project error:', error);
@@ -238,6 +362,9 @@ router.put('/:id/unpublish', authenticate, async (req, res) => {
 // DELETE /api/projects/:id
 router.delete('/:id', authenticate, async (req, res) => {
   try {
+    // Remove any flow-through existing-contract rows first (project_id would
+    // otherwise be nulled by the FK and leave orphaned charted contracts).
+    await query("DELETE FROM site_contracts WHERE project_id = $1 AND origin = 'existing'", [req.params.id]);
     const { whereSql, whereParams } = projectOwnershipWhere(req, 0);
     const { rowCount } = await query(`DELETE FROM projects ${whereSql}`, whereParams);
     if (rowCount === 0) return res.status(404).json({ error: 'Project not found or not yours' });

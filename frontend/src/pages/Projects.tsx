@@ -11,7 +11,6 @@ import type { PriceCurrency, SettlementType, EACScheme } from '../types/ppa';
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import CreateProjectModal from '../components/CreateProjectModal';
-import ProjectProductsEditor from '../components/ProjectProductsEditor';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { RowActionButton, RowActionGroup } from '../components/RowActions';
 import { RocketLaunchIcon } from '../components/Icons';
@@ -118,8 +117,9 @@ export default function Projects() {
   const [error, setError] = useState('');
   const [generationFilter, setGenerationFilter] = useState<GenerationFilter>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const { byIso: productSummaries, refetch: refetchProductSummaries } = useProjectProductSummaries();
-  const [productsProject, setProductsProject] = useState<Project | null>(null);
+  // Marketplace origin filter: all offerings + existing, or one kind.
+  const [originFilter, setOriginFilter] = useState<'all' | 'marketplace' | 'existing'>('all');
+  const { byIso: productSummaries } = useProjectProductSummaries();
   // Marketplace table column sort.
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
   const toggleSort = (key: SortKey) =>
@@ -331,6 +331,9 @@ export default function Projects() {
       .filter((project) =>
         generationFilter === 'all' ? true : project.generation_type === generationFilter
       )
+      .filter((project) =>
+        originFilter === 'all' ? true : (project.origin ?? 'marketplace') === originFilter
+      )
       .filter((project) => {
         if (!searchTerm.trim()) return true;
         const term = searchTerm.toLowerCase();
@@ -346,7 +349,7 @@ export default function Projects() {
         const cmp = av < bv ? -1 : av > bv ? 1 : 0;
         return sort.dir === 'asc' ? cmp : -cmp;
       });
-  }, [projects, sellerProjects, generationFilter, searchTerm, activeTab, sort]);
+  }, [projects, sellerProjects, generationFilter, originFilter, searchTerm, activeTab, sort]);
 
   // Build the generation-type tab list dynamically from whatever's actually
   // in the visible deal list — always lead with "all", then each unique
@@ -745,14 +748,29 @@ export default function Projects() {
                     ))}
                   </div>
 
-                  <div className="relative w-full sm:w-64">
-                    <input
-                      type="search"
-                      value={searchTerm}
-                      onChange={(event) => setSearchTerm(event.target.value)}
-                      placeholder="Search projects..."
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 sm:px-4 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                    />
+                  <div className="flex items-center gap-3">
+                    {/* Origin filter: marketplace offerings vs the company's existing contracts. */}
+                    <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden text-xs font-medium">
+                      {([['all', 'All'], ['marketplace', 'Marketplace'], ['existing', 'Existing']] as const).map(([key, label], i) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setOriginFilter(key)}
+                          className={`px-2.5 py-2 transition whitespace-nowrap ${i > 0 ? 'border-l border-slate-200' : ''} ${originFilter === key ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                      <input
+                        type="search"
+                        value={searchTerm}
+                        onChange={(event) => setSearchTerm(event.target.value)}
+                        placeholder="Search projects..."
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 sm:px-4 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -831,6 +849,9 @@ export default function Projects() {
                               <td className="px-2 py-1.5 font-medium text-slate-900 truncate" title={project.name}>
                                 {project.seller_id === user?.id && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-indigo-500 align-middle" title="Your project" />}
                                 {project.name}
+                                {project.origin === 'existing' && (
+                                  <span className="ml-1.5 align-middle rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 text-[9px] font-semibold">Existing</span>
+                                )}
                               </td>
                               <td className="px-2 py-1.5 truncate" title={project.generation_type}>{project.generation_type}</td>
                               {/* Capacity */}
@@ -860,14 +881,6 @@ export default function Projects() {
                                   >
                                     Edit
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setProductsProject(project)}
-                                    className="rounded border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
-                                    aria-label={`Edit products for ${project.name}`}
-                                  >
-                                    Products
-                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -890,6 +903,7 @@ export default function Projects() {
       {/* Create Project Modal */}
       <CreateProjectModal
         isOpen={createModalOpen}
+        mode={editingSellerProject?.origin === 'existing' ? 'existing' : 'offer'}
         onClose={() => {
           setCreateModalOpen(false);
           setEditingProject(null);
@@ -926,16 +940,6 @@ export default function Projects() {
           zone: editingSellerProject.zone,
         } : null)}
       />
-
-      {/* Unbundled products (Capacity / Energy / RECs) editor for a marketplace project */}
-      {productsProject && (
-        <ProjectProductsEditor
-          isoId={productsProject.id}
-          projectName={productsProject.name}
-          onClose={() => setProductsProject(null)}
-          onSaved={refetchProductSummaries}
-        />
-      )}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

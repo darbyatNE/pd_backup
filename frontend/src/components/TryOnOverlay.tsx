@@ -106,9 +106,10 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
   const toggleComponent = (k: 'capacity' | 'energy' | 'rec') =>
     setSelectedComponents((prev) => ({ ...prev, [k]: !prev[k] }));
 
-  // LMP pricing node the deal settles at — entered at creation, shown as the
-  // "Pricing LMP" column in the Contracts ledger/portfolio.
-  const [lmpNode, setLmpNode] = useState('');
+  // LMP pricing node the deal settles at — pulled from the project (its
+  // settlement point, falling back to zone), not user-entered. Shown read-only
+  // and stored as the "Pricing LMP" value in the Contracts ledger/portfolio.
+  const pricingPoint = project.settlement_point || project.zone || '';
 
   // BESS configuration state
   const [bessDischargeHours, setBessDischargeHours] = useState<number[]>([15, 16, 17, 18]);
@@ -165,6 +166,19 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
           matching_format: productSet.rec.matching_format,
         }
       : {};
+    // Prices for the contracted components — prefer the unbundled product price,
+    // fall back to the project's listed price. Stored so the KPI strip's
+    // volume-weighted Avg Contracted Price (and ledger pricing) is non-zero.
+    const energyPrice = selectedComponents.energy
+      ? (typeof productSet?.energy?.price_per_mwh === 'number'
+          ? productSet.energy.price_per_mwh
+          : (project.fixed_price_per_mwh ?? null))
+      : null;
+    const capacityPrice = selectedComponents.capacity
+      ? (typeof productSet?.capacity?.price_per_mw_day === 'number'
+          ? productSet.capacity.price_per_mw_day
+          : (project.capacity_price_per_mw_day ?? null))
+      : null;
     setSaving(true);
     setSaveMsg(null);
     try {
@@ -188,7 +202,9 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
               generation_type: project.generation_type,
               capacity_mw,
               energy_mwh,
-              lmp_node: lmpNode.trim() || null,
+              price_per_mwh: energyPrice,
+              price_per_mw_day: capacityPrice,
+              lmp_node: pricingPoint || null,
               ...recFields,
               // Charge the deal with its real hourly shape (e.g. a Peaker
               // delivers on the evening peak, not flat across all hours).
@@ -493,56 +509,51 @@ export default function TryOnOverlay({ project, onClose, scopeSite, initialYear,
               </div>
             </div>
 
-            {/* Unbundled components to contract — check/uncheck before save/commit.
-                Components the project doesn't offer are disabled and flagged. */}
-            <div className="bg-white border border-slate-200 rounded p-2 mb-2">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Components to contract</span>
-                {productSet && !hasAnyProduct && (
-                  <span className="text-[10px] text-slate-400 italic">no product profile — all available</span>
+            {/* Components to contract (left) + the deal's pricing point (right) on
+                one split row. The pricing point is read-only, pulled from the
+                project (settlement point, falling back to zone). */}
+            <div className="bg-white border border-slate-200 rounded p-2 mb-2 flex flex-wrap items-start gap-x-6 gap-y-2">
+              <div className="flex-1 min-w-[200px]">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Components to contract</span>
+                  {productSet && !hasAnyProduct && (
+                    <span className="text-[10px] text-slate-400 italic">no product profile — all available</span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {([
+                    { key: 'capacity' as const, label: 'Capacity (MW)' },
+                    { key: 'energy' as const, label: 'Energy (MWh)' },
+                    { key: 'rec' as const, label: 'RECs' },
+                  ]).map(({ key, label }) => (
+                    <label
+                      key={key}
+                      className={`flex items-center gap-1.5 text-xs ${offered[key] ? 'text-slate-700 cursor-pointer' : 'text-slate-400'}`}
+                      title={offered[key] ? `Contract the ${label} component` : 'Not offered by this project'}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!offered[key]}
+                        checked={offered[key] && selectedComponents[key]}
+                        onChange={() => toggleComponent(key)}
+                        className="w-3.5 h-3.5 accent-teal-600 disabled:opacity-50"
+                      />
+                      <span className={offered[key] ? '' : 'line-through'}>{label}</span>
+                      {!offered[key] && <span className="text-[10px] italic">not offered</span>}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="min-w-[150px] border-l border-slate-100 pl-4">
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Pricing LMP node</span>
+                <span className={`text-xs font-medium ${pricingPoint ? 'text-slate-800' : 'text-slate-400'}`}>
+                  {pricingPoint || '—'}
+                </span>
+                {isVirtual && (
+                  <p className="text-[10px] text-slate-400 mt-1">Virtual — priced &amp; located here.</p>
                 )}
               </div>
-              <div className="flex flex-wrap gap-3">
-                {([
-                  { key: 'capacity' as const, label: 'Capacity (MW)' },
-                  { key: 'energy' as const, label: 'Energy (MWh)' },
-                  { key: 'rec' as const, label: 'RECs' },
-                ]).map(({ key, label }) => (
-                  <label
-                    key={key}
-                    className={`flex items-center gap-1.5 text-xs ${offered[key] ? 'text-slate-700 cursor-pointer' : 'text-slate-400'}`}
-                    title={offered[key] ? `Contract the ${label} component` : 'Not offered by this project'}
-                  >
-                    <input
-                      type="checkbox"
-                      disabled={!offered[key]}
-                      checked={offered[key] && selectedComponents[key]}
-                      onChange={() => toggleComponent(key)}
-                      className="w-3.5 h-3.5 accent-teal-600 disabled:opacity-50"
-                    />
-                    <span className={offered[key] ? '' : 'line-through'}>{label}</span>
-                    {!offered[key] && <span className="text-[10px] italic">not offered</span>}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Pricing LMP node — settlement point the deal prices at. For a
-                Virtual (CfD) deal this node is also the deal's location. */}
-            <div className="bg-white border border-slate-200 rounded p-2 mb-2">
-              <label className="flex items-center gap-2 text-xs text-slate-700">
-                <span className="font-semibold uppercase tracking-wide text-[11px] text-slate-600 whitespace-nowrap">Pricing LMP node</span>
-                <input
-                  type="text"
-                  value={lmpNode}
-                  onChange={(e) => setLmpNode(e.target.value)}
-                  placeholder="e.g. DOM, WESTERN HUB, or a specific pnode"
-                  className="flex-1 min-w-0 border border-slate-200 rounded px-2 py-1 text-xs focus:border-teal-400 focus:outline-none"
-                />
-              </label>
-              {isVirtual && (
-                <p className="text-[10px] text-slate-400 mt-1">Virtual deal — energy-only CfD priced and located at this LMP node.</p>
-              )}
             </div>
 
             {/* How committing affects the chart */}

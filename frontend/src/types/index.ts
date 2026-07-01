@@ -58,6 +58,10 @@ export interface Project {
   iso?: string;
   zone?: string;
   status: ProjectStatus;
+  // 'marketplace' = seller offering; 'existing' = a customer's already-held contract.
+  origin?: 'marketplace' | 'existing';
+  visibility?: 'marketplace' | 'private';
+  owner_company_id?: string | null;
   metadata?: Metadata;
   created_at?: string;
   updated_at?: string;

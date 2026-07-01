@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { State, City } from 'country-state-city';
 import LocationCascade from './profile/LocationCascade';
+import CreateProjectModal from '../components/CreateProjectModal';
+import { API_BASE_URL } from '../services/api';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -917,6 +919,24 @@ function StepFacilityInformation({ data, onChange }: { data: any; onChange: (f: 
 // ─── Step 3 — Procurement Status ─────────────────────────────────────────────
 
 function StepProcurementStatus({ data, onChange }: { data: any; onChange: (f: string, v: string) => void }) {
+    // Granular existing generation contracts — each saved as a private project
+    // (origin='existing') that flows through to site_contracts for charting.
+    const [contractModalOpen, setContractModalOpen] = useState(false);
+    const [existingContracts, setExistingContracts] = useState<Array<Record<string, any>>>([]);
+    const loadExistingContracts = () => {
+        const token = localStorage.getItem('pd_access_token');
+        fetch(`${API_BASE_URL}/projects?origin=existing`, { headers: { ...(token && { Authorization: `Bearer ${token}` }) } })
+            .then((r) => (r.ok ? r.json() : { projects: [] }))
+            .then(({ projects }) => setExistingContracts(projects ?? []))
+            .catch(() => setExistingContracts([]));
+    };
+    useEffect(() => { loadExistingContracts(); }, []);
+    const moYr = (d?: string | null) => {
+        if (!d) return '—';
+        const m = /^(\d{4})-(\d{2})/.exec(String(d));
+        return m ? `${m[2]}/${m[1].slice(2)}` : '—';
+    };
+
     const inputClass =
         'w-full rounded-lg border border-gray-300 px-4 py-3 text-sm text-gray-900 placeholder-gray-400 ' +
         'focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-100 transition bg-white';
@@ -1025,7 +1045,49 @@ function StepProcurementStatus({ data, onChange }: { data: any; onChange: (f: st
                             value={data.net_neutrality_target} onChange={e => onChange('net_neutrality_target', e.target.value)} />
                     </div>
                 </div>
+
+                {/* Existing generation contracts — granular, per-contract capture.
+                    Each is saved to the same projects table as marketplace deals
+                    (origin='existing') and charts against the selected facilities. */}
+                <div className="border-t border-gray-100 pt-6">
+                    <div className="flex items-center justify-between mb-1">
+                        <div>
+                            <span className="text-sm font-medium text-gray-800">Existing Generation Contracts</span>
+                            <p className="text-xs text-gray-400">Add each already-held PPA / generation contract. These chart against your load and are queryable alongside marketplace deals.</p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setContractModalOpen(true)}
+                            className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-700 whitespace-nowrap"
+                        >
+                            + Add contract
+                        </button>
+                    </div>
+                    {existingContracts.length === 0 ? (
+                        <p className="text-xs text-gray-400 italic mt-2">No existing contracts added yet.</p>
+                    ) : (
+                        <ul className="mt-3 divide-y divide-gray-100 rounded-lg border border-gray-200">
+                            {existingContracts.map((c) => (
+                                <li key={c.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                                    <span className="font-medium text-gray-800 truncate">{c.name}</span>
+                                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                                        {c.generation_type} · {Number(c.capacity_mw || 0).toFixed(0)} MW · {moYr(c.term_start_date)}–{moYr(c.term_end_date)}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
             </div>
+
+            {contractModalOpen && (
+                <CreateProjectModal
+                    isOpen={contractModalOpen}
+                    mode="existing"
+                    onClose={() => setContractModalOpen(false)}
+                    onSuccess={() => { setContractModalOpen(false); loadExistingContracts(); }}
+                />
+            )}
         </div>
     );
 }

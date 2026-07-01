@@ -12,8 +12,6 @@ import { useSiteContracts, siteContractsForSites } from '../data/siteContractsAp
 import { pnum, projectStatus, projectTerm, energyRange } from '../data/projectDisplay'
 import { useRecommendation } from '../contexts/RecommendationContext'
 import RecommendationFilters from '../components/forecast/RecommendationFilters'
-import ProjectProductsEditor from '../components/ProjectProductsEditor'
-import { useAuth } from '../contexts/AuthContext'
 import { getSuggestedBessMw } from '../utils/capacity'
 import { useScopeContext } from '../contexts/ScopeContext'
 import { useDashboardView } from '../contexts/DashboardViewContext'
@@ -64,18 +62,12 @@ export default function Forecast() {
   // Whether the Try-On opens expanded (Examine deep link) or minimized (default).
   const [tryOnExpanded, setTryOnExpanded] = useState(false)
 
-  // Unbundled product summaries (Capacity / Energy / RECs) per project.
-  const { user } = useAuth()
-  const canEditProducts = user?.role === 'admin' || user?.role === 'seller'
-  const [productsProject, setProductsProject] = useState<Project | null>(null)
-
   // Shared "Recommended for <Company>" preferences + computed set (synced with
   // the Map page via RecommendationContext).
   const {
     prefs, setPrefs, reset: resetPrefs,
     recommended, marketProjects, productSummaries,
     availableIsos, availableGenTypes, companyName, scopeWindow,
-    refetch: refetchProducts,
   } = useRecommendation()
 
   const profiles = selectedSites
@@ -198,6 +190,7 @@ export default function Forecast() {
           startYear={startYear}
           endYear={endYear}
           selectedSites={selectedSites}
+          contracts={contracts}
           chartYearMode={chartYearMode}
           chartActiveYear={chartActiveYear}
         />
@@ -318,25 +311,14 @@ export default function Forecast() {
                             {distanceMiles == null ? '—' : Math.round(distanceMiles)}
                           </td>
                           <td className="py-2 px-2 border-l border-slate-100">
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => openExamineFit(p)}
-                                disabled={selectedSites.length === 0}
-                                title={selectedSites.length === 0 ? 'Select a site in the scope bar first' : 'Examine fit and save a contract'}
-                                className="px-2 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-[10px] font-semibold rounded transition-colors whitespace-nowrap"
-                              >
-                                ▶ Examine
-                              </button>
-                              {canEditProducts && (
-                                <button
-                                  onClick={() => setProductsProject(p)}
-                                  title="Edit unbundled products (Capacity / Energy / RECs)"
-                                  className="px-2 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-[10px] font-semibold rounded transition-colors"
-                                >
-                                  Products
-                                </button>
-                              )}
-                            </div>
+                            <button
+                              onClick={() => openExamineFit(p)}
+                              disabled={selectedSites.length === 0}
+                              title={selectedSites.length === 0 ? 'Select a site in the scope bar first' : 'Examine fit and save a contract'}
+                              className="px-2 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white text-[10px] font-semibold rounded transition-colors whitespace-nowrap"
+                            >
+                              ▶ Examine
+                            </button>
                           </td>
                         </tr>
                       );
@@ -443,15 +425,6 @@ export default function Forecast() {
           onSaved={refetchSiteContracts}
           allSiteContracts={siteContractRows}
           startMinimized={!tryOnExpanded}
-        />
-      )}
-
-      {productsProject && (
-        <ProjectProductsEditor
-          isoId={productsProject.id}
-          projectName={productsProject.name}
-          onClose={() => setProductsProject(null)}
-          onSaved={refetchProducts}
         />
       )}
     </div>

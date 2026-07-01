@@ -4,6 +4,12 @@ import { XMarkIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/o
 import { useAuth } from '../contexts/AuthContext';
 import type { PriceCurrency, EACScheme, SettlementType } from '../types/ppa';
 import { API_BASE_URL } from '../services/api';
+import { LOAD_PROFILES } from '../data/loadProfile';
+import { fetchProductSet, RETIRING_AGENCIES, MATCHING_FORMATS, MATCHING_FORMAT_LABELS } from '../data/projectProductsApi';
+
+// Facility options for assigning an existing contract — these are the data-center
+// site keys that public.site_contracts uses, so the flow-through charts correctly.
+const FACILITY_OPTIONS = LOAD_PROFILES.map((p) => ({ facId: p.siteKey, name: p.name }));
 
 // Draft storage keys
 const LEGACY_DRAFT_STORAGE_KEY = 'powerdime_project_draft';
@@ -64,6 +70,10 @@ interface CreateProjectModalProps {
     onClose: () => void;
     onSuccess: () => void;
     editProject?: EditableProject | null;
+    // 'existing' = a customer's already-held generation contract: saved as a
+    // private project (origin='existing') and flowed through to site_contracts
+    // for the selected facilities so it charts against load.
+    mode?: 'offer' | 'existing';
 }
 
 // Buyer Brownfield Form Data (Enhanced with RFP fields)
@@ -208,6 +218,19 @@ interface GenerationProjectFormData {
     // ISO / zone
     iso: string;
     zone: string;
+
+    // Unbundled products (folded in from the former Products editor). Toggles say
+    // which components the project offers; the extra fields have no other home in
+    // this form (prices/capacity/zone above double as the product values).
+    offers_capacity: boolean;
+    offers_energy: boolean;
+    offers_rec: boolean;
+    eda: string;                 // capacity Effective Deliverability Area
+    energy_mwh_min: string;
+    energy_mwh_max: string;
+    rec_pct: string;
+    retiring_agency: string;
+    matching_format: string;
 }
 
 const FACILITY_TYPES = [
@@ -307,13 +330,17 @@ const COOLING_SYSTEMS = [
     'Other'
 ];
 
+// Matches the canonical GenerationType union (types/index.ts) so every type shown
+// in the marketplace can be created/edited here.
 const TECHNOLOGY_TYPES = [
     { value: 'Solar', label: 'Solar' },
     { value: 'Wind', label: 'Wind' },
     { value: 'Nuclear', label: 'Nuclear' },
     { value: 'Battery', label: 'Battery Storage' },
-    { value: 'Hydrogen', label: 'Green Hydrogen' },
+    { value: 'Hydro', label: 'Hydro' },
     { value: 'Hybrid', label: 'Hybrid (Solar + Storage)' },
+    { value: 'Combined Cycle', label: 'Combined Cycle' },
+    { value: 'Peaker', label: 'Peaker' },
     { value: 'Virtual', label: 'Virtual (energy-only CfD)' }
 ];
 
@@ -362,8 +389,11 @@ const SETTLEMENT_ZONES = [
     'Other'
 ];
 
-export default function CreateProjectModal({ isOpen, onClose, onSuccess, editProject }: CreateProjectModalProps) {
+export default function CreateProjectModal({ isOpen, onClose, onSuccess, editProject, mode = 'offer' }: CreateProjectModalProps) {
     const { user, session } = useAuth();
+    const isExistingContract = mode === 'existing';
+    // Facilities an existing contract serves — drives the site_contracts flow-through.
+    const [selectedFacilities, setSelectedFacilities] = useState<Set<string>>(new Set());
     const isEditMode = Boolean(editProject);
     const [projectType, setProjectType] = useState<'brownfield' | 'greenfield' | 'generation'>('brownfield');
     const [submitting, setSubmitting] = useState(false);
@@ -493,7 +523,17 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         eac_scheme: '',
         // VPPA Settlement
         settlement_point: '',
-        connection_point: ''
+        connection_point: '',
+        // Unbundled products
+        offers_capacity: false,
+        offers_energy: true,
+        offers_rec: false,
+        eda: '',
+        energy_mwh_min: '',
+        energy_mwh_max: '',
+        rec_pct: '',
+        retiring_agency: '',
+        matching_format: '',
     });
 
     // Collapsible sections state for generation form
@@ -681,14 +721,17 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         }
     }, [isOpen]);
 
-    // Set default project type based on user role
+    // Set default project type based on user role (existing contracts are always
+    // generation assets).
     useEffect(() => {
-        if (user?.role === 'seller') {
+        if (isExistingContract) {
+            setProjectType('generation');
+        } else if (user?.role === 'seller') {
             setProjectType('generation');
         } else {
             setProjectType('brownfield');
         }
-    }, [user]);
+    }, [user, isExistingContract]);
 
     // Populate form for edit mode
     useEffect(() => {
@@ -817,9 +860,48 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                     // ISO / zone
                     iso: editProject.iso || 'PJM',
                     zone: editProject.zone || '',
+                    // Unbundled products are loaded separately (see effect below).
+                    offers_capacity: false,
+                    offers_energy: true,
+                    offers_rec: false,
+                    eda: '',
+                    energy_mwh_min: '',
+                    energy_mwh_max: '',
+                    rec_pct: '',
+                    retiring_agency: '',
+                    matching_format: '',
                 });
             }
         }
+    }, [isOpen, editProject]);
+
+    // Load the project's unbundled products in edit mode and patch the form so
+    // the Edit view is the single source of truth for Capacity/Energy/RECs.
+    useEffect(() => {
+        if (!isOpen || !editProject || editProject.project_type !== 'generation') return;
+        let alive = true;
+        const str = (v: unknown) => (v == null || v === '' ? '' : String(v));
+        fetchProductSet(editProject.id).then((set) => {
+            if (!alive) return;
+            setGenerationForm((f) => ({
+                ...f,
+                offers_capacity: !!set.capacity,
+                offers_energy: !!set.energy,
+                offers_rec: !!set.rec,
+                eda: str(set.capacity?.eda),
+                capacity_mw: set.capacity?.capacity_mw != null && set.capacity.capacity_mw !== '' ? str(set.capacity.capacity_mw) : f.capacity_mw,
+                capacity_price_per_mw_day: set.capacity?.price_per_mw_day != null && set.capacity.price_per_mw_day !== '' ? str(set.capacity.price_per_mw_day) : f.capacity_price_per_mw_day,
+                energy_mwh_min: str(set.energy?.energy_mwh_min),
+                energy_mwh_max: str(set.energy?.energy_mwh_max),
+                zone: set.energy?.zone ? String(set.energy.zone) : f.zone,
+                fixed_price_per_mwh: set.energy?.price_per_mwh != null && set.energy.price_per_mwh !== '' ? str(set.energy.price_per_mwh) : f.fixed_price_per_mwh,
+                rec_pct: str(set.rec?.rec_pct),
+                retiring_agency: str(set.rec?.retiring_agency),
+                matching_format: str(set.rec?.matching_format),
+                eac_price_per_mwh: set.rec?.price_per_mwh != null && set.rec.price_per_mwh !== '' ? str(set.rec.price_per_mwh) : f.eac_price_per_mwh,
+            }));
+        });
+        return () => { alive = false; };
     }, [isOpen, editProject]);
 
     const handleBrownfieldSubmit = async (e: React.FormEvent) => {
@@ -1013,7 +1095,9 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 status: saveMode, // 'draft' or 'published'
                 // marketplace = available to contract; private = owned by this company.
                 // Server enforces: only admin/seller may publish to marketplace.
-                visibility: canPublishMarketplace ? genVisibility : 'private',
+                // An existing contract is always a private, company-owned record.
+                visibility: isExistingContract ? 'private' : (canPublishMarketplace ? genVisibility : 'private'),
+                origin: isExistingContract ? 'existing' : 'marketplace',
                 // VPPA Timeline
                 expected_cod: generationForm.expected_cod || null,
                 guaranteed_cod: generationForm.guaranteed_cod || null,
@@ -1040,8 +1124,36 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 // Metadata for description
                 metadata: {
                     description: generationForm.description
+                },
+                // Unbundled products, persisted server-side (folded in from the
+                // former Products editor). A null block deletes that product.
+                products: {
+                    capacity: generationForm.offers_capacity ? {
+                        capacity_mw: generationForm.capacity_mw === '' ? null : Number(generationForm.capacity_mw),
+                        eda: generationForm.eda || null,
+                        price_per_mw_day: generationForm.capacity_price_per_mw_day === '' ? null : Number(generationForm.capacity_price_per_mw_day),
+                    } : null,
+                    energy: generationForm.offers_energy ? {
+                        energy_mwh_min: generationForm.energy_mwh_min === '' ? null : Number(generationForm.energy_mwh_min),
+                        energy_mwh_max: generationForm.energy_mwh_max === '' ? null : Number(generationForm.energy_mwh_max),
+                        zone: generationForm.zone || null,
+                        price_per_mwh: generationForm.fixed_price_per_mwh === '' ? null : Number(generationForm.fixed_price_per_mwh),
+                    } : null,
+                    rec: generationForm.offers_rec ? {
+                        rec_pct: generationForm.rec_pct === '' ? null : Number(generationForm.rec_pct),
+                        retiring_agency: generationForm.retiring_agency || null,
+                        matching_format: generationForm.matching_format || null,
+                        price_per_mwh: generationForm.eac_price_per_mwh === '' ? null : Number(generationForm.eac_price_per_mwh),
+                    } : null,
                 }
             };
+
+            // Existing-contract facility assignment → backend flow-through to
+            // site_contracts. Sent only when facilities are chosen so a plain
+            // edit doesn't wipe the prior assignment (server preserves it).
+            if (isExistingContract && selectedFacilities.size > 0) {
+                requestBody.facilities = [...selectedFacilities].map((fac_id) => ({ fac_id }));
+            }
 
             const url = editProject
                 ? `${API_BASE_URL}/projects/${editProject.id}`
@@ -2054,6 +2166,31 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                 {/* Generation Project Form (Enhanced with VPPA fields) */}
                                 {projectType === 'generation' && (
                                     <form onSubmit={handleGenerationSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-4">
+                                        {/* Existing-contract facility assignment — which data centers this
+                                            already-held contract serves (charts against their load). */}
+                                        {isExistingContract && (
+                                            <div className="space-y-2 rounded-md border border-teal-200 bg-teal-50/40 p-3">
+                                                <h4 className="text-sm font-semibold text-gray-900">Existing contract — assign to facilities</h4>
+                                                <p className="text-xs text-gray-500">The contract's volume is split evenly across the selected data centers and charted against their load.</p>
+                                                <div className="flex flex-wrap gap-3 pt-1">
+                                                    {FACILITY_OPTIONS.map((f) => (
+                                                        <label key={f.facId} className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedFacilities.has(f.facId)}
+                                                                onChange={() => setSelectedFacilities((prev) => {
+                                                                    const next = new Set(prev);
+                                                                    if (next.has(f.facId)) next.delete(f.facId); else next.add(f.facId);
+                                                                    return next;
+                                                                })}
+                                                                className="h-3.5 w-3.5 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                                            />
+                                                            {f.name}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                         {/* Basic Project Info */}
                                         <div className="space-y-4">
                                             <h4 className="text-sm font-semibold text-gray-900 border-b pb-2">Basic Project Information</h4>
@@ -2454,6 +2591,99 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                     </div>
                                                 </div>
                                             )}
+                                        </div>
+
+                                        {/* Unbundled products (Capacity / Energy / RECs) — folded in from the
+                                            former Products editor. Toggle which components this project offers;
+                                            capacity MW / prices / zone come from the fields above. */}
+                                        <div className="space-y-3 rounded-md border border-slate-200 p-3 mt-2">
+                                            <h4 className="text-sm font-semibold text-gray-900">Unbundled Products</h4>
+                                            <p className="text-xs text-gray-500">Which components this project offers. Capacity MW, prices ($/MWh, $/MW-day) and zone are taken from the fields above.</p>
+
+                                            {/* Capacity */}
+                                            <div>
+                                                <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                                                    <input type="checkbox" checked={generationForm.offers_capacity}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, offers_capacity: e.target.checked })}
+                                                        className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                                                    Capacity
+                                                </label>
+                                                {generationForm.offers_capacity && (
+                                                    <div className="mt-2 pl-6">
+                                                        <label className="block text-xs font-medium text-gray-600 mb-1">EDA (Effective Deliverability Area) *</label>
+                                                        <input type="text" value={generationForm.eda}
+                                                            onChange={(e) => setGenerationForm({ ...generationForm, eda: e.target.value })}
+                                                            className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                            placeholder="e.g., DOM, PENELEC" />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Energy */}
+                                            <div>
+                                                <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                                                    <input type="checkbox" checked={generationForm.offers_energy}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, offers_energy: e.target.checked })}
+                                                        className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                                                    Energy
+                                                </label>
+                                                {generationForm.offers_energy && (
+                                                    <div className="mt-2 pl-6 grid grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Energy MWh min</label>
+                                                            <input type="number" min="0" value={generationForm.energy_mwh_min}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_min: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="0" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Energy MWh max</label>
+                                                            <input type="number" min="0" value={generationForm.energy_mwh_max}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_max: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="e.g., 400" />
+                                                        </div>
+                                                        <p className="col-span-2 text-[11px] text-gray-400">Zone comes from the ISO/Zone field above.</p>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* RECs */}
+                                            <div>
+                                                <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
+                                                    <input type="checkbox" checked={generationForm.offers_rec}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, offers_rec: e.target.checked })}
+                                                        className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                                                    RECs
+                                                </label>
+                                                {generationForm.offers_rec && (
+                                                    <div className="mt-2 pl-6 grid grid-cols-3 gap-3">
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-600 mb-1">REC %</label>
+                                                            <input type="number" min="0" max="100" value={generationForm.rec_pct}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, rec_pct: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="e.g., 100" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Retiring Agency *</label>
+                                                            <select value={generationForm.retiring_agency}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, retiring_agency: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm">
+                                                                <option value="">Select…</option>
+                                                                {RETIRING_AGENCIES.map((a) => <option key={a} value={a}>{a}</option>)}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Matching Format *</label>
+                                                            <select value={generationForm.matching_format}
+                                                                onChange={(e) => setGenerationForm({ ...generationForm, matching_format: e.target.value })}
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm">
+                                                                <option value="">Select…</option>
+                                                                {MATCHING_FORMATS.map((m) => <option key={m} value={m}>{MATCHING_FORMAT_LABELS[m]}</option>)}
+                                                            </select>
+                                                        </div>
+                                                        <p className="col-span-3 text-[11px] text-gray-400">REC price comes from the EAC price ($/MWh) field above.</p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Availability: marketplace (contractable) vs private (company-owned) */}
