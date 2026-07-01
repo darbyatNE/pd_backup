@@ -68,7 +68,11 @@ export default function Forecast() {
     prefs, setPrefs, reset: resetPrefs,
     recommended, marketProjects, productSummaries,
     availableIsos, availableGenTypes, companyName, scopeWindow,
+    refetch: refetchRecommendation,
   } = useRecommendation()
+  // The provider fetches projects once at app start; refresh when the Plan tab
+  // opens so projects created elsewhere (e.g. marketplace "Add Project") appear.
+  useEffect(() => { refetchRecommendation() }, [refetchRecommendation])
 
   // Optional column sort for the recommended table. null = keep the engine's
   // fit ranking; clicking a header cycles asc → desc → back to fit.
