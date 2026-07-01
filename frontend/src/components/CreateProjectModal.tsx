@@ -2233,7 +2233,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                        Pricing Node
+                                                        Location
                                                     </label>
                                                     <input
                                                         type="text"
