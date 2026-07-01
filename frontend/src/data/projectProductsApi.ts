@@ -11,6 +11,8 @@ export const RETIRING_AGENCIES = [
   'NC-RETS',
   'NEPOOL GIS',
   'NAR',
+  'ERCOT',
+  'MIRECS',
 ] as const
 export type RetiringAgency = (typeof RETIRING_AGENCIES)[number]
 
@@ -31,6 +33,8 @@ const AGENCY_SHORT: Record<string, string> = {
   'NC-RETS': 'NC-RETS',
   'NEPOOL GIS': 'NEPOOL GIS',
   NAR: 'NAR',
+  ERCOT: 'ERCOT',
+  MIRECS: 'MIRECS',
 }
 
 // One row of planning.project_product_summary (per-project pivot).

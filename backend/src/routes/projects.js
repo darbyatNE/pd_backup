@@ -256,7 +256,7 @@ router.post('/', authenticate, async (req, res) => {
     res.status(201).json({ project: rows[0] });
   } catch (error) {
     console.error('Create project error:', error);
-    res.status(500).json({ error: 'Failed to create project' });
+    res.status(error.status ?? 500).json({ error: error.status ? error.message : 'Failed to create project' });
   }
 });
 
@@ -319,7 +319,7 @@ router.put('/:id', authenticate, async (req, res) => {
     res.json({ project: rows[0] });
   } catch (error) {
     console.error('Update project error:', error);
-    res.status(500).json({ error: 'Failed to update project' });
+    res.status(error.status ?? 500).json({ error: error.status ? error.message : 'Failed to update project' });
   }
 });
 

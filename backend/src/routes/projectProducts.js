@@ -8,7 +8,7 @@ const router = express.Router();
 // project, stored in planning.project_products and keyed by iso_id (the ISO
 // registry / project id). See migration 20260629_create_planning_project_products.
 
-const RETIRING_AGENCIES = ['PJM-EIS GATS', 'M-RETS', 'NYGATS', 'NC-RETS', 'NEPOOL GIS', 'NAR'];
+const RETIRING_AGENCIES = ['PJM-EIS GATS', 'M-RETS', 'NYGATS', 'NC-RETS', 'NEPOOL GIS', 'NAR', 'ERCOT', 'MIRECS'];
 const MATCHING_FORMATS = ['yearly', 'monthly', '24x7'];
 const num = (v) => (v === '' || v == null ? null : Number(v));
 
