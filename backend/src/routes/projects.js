@@ -8,14 +8,12 @@ const router = express.Router();
 // WHERE clause limiting a project write to what the caller may edit:
 //  - admin: any project; everyone else: own seller_id or own company's project.
 // `startAt` = number of params already bound before this clause.
+// Editing/publishing/deleting a project is open to any authenticated user for now
+// — ownership/role gating comes in a later security round (matches the
+// always-visible marketplace Edit button). Was: admins any; others own
+// seller_id / owner_company_id only.
 function projectOwnershipWhere(req, startAt) {
-  if (req.user.role === 'admin') {
-    return { whereSql: `WHERE id = $${startAt + 1}`, whereParams: [req.params.id] };
-  }
-  return {
-    whereSql: `WHERE id = $${startAt + 1} AND (seller_id = $${startAt + 2} OR owner_company_id = $${startAt + 3})`,
-    whereParams: [req.params.id, req.user.id, req.user.companyId],
-  };
+  return { whereSql: `WHERE id = $${startAt + 1}`, whereParams: [req.params.id] };
 }
 
 const numOrNull = (v) => (v == null || v === '' ? null : Number(v));
