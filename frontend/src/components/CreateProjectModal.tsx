@@ -2631,13 +2631,13 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                     <div className="mt-2 pl-6 grid grid-cols-2 gap-3">
                                                         <div>
                                                             <label className="block text-xs font-medium text-gray-600 mb-1">Energy MWh min</label>
-                                                            <input type="number" min="0" value={generationForm.energy_mwh_min}
+                                                            <input type="number" min="0" step="0.1" value={generationForm.energy_mwh_min}
                                                                 onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_min: e.target.value })}
                                                                 className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="0" />
                                                         </div>
                                                         <div>
                                                             <label className="block text-xs font-medium text-gray-600 mb-1">Energy MWh max</label>
-                                                            <input type="number" min="0" value={generationForm.energy_mwh_max}
+                                                            <input type="number" min="0" step="0.1" value={generationForm.energy_mwh_max}
                                                                 onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_max: e.target.value })}
                                                                 className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="e.g., 400" />
                                                         </div>
