@@ -10,6 +10,7 @@ import { getLmpPeriodType, LMP_HISTORY_START, LMP_PERIODS_ALL, buildSimulatedLmp
 import { LOAD_PROFILES, getForecastCapacityForYear } from '../data/loadProfile';
 import { getSuggestedBessMw } from '../utils/capacity';
 import { useRecommendation } from '../contexts/RecommendationContext';
+import { evaluateProjects } from '../data/projectRecommendation';
 import type { Project, GenerationType, BTMAssetType } from '../types';
 
 const OSM_STYLE: maplibregl.StyleSpecification = {
@@ -165,7 +166,10 @@ type LmpMap = Map<number, number>;
 
 export default function MapPage() {
   const { selectedSites, startYear, endYear, endMonth, setEndDate, addSite, peekSite } = useScopeContext();
-  const { recommendedIds: ctxRecommendedIds } = useRecommendation();
+  // Use the shared recommendation *preferences* (so Plan-tab slider edits sync),
+  // but evaluate them against the map's own (freshly fetched) project list — so
+  // newly created/published projects aren't excluded by a stale context set.
+  const { prefs: recPrefs, scopeWindow: recScope, productSummaries: recSummaries } = useRecommendation();
   const navigate = useNavigate();
   const { setView, setSubTab } = useDashboardView();
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -339,10 +343,11 @@ export default function MapPage() {
   // Recommended-project filter — shares the Plan tab's live preferences via
   // RecommendationContext, so slider edits there update the map in real time.
   // When the toggle is off, null = no filtering (explore all projects).
-  const recommendedIds = useMemo<Set<string> | null>(
-    () => (recommendedOnly ? ctxRecommendedIds : null),
-    [recommendedOnly, ctxRecommendedIds],
-  );
+  const recommendedIds = useMemo<Set<string> | null>(() => {
+    if (!recommendedOnly) return null;
+    const ranked = evaluateProjects(projects, recSummaries, recPrefs, recScope, selectedSites);
+    return new Set(ranked.map((r) => r.project.id));
+  }, [recommendedOnly, projects, recSummaries, recPrefs, recScope, selectedSites]);
   const recommendedIdsRef = useRef<Set<string> | null>(null);
   useEffect(() => { recommendedIdsRef.current = recommendedIds; }, [recommendedIds]);
 
