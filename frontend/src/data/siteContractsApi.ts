@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { API_BASE_URL } from '../services/api'
 import type { LinkedContract, ContractShape, CommitmentLevel } from './linkedContracts'
-import { defaultShapeForGenType } from './linkedContracts'
+import { defaultShapeForGenType, tierForGenType } from './linkedContracts'
 import { LOAD_PROFILE_MAP } from './loadProfile'
 
 // Row shape returned by GET /api/site-contracts (RDS public.site_contracts).
@@ -96,6 +96,11 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
   for (const [, gr] of groups) {
     const r0 = gr[0]
     const gen = r0.generation_type as LinkedContract['generationType']
+    // One contract → one legend tier, decided by generation type. Both the
+    // capacity and energy bands list under this tier so a bundled deal never
+    // straddles both Baseload and Peaking. The bands still chart separately
+    // (flat capacity vs shaped energy); tier only drives legend grouping.
+    const genTier = tierForGenType(gen)
     const cap = gr.reduce((s, r) => s + num(r.capacity_mw), 0)
     const energy = gr.reduce((s, r) => s + num(r.energy_mwh), 0)
     const both = cap > 0 && energy > 0
@@ -137,7 +142,7 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
         projectName: `${baseName}${both ? ' · Capacity' : ''}`,
         mwCovered: r2(cap),
         shape: 'flat',
-        tier: 'base',
+        tier: genTier,
         // A 'capacity' component (with a deliverable LDA) so capacity-coverage
         // math counts this deal; without it, ensureContractComponents would
         // default to an 'energy' component and the deal would never qualify.
@@ -168,7 +173,7 @@ export function mapSiteContractRowsToLinked(rows: SiteContractRow[]): LinkedCont
         projectName: `${baseName}${both ? ' · Energy' : ''}`,
         mwCovered: r2(energy / 8760),
         shape: energyShape,
-        tier: 'peak',
+        tier: genTier,
         perSiteMw: gr
           .filter((r) => num(r.energy_mwh) > 0)
           .map((r) => ({ siteKey: r.fac_id, mwCovered: r2(num(r.energy_mwh) / 8760) })),

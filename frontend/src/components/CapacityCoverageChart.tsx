@@ -402,10 +402,15 @@ function CapacityShape2D({
 
 // ─── Wrapper with view controls — mirrors LoadForecastChart ──────────────
 
-export default function CapacityCoverageChart({ profile }: { profile: SiteLoadProfile }) {
+export default function CapacityCoverageChart({ profile, extraSources }: { profile: SiteLoadProfile; extraSources?: CapacitySource[] }) {
   const [xAxis, setXAxis] = useState<'hours' | 'months'>('hours')
   const { startYear, endYear, selectedSites } = useScopeContext()
-  const sources = useMemo(() => getCapacitySourcesForSites(selectedSites), [selectedSites])
+  // Static per-site capacity sources plus any bilateral capacity flowed through
+  // from contracts (the Capacity tab's volume chart shows capacity volumes).
+  const sources = useMemo(
+    () => [...getCapacitySourcesForSites(selectedSites), ...(extraSources ?? [])],
+    [selectedSites, extraSources],
+  )
 
   const yearOptions = useMemo(() => {
     const out: number[] = []

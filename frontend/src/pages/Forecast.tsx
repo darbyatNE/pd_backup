@@ -9,6 +9,7 @@ import {
 } from '../data/loadProfile'
 import type { SiteLoadProfile } from '../data/loadProfile'
 import { useSiteContracts, siteContractsForSites } from '../data/siteContractsApi'
+import type { LinkedContract, CapacitySource } from '../data/linkedContracts'
 import { pnum, projectStatus, projectTerm, energyRange } from '../data/projectDisplay'
 import { useRecommendation } from '../contexts/RecommendationContext'
 import RecommendationFilters from '../components/forecast/RecommendationFilters'
@@ -121,6 +122,32 @@ export default function Forecast() {
     () => siteContractsForSites(siteContractRows, selectedSites),
     [siteContractRows, selectedSites],
   )
+  // A bundled deal charts as two separate bands. Each belongs to its own tab's
+  // volume chart: the capacity band (a capacity component) charts under the
+  // Capacity tab, the energy band under the Energy tab. Split here so neither
+  // chart shows both — and a bundled contract never appears twice in one chart.
+  const isCapacityBand = (c: LinkedContract) =>
+    !!c.components?.some((x) => x.type === 'capacity')
+  const energyContracts = useMemo(
+    () => contracts.filter((c) => !isCapacityBand(c)),
+    [contracts],
+  )
+  const capacityContracts = useMemo(
+    () => contracts.filter(isCapacityBand),
+    [contracts],
+  )
+  // Bilateral capacity from contracts, charted as sources in the Capacity tab's
+  // coverage chart (alongside any utility BRA pass-through).
+  const contractCapacitySources = useMemo<CapacitySource[]>(
+    () =>
+      capacityContracts.map((c) => ({
+        sourceName: c.projectName.replace(/\s*·\s*Capacity\s*$/, ''),
+        channel: 'competitive-fixed',
+        mwCovered: c.mwCovered,
+        pattern: 'crosshatch',
+      })),
+    [capacityContracts],
+  )
 
   const openExamineFit = (p: Project) => {
     setTryOnProject(p)
@@ -175,7 +202,7 @@ export default function Forecast() {
           <CapacityRollup selectedSites={selectedSites} endYear={endYear} />
           {profiles.length > 0 && (
             <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
-              <CapacityCoverageChart profile={profile} />
+              <CapacityCoverageChart profile={profile} extraSources={contractCapacitySources} />
             </div>
           )}
           {profiles.length === 0 ? (
@@ -231,7 +258,7 @@ export default function Forecast() {
         <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
           <LoadForecastChart
             profile={profile}
-            contracts={contracts}
+            contracts={energyContracts}
             xAxis={loadXAxis}
             onXAxisChange={setLoadXAxis}
             activeYear={chartActiveYear}
@@ -366,7 +393,7 @@ export default function Forecast() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[400px]">
             <CostTimeChart
-              contracts={contracts}
+              contracts={energyContracts}
               profile={profile}
               startYear={startYear}
               endYear={endYear}
@@ -375,7 +402,7 @@ export default function Forecast() {
           </div>
           <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[400px]">
             <EnergyMixChart
-              contracts={contracts}
+              contracts={energyContracts}
               profile={profile}
               startYear={startYear}
               endYear={endYear}
