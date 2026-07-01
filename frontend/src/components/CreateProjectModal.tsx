@@ -245,7 +245,9 @@ const FACILITY_TYPES = [
 ];
 
 // Onboarding sheet dropdowns
-const ISO_RTOS = ['PJM', 'MISO', 'ERCOT', 'SPP', 'NYISO', 'ISO-NE', 'CAISO', 'WECC'];
+// Use 'SWPP' (not 'SPP') to match the value projects are stored with and the
+// map's ISO overlay key — otherwise a SWPP project shows as the first option (PJM).
+const ISO_RTOS = ['PJM', 'MISO', 'ERCOT', 'SWPP', 'NYISO', 'ISO-NE', 'CAISO', 'WECC'];
 
 const US_STATES = [
     'AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA',
