@@ -106,8 +106,13 @@ function getMapIconSvg(generationType: string): string {
       return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M0,-8 L3,-2 L8,-3 L2,2 L4,8 L-2,2 L-8,3 L-3,-2 Z" fill="#06b6d4"/><circle r="2" fill="white"/></g></svg>`;
     case 'Peaker':
       return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><path d="M-6,6 L0,-8 L6,6 Z" fill="#ef4444"/><rect x="-2" y="2" width="4" height="4" fill="#dc2626"/></g></svg>`;
-    default:
-      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><circle cx="12" cy="12" r="8" fill="#64748b"/></svg>`;
+    case 'Virtual':
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><g transform="translate(12,12)"><circle r="7" fill="none" stroke="#db2777" stroke-width="2.5"/><circle r="2.5" fill="#db2777"/></g></svg>`;
+    default: {
+      // Any other/new gen type: a filled dot in the type's legend color.
+      const color = MARKER_COLORS[generationType as GenerationType] ?? '#64748b';
+      return `<svg viewBox="0 0 24 24" width="16" height="16" style="display:block;"><circle cx="12" cy="12" r="8" fill="${color}"/></svg>`;
+    }
   }
 }
 
