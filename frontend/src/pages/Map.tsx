@@ -40,6 +40,9 @@ const ISO_ZONE_OVERLAYS: Record<IsoZoneKey, { file: string; color: string }> = {
 // MISO and ERCOT toggle into the view. The camera centers on the arithmetic
 // mean of the visible centroids and zooms to fit the union of bboxes.
 type IsoKey = 'PJM' | IsoZoneKey;
+// ISOs that have a legend overlay toggle; a project's marker is gated by its ISO
+// only when the ISO is one of these (others always render).
+const ISO_OVERLAY_KEYS = new Set<IsoKey>(['PJM', 'MISO', 'ERCOT', 'SWPP']);
 const ISO_META: Record<IsoKey, {
   centroid: [number, number];
   bbox: [[number, number], [number, number]];
@@ -1014,7 +1017,10 @@ export default function MapPage() {
       if (recommendedIdsRef.current && !recommendedIdsRef.current.has(project.id)) return;
       if (!currentVisible.has(project.generation_type)) return;
       // Hide a project's gen-type marker when its ISO overlay is toggled off.
-      if (!visibleIsoZonesRef.current.has((project.iso || 'PJM') as IsoKey)) return;
+      {
+        const iso = (project.iso || 'PJM') as IsoKey;
+        if (ISO_OVERLAY_KEYS.has(iso) && !visibleIsoZonesRef.current.has(iso)) return;
+      }
 
       // Marker container with label (label above marker)
       const el = document.createElement('div');
@@ -1556,11 +1562,23 @@ export default function MapPage() {
     map.current.setPaintProperty('pjm-subs-dots', 'circle-opacity', opacity);
   }, [lmpPeriodType]);
 
+  // Open a project's popup, retrying across a few frames in case its marker was
+  // just (re)created after enabling its ISO overlay / gen-type below.
+  const openProjectPopup = (id: string, tries = 0) => {
+    const m = markers.current.get(id);
+    if (m) { m.togglePopup(); return; }
+    if (tries < 20) requestAnimationFrame(() => openProjectPopup(id, tries + 1));
+  };
   const flyToProject = (project: MappedProject) => {
     if (!project.coords || !map.current) return;
     setSelectedId(project.id);
+    // Ensure this project's marker is actually shown: turn on its ISO overlay and
+    // gen-type if they were toggled off, so clicking the list always reveals it.
+    const iso = (project.iso || 'PJM') as IsoKey;
+    if (ISO_OVERLAY_KEYS.has(iso)) setVisibleIsoZones((prev) => (prev.has(iso) ? prev : new Set(prev).add(iso)));
+    setVisibleGenTypes((prev) => (prev.has(project.generation_type) ? prev : new Set(prev).add(project.generation_type)));
     map.current.flyTo({ center: project.coords, zoom: 8, duration: 800 });
-    markers.current.get(project.id)?.togglePopup();
+    openProjectPopup(project.id);
   };
 
   const flyToBuyerSite = (site: BuyerSite) => {
