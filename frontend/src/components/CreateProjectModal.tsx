@@ -2233,11 +2233,10 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                                 <div>
                                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                        Location *
+                                                        Pricing Node
                                                     </label>
                                                     <input
                                                         type="text"
-                                                        required
                                                         value={generationForm.location}
                                                         onChange={(e) => setGenerationForm({ ...generationForm, location: e.target.value })}
                                                         className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
