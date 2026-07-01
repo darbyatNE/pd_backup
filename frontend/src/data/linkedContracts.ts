@@ -741,6 +741,33 @@ const MONTH_FACTOR: Record<ContractShape, number[]> = {
   evening: [0.95, 0.95, 1.00, 1.00, 1.05, 1.10, 1.10, 1.10, 1.05, 1.00, 0.98, 0.95],
 };
 
+// Normalized shapes: keep each profile's relative hour-of-day / seasonal SHAPE but
+// scale so the annual (hours- and days-weighted) mean factor is 1.0. This makes a
+// shaped contract deliver its full stated MWh over the year (mwCovered = annual
+// MWh ÷ 8760) rather than the raw factors (avg < 1) silently discounting the
+// total. Hourly output therefore peaks above the average, as real wind/solar does.
+const _DAYS_PER_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const normalizeHourShape = (arr: number[]): number[] => {
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  return mean > 0 ? arr.map((v) => v / mean) : arr;
+};
+const normalizeMonthShape = (arr: number[]): number[] => {
+  const weighted = arr.reduce((s, v, i) => s + v * _DAYS_PER_MONTH[i], 0) / 365;
+  return weighted > 0 ? arr.map((v) => v / weighted) : arr;
+};
+const SHAPE_HOUR_NORM: Record<ContractShape, number[]> = {
+  flat: normalizeHourShape(SHAPE_HOUR.flat),
+  solar: normalizeHourShape(SHAPE_HOUR.solar),
+  wind: normalizeHourShape(SHAPE_HOUR.wind),
+  evening: normalizeHourShape(SHAPE_HOUR.evening),
+};
+const MONTH_FACTOR_NORM: Record<ContractShape, number[]> = {
+  flat: normalizeMonthShape(MONTH_FACTOR.flat),
+  solar: normalizeMonthShape(MONTH_FACTOR.solar),
+  wind: normalizeMonthShape(MONTH_FACTOR.wind),
+  evening: normalizeMonthShape(MONTH_FACTOR.evening),
+};
+
 /** MW delivered by a contract at a given hour-of-day and month. */
 export function contractMwAtHour(c: LinkedContract, hour: number, month: number): number {
   // BESS special handling - configurable charge/discharge
@@ -758,9 +785,11 @@ export function contractMwAtHour(c: LinkedContract, hour: number, month: number)
     }
     return 0; // Idle during other hours
   }
-  const h = SHAPE_HOUR[c.shape][hour] ?? 0;
-  const m = MONTH_FACTOR[c.shape][month - 1] ?? 1;
-  return Math.max(0, Math.min(c.mwCovered, c.mwCovered * h * m));
+  // Normalized shape → annual delivery equals the stated MWh. No upper cap: the
+  // profile intentionally peaks above the average (e.g. solar midday, wind gusts).
+  const h = SHAPE_HOUR_NORM[c.shape][hour] ?? 0;
+  const m = MONTH_FACTOR_NORM[c.shape][month - 1] ?? 1;
+  return Math.max(0, c.mwCovered * h * m);
 }
 
 /** Average MW delivered by a contract over all hours of a given month. */
