@@ -390,7 +390,7 @@ const SETTLEMENT_ZONES = [
 ];
 
 export default function CreateProjectModal({ isOpen, onClose, onSuccess, editProject, mode = 'offer' }: CreateProjectModalProps) {
-    const { user, session } = useAuth();
+    const { user } = useAuth();
     const isExistingContract = mode === 'existing';
     // Facilities an existing contract serves — drives the site_contracts flow-through.
     const [selectedFacilities, setSelectedFacilities] = useState<Set<string>>(new Set());
@@ -975,7 +975,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 method: method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token}`
+                    'Authorization': `Bearer ${localStorage.getItem('pd_access_token') ?? ''}`
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -1057,7 +1057,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 method: method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token}`
+                    'Authorization': `Bearer ${localStorage.getItem('pd_access_token') ?? ''}`
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -1165,7 +1165,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session?.access_token}`
+                    'Authorization': `Bearer ${localStorage.getItem('pd_access_token') ?? ''}`
                 },
                 body: JSON.stringify(requestBody)
             });
