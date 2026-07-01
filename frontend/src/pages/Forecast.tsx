@@ -70,6 +70,36 @@ export default function Forecast() {
     availableIsos, availableGenTypes, companyName, scopeWindow,
   } = useRecommendation()
 
+  // Optional column sort for the recommended table. null = keep the engine's
+  // fit ranking; clicking a header cycles asc → desc → back to fit.
+  type RecSortKey = 'status' | 'name' | 'type' | 'mw' | 'mwh' | 'rec' | 'start' | 'dist'
+  const [recSort, setRecSort] = useState<{ key: RecSortKey; dir: 'asc' | 'desc' } | null>(null)
+  const toggleRecSort = (key: RecSortKey) =>
+    setRecSort((prev) => (prev?.key !== key ? { key, dir: 'asc' } : prev.dir === 'asc' ? { key, dir: 'desc' } : null))
+  const recArrow = (key: RecSortKey) => (recSort?.key === key ? (recSort.dir === 'asc' ? ' ▲' : ' ▼') : '')
+  const displayedRecommended = useMemo(() => {
+    if (!recSort) return recommended
+    const val = (item: (typeof recommended)[number]): number | string => {
+      const p = item.project
+      const s = productSummaries[p.id]
+      switch (recSort.key) {
+        case 'status': return projectStatus(p).available ? 0 : 1
+        case 'name': return p.name.toLowerCase()
+        case 'type': return p.generation_type.toLowerCase()
+        case 'mw': return Number(p.capacity_mw || 0)
+        case 'mwh': return pnum(s?.energy_mwh_max ?? null) ?? pnum(s?.energy_mwh_min ?? null) ?? -1
+        case 'rec': return s?.has_rec ? (pnum(s.rec_pct) ?? -1) : -1
+        case 'start': return p.term_start_date ?? ''
+        case 'dist': return item.distanceMiles == null ? Infinity : item.distanceMiles
+      }
+    }
+    return [...recommended].sort((a, b) => {
+      const av = val(a); const bv = val(b)
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return recSort.dir === 'asc' ? cmp : -cmp
+    })
+  }, [recommended, recSort, productSummaries])
+
   const profiles = selectedSites
     .map((k) => LOAD_PROFILE_MAP[k])
     .filter(Boolean) as SiteLoadProfile[]
@@ -248,30 +278,30 @@ export default function Forecast() {
                   </colgroup>
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-left text-slate-500">
-                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Status</th>
-                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider">Project</th>
+                      <th rowSpan={2} onClick={() => toggleRecSort('status')} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-slate-700">Status{recArrow('status')}</th>
+                      <th rowSpan={2} onClick={() => toggleRecSort('name')} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-slate-700">Project{recArrow('name')}</th>
                       <th colSpan={2} className="py-1 px-2 text-center font-semibold border-l border-slate-200">Term</th>
                       <th colSpan={2} className="py-1 px-2 text-center font-semibold text-teal-700 border-l border-slate-200 bg-teal-50/40">Capacity</th>
                       <th colSpan={3} className="py-1 px-2 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
                       <th colSpan={2} className="py-1 px-2 text-center font-semibold text-indigo-700 border-l border-slate-200 bg-indigo-50/40">RECs</th>
-                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Type</th>
-                      <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Dist (mi)</th>
+                      <th rowSpan={2} onClick={() => toggleRecSort('type')} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200 cursor-pointer select-none hover:text-slate-700">Type{recArrow('type')}</th>
+                      <th rowSpan={2} onClick={() => toggleRecSort('dist')} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200 cursor-pointer select-none hover:text-slate-700">Dist (mi){recArrow('dist')}</th>
                       <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Action</th>
                     </tr>
                     <tr className="bg-slate-50 border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400">
-                      <th className="py-1 px-2 border-l border-slate-200 font-medium">Start</th>
+                      <th onClick={() => toggleRecSort('start')} className="py-1 px-2 border-l border-slate-200 font-medium cursor-pointer select-none hover:text-slate-600">Start{recArrow('start')}</th>
                       <th className="py-1 px-2 font-medium">Stop</th>
-                      <th className="py-1 px-2 border-l border-slate-200 font-medium">MW</th>
+                      <th onClick={() => toggleRecSort('mw')} className="py-1 px-2 border-l border-slate-200 font-medium cursor-pointer select-none hover:text-slate-600">MW{recArrow('mw')}</th>
                       <th className="py-1 px-2 font-medium">LDA</th>
-                      <th className="py-1 px-2 border-l border-slate-200 font-medium">MWh</th>
+                      <th onClick={() => toggleRecSort('mwh')} className="py-1 px-2 border-l border-slate-200 font-medium cursor-pointer select-none hover:text-slate-600">MWh{recArrow('mwh')}</th>
                       <th className="py-1 px-2 font-medium">Zone</th>
                       <th className="py-1 px-2 font-medium">Pricing Pt</th>
-                      <th className="py-1 px-2 border-l border-slate-200 font-medium">%</th>
+                      <th onClick={() => toggleRecSort('rec')} className="py-1 px-2 border-l border-slate-200 font-medium cursor-pointer select-none hover:text-slate-600">%{recArrow('rec')}</th>
                       <th className="py-1 px-2 font-medium">Tracking</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {recommended.map(({ project: p, distanceMiles }) => {
+                    {displayedRecommended.map(({ project: p, distanceMiles }) => {
                       const s = productSummaries[p.id];
                       const st = projectStatus(p);
                       const tm = projectTerm(p);
