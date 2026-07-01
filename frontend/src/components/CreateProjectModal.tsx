@@ -219,12 +219,8 @@ interface GenerationProjectFormData {
     iso: string;
     zone: string;
 
-    // Unbundled products (folded in from the former Products editor). Toggles say
-    // which components the project offers; the extra fields have no other home in
-    // this form (prices/capacity/zone above double as the product values).
-    offers_capacity: boolean;
-    offers_energy: boolean;
-    offers_rec: boolean;
+    // Unbundled product detail, blended into the form. A component is saved when
+    // its required field is present: capacity⇔EDA, energy⇔zone, RECs⇔agency+format.
     eda: string;                 // capacity Effective Deliverability Area
     energy_mwh_min: string;
     energy_mwh_max: string;
@@ -524,10 +520,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         // VPPA Settlement
         settlement_point: '',
         connection_point: '',
-        // Unbundled products
-        offers_capacity: false,
-        offers_energy: true,
-        offers_rec: false,
+        // Unbundled product detail
         eda: '',
         energy_mwh_min: '',
         energy_mwh_max: '',
@@ -860,10 +853,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                     // ISO / zone
                     iso: editProject.iso || 'PJM',
                     zone: editProject.zone || '',
-                    // Unbundled products are loaded separately (see effect below).
-                    offers_capacity: false,
-                    offers_energy: true,
-                    offers_rec: false,
+                    // Unbundled product detail is loaded separately (see effect below).
                     eda: '',
                     energy_mwh_min: '',
                     energy_mwh_max: '',
@@ -885,9 +875,6 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
             if (!alive) return;
             setGenerationForm((f) => ({
                 ...f,
-                offers_capacity: !!set.capacity,
-                offers_energy: !!set.energy,
-                offers_rec: !!set.rec,
                 eda: str(set.capacity?.eda),
                 capacity_mw: set.capacity?.capacity_mw != null && set.capacity.capacity_mw !== '' ? str(set.capacity.capacity_mw) : f.capacity_mw,
                 capacity_price_per_mw_day: set.capacity?.price_per_mw_day != null && set.capacity.price_per_mw_day !== '' ? str(set.capacity.price_per_mw_day) : f.capacity_price_per_mw_day,
@@ -1125,24 +1112,25 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 metadata: {
                     description: generationForm.description
                 },
-                // Unbundled products, persisted server-side (folded in from the
-                // former Products editor). A null block deletes that product.
+                // Unbundled products, persisted server-side. A component is saved
+                // when its required field is present (capacity⇔EDA, energy⇔zone,
+                // RECs⇔agency+format); an absent one is null → deleted.
                 products: {
-                    capacity: generationForm.offers_capacity ? {
+                    capacity: generationForm.eda ? {
                         capacity_mw: generationForm.capacity_mw === '' ? null : Number(generationForm.capacity_mw),
-                        eda: generationForm.eda || null,
+                        eda: generationForm.eda,
                         price_per_mw_day: generationForm.capacity_price_per_mw_day === '' ? null : Number(generationForm.capacity_price_per_mw_day),
                     } : null,
-                    energy: generationForm.offers_energy ? {
+                    energy: generationForm.zone ? {
                         energy_mwh_min: generationForm.energy_mwh_min === '' ? null : Number(generationForm.energy_mwh_min),
                         energy_mwh_max: generationForm.energy_mwh_max === '' ? null : Number(generationForm.energy_mwh_max),
-                        zone: generationForm.zone || null,
+                        zone: generationForm.zone,
                         price_per_mwh: generationForm.fixed_price_per_mwh === '' ? null : Number(generationForm.fixed_price_per_mwh),
                     } : null,
-                    rec: generationForm.offers_rec ? {
+                    rec: (generationForm.retiring_agency && generationForm.matching_format) ? {
                         rec_pct: generationForm.rec_pct === '' ? null : Number(generationForm.rec_pct),
-                        retiring_agency: generationForm.retiring_agency || null,
-                        matching_format: generationForm.matching_format || null,
+                        retiring_agency: generationForm.retiring_agency,
+                        matching_format: generationForm.matching_format,
                         price_per_mwh: generationForm.eac_price_per_mwh === '' ? null : Number(generationForm.eac_price_per_mwh),
                     } : null,
                 }
@@ -2242,18 +2230,61 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                 </div>
                                             </div>
 
-                                            <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    Location *
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    required
-                                                    value={generationForm.location}
-                                                    onChange={(e) => setGenerationForm({ ...generationForm, location: e.target.value })}
-                                                    className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
-                                                    placeholder="e.g., Nevada, USA"
-                                                />
+                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Location *
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        required
+                                                        value={generationForm.location}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, location: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                        placeholder="e.g., Nevada, USA"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        EDA
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={generationForm.eda}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, eda: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                        placeholder="Effective Deliverability Area"
+                                                        title="Effective Deliverability Area — required to offer the Capacity product"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Energy MWh min
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.1"
+                                                        value={generationForm.energy_mwh_min}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_min: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                        placeholder="0"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Energy MWh max
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.1"
+                                                        value={generationForm.energy_mwh_max}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_max: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                        placeholder="e.g., 400"
+                                                    />
+                                                </div>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-4">
@@ -2589,101 +2620,45 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                             placeholder="e.g., 230kV Substation Name"
                                                         />
                                                     </div>
-                                                </div>
-                                            )}
-                                        </div>
 
-                                        {/* Unbundled products (Capacity / Energy / RECs) — folded in from the
-                                            former Products editor. Toggle which components this project offers;
-                                            capacity MW / prices / zone come from the fields above. */}
-                                        <div className="space-y-3 rounded-md border border-slate-200 p-3 mt-2">
-                                            <h4 className="text-sm font-semibold text-gray-900">Unbundled Products</h4>
-                                            <p className="text-xs text-gray-500">Which components this project offers. Capacity MW, prices ($/MWh, $/MW-day) and zone are taken from the fields above.</p>
-
-                                            {/* Capacity */}
-                                            <div>
-                                                <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-                                                    <input type="checkbox" checked={generationForm.offers_capacity}
-                                                        onChange={(e) => setGenerationForm({ ...generationForm, offers_capacity: e.target.checked })}
-                                                        className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-                                                    Capacity
-                                                </label>
-                                                {generationForm.offers_capacity && (
-                                                    <div className="mt-2 pl-6">
-                                                        <label className="block text-xs font-medium text-gray-600 mb-1">EDA (Effective Deliverability Area) *</label>
-                                                        <input type="text" value={generationForm.eda}
-                                                            onChange={(e) => setGenerationForm({ ...generationForm, eda: e.target.value })}
-                                                            className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
-                                                            placeholder="e.g., DOM, PENELEC" />
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Energy */}
-                                            <div>
-                                                <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-                                                    <input type="checkbox" checked={generationForm.offers_energy}
-                                                        onChange={(e) => setGenerationForm({ ...generationForm, offers_energy: e.target.checked })}
-                                                        className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-                                                    Energy
-                                                </label>
-                                                {generationForm.offers_energy && (
-                                                    <div className="mt-2 pl-6 grid grid-cols-2 gap-3">
+                                                    {/* RECs — set Retiring Agency + Matching Format to offer the REC product
+                                                        (REC price comes from the EAC price field). */}
+                                                    <div className="grid grid-cols-3 gap-4">
                                                         <div>
-                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Energy MWh min</label>
-                                                            <input type="number" min="0" step="0.1" value={generationForm.energy_mwh_min}
-                                                                onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_min: e.target.value })}
-                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="0" />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Energy MWh max</label>
-                                                            <input type="number" min="0" step="0.1" value={generationForm.energy_mwh_max}
-                                                                onChange={(e) => setGenerationForm({ ...generationForm, energy_mwh_max: e.target.value })}
-                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="e.g., 400" />
-                                                        </div>
-                                                        <p className="col-span-2 text-[11px] text-gray-400">Zone comes from the ISO/Zone field above.</p>
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* RECs */}
-                                            <div>
-                                                <label className="flex items-center gap-2 text-sm font-medium text-gray-800">
-                                                    <input type="checkbox" checked={generationForm.offers_rec}
-                                                        onChange={(e) => setGenerationForm({ ...generationForm, offers_rec: e.target.checked })}
-                                                        className="h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
-                                                    RECs
-                                                </label>
-                                                {generationForm.offers_rec && (
-                                                    <div className="mt-2 pl-6 grid grid-cols-3 gap-3">
-                                                        <div>
-                                                            <label className="block text-xs font-medium text-gray-600 mb-1">REC %</label>
-                                                            <input type="number" min="0" max="100" value={generationForm.rec_pct}
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">REC %</label>
+                                                            <input
+                                                                type="number" min="0" max="100" step="0.1"
+                                                                value={generationForm.rec_pct}
                                                                 onChange={(e) => setGenerationForm({ ...generationForm, rec_pct: e.target.value })}
-                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm" placeholder="e.g., 100" />
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                                placeholder="e.g., 100"
+                                                            />
                                                         </div>
                                                         <div>
-                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Retiring Agency *</label>
-                                                            <select value={generationForm.retiring_agency}
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">Retiring Agency</label>
+                                                            <select
+                                                                value={generationForm.retiring_agency}
                                                                 onChange={(e) => setGenerationForm({ ...generationForm, retiring_agency: e.target.value })}
-                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm">
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                            >
                                                                 <option value="">Select…</option>
                                                                 {RETIRING_AGENCIES.map((a) => <option key={a} value={a}>{a}</option>)}
                                                             </select>
                                                         </div>
                                                         <div>
-                                                            <label className="block text-xs font-medium text-gray-600 mb-1">Matching Format *</label>
-                                                            <select value={generationForm.matching_format}
+                                                            <label className="block text-sm font-medium text-gray-700 mb-1">Matching Format</label>
+                                                            <select
+                                                                value={generationForm.matching_format}
                                                                 onChange={(e) => setGenerationForm({ ...generationForm, matching_format: e.target.value })}
-                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm">
+                                                                className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                            >
                                                                 <option value="">Select…</option>
                                                                 {MATCHING_FORMATS.map((m) => <option key={m} value={m}>{MATCHING_FORMAT_LABELS[m]}</option>)}
                                                             </select>
                                                         </div>
-                                                        <p className="col-span-3 text-[11px] text-gray-400">REC price comes from the EAC price ($/MWh) field above.</p>
                                                     </div>
-                                                )}
-                                            </div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Availability: marketplace (contractable) vs private (company-owned) */}
