@@ -945,6 +945,8 @@ export default function Projects() {
           connection_point: editingSellerProject.connection_point,
           iso: editingSellerProject.iso,
           zone: editingSellerProject.zone,
+          latitude: editingSellerProject.latitude,
+          longitude: editingSellerProject.longitude,
         } : null)}
       />
 

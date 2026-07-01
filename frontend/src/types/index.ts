@@ -57,6 +57,8 @@ export interface Project {
   location: string;
   iso?: string;
   zone?: string;
+  latitude?: number | null;
+  longitude?: number | null;
   status: ProjectStatus;
   // 'marketplace' = seller offering; 'existing' = a customer's already-held contract.
   origin?: 'marketplace' | 'existing';

@@ -63,6 +63,8 @@ interface EditableProject {
     connection_point?: string;
     iso?: string;
     zone?: string;
+    latitude?: number | null;
+    longitude?: number | null;
 }
 
 interface CreateProjectModalProps {
@@ -218,6 +220,10 @@ interface GenerationProjectFormData {
     // ISO / zone
     iso: string;
     zone: string;
+    // Optional explicit map coordinates (else the map falls back to the
+    // name-based lookup on Location).
+    latitude: string;
+    longitude: string;
 
     // Unbundled product detail, blended into the form. A component is saved when
     // its required field is present: capacity⇔EDA, energy⇔zone, RECs⇔agency+format.
@@ -501,6 +507,8 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
         status: 'draft',
         iso: 'PJM',
         zone: '',
+        latitude: '',
+        longitude: '',
         // VPPA Pricing
         fixed_price_per_mwh: '',
         eac_price_per_mwh: '',
@@ -853,6 +861,8 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                     // ISO / zone
                     iso: editProject.iso || 'PJM',
                     zone: editProject.zone || '',
+                    latitude: editProject.latitude != null ? String(editProject.latitude) : '',
+                    longitude: editProject.longitude != null ? String(editProject.longitude) : '',
                     // Unbundled product detail is loaded separately (see effect below).
                     eda: '',
                     energy_mwh_min: '',
@@ -1108,6 +1118,8 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                 // ISO / zone
                 iso: generationForm.iso || null,
                 zone: generationForm.zone || null,
+                latitude: generationForm.latitude === '' ? null : Number(generationForm.latitude),
+                longitude: generationForm.longitude === '' ? null : Number(generationForm.longitude),
                 // Metadata for description
                 metadata: {
                     description: generationForm.description
@@ -2283,6 +2295,41 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
                                                         className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
                                                         placeholder="e.g., 400"
                                                     />
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Latitude
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.000001"
+                                                        min="-90"
+                                                        max="90"
+                                                        value={generationForm.latitude}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, latitude: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                        placeholder="e.g., 35.2220"
+                                                    />
+                                                    <p className="mt-1 text-xs text-gray-500">Optional — overrides the name-based map position</p>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                        Longitude
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.000001"
+                                                        min="-180"
+                                                        max="180"
+                                                        value={generationForm.longitude}
+                                                        onChange={(e) => setGenerationForm({ ...generationForm, longitude: e.target.value })}
+                                                        className="w-full rounded-md border border-gray-300 shadow-sm focus:border-slate-500 focus:ring-slate-500 sm:text-sm"
+                                                        placeholder="e.g., -101.8313"
+                                                    />
+                                                    <p className="mt-1 text-xs text-gray-500">Optional</p>
                                                 </div>
                                             </div>
 

@@ -201,6 +201,7 @@ router.post('/', authenticate, async (req, res) => {
       expected_cod, guaranteed_cod, delivery_term_years, term_start_date, term_end_date,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
+      latitude, longitude,
       origin = 'marketplace', facilities, products,
     } = req.body;
 
@@ -238,6 +239,8 @@ router.post('/', authenticate, async (req, res) => {
     if (connection_point) insertData.connection_point = connection_point;
     if (iso) insertData.iso = iso;
     if (zone) insertData.zone = zone;
+    if (latitude != null) insertData.latitude = latitude;
+    if (longitude != null) insertData.longitude = longitude;
     if (vppa_terms) insertData.vppa_terms = vppa_terms;
     if (price_schedule) insertData.price_schedule = price_schedule;
 
@@ -270,6 +273,7 @@ router.put('/:id', authenticate, async (req, res) => {
       expected_cod, guaranteed_cod, delivery_term_years, term_start_date, term_end_date,
       guaranteed_availability_year1_percent, guaranteed_availability_ongoing_percent,
       eac_scheme, settlement_point, connection_point, iso, zone, vppa_terms, price_schedule,
+      latitude, longitude,
       origin, facilities, products,
     } = req.body;
 
@@ -298,6 +302,8 @@ router.put('/:id', authenticate, async (req, res) => {
     if (connection_point !== undefined) updateData.connection_point = connection_point;
     if (iso !== undefined) updateData.iso = iso;
     if (zone !== undefined) updateData.zone = zone;
+    if (latitude !== undefined) updateData.latitude = latitude;
+    if (longitude !== undefined) updateData.longitude = longitude;
     if (vppa_terms !== undefined) updateData.vppa_terms = vppa_terms;
     if (price_schedule !== undefined) updateData.price_schedule = price_schedule;
 

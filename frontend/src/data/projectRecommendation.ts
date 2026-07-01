@@ -123,7 +123,11 @@ export function termOverlaps(p: Project, scope: ScopeWindow): boolean {
 /** Min miles from any selected site to the project; null when coords are unknown. */
 export function projectDistanceMiles(p: Project, siteCoords: [number, number][]): number | null {
   if (siteCoords.length === 0) return null
-  const projCoords = getZoneCoords(p.location ?? '') ?? (p.zone ? getZoneCoords(p.zone) : null)
+  // Prefer explicit coordinates; else fall back to the name-based lookup.
+  const projCoords: [number, number] | null =
+    p.latitude != null && p.longitude != null
+      ? [Number(p.longitude), Number(p.latitude)]
+      : getZoneCoords(p.location ?? '') ?? (p.zone ? getZoneCoords(p.zone) : null)
   if (!projCoords) return null
   let best = Infinity
   for (const c of siteCoords) best = Math.min(best, haversineMiles(c, projCoords))

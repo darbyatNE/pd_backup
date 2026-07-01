@@ -458,7 +458,14 @@ export default function MapPage() {
       const { projects: genData } = (await genRes.json()) as { projects: Project[] };
       const { buyerSites: siteData } = (await siteRes.json()) as { buyerSites: Omit<BuyerSite, 'coords'>[] };
 
-      setProjects((genData ?? []).map((p: Project) => ({ ...p, coords: getZoneCoords(p.location ?? '') })));
+      setProjects((genData ?? []).map((p: Project) => ({
+        ...p,
+        // Prefer explicit lat/lng when the project has them; else fall back to the
+        // name-based lookup on `location`.
+        coords: (p.latitude != null && p.longitude != null)
+          ? [Number(p.longitude), Number(p.latitude)] as [number, number]
+          : getZoneCoords(p.location ?? ''),
+      })));
       setBuyerSites((siteData ?? []).map((s: Omit<BuyerSite, 'coords'>) => ({ ...s, coords: getZoneCoords(s.location ?? '') })));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Unable to load projects.');
