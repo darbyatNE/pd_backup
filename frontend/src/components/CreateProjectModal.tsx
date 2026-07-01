@@ -68,7 +68,7 @@ interface EditableProject {
 interface CreateProjectModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSuccess: () => void;
+    onSuccess: (info?: { projectType?: 'brownfield' | 'greenfield' | 'generation' }) => void;
     editProject?: EditableProject | null;
     // 'existing' = a customer's already-held generation contract: saved as a
     // private project (origin='existing') and flowed through to site_contracts
@@ -975,7 +975,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
             if (!editProject) {
                 clearDraft(); // Clear draft on successful submission only for new projects
             }
-            onSuccess();
+            onSuccess({ projectType });
             onClose();
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to save project';
@@ -1057,7 +1057,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
             if (!editProject) {
                 clearDraft(); // Clear draft on successful submission only for new projects
             }
-            onSuccess();
+            onSuccess({ projectType });
             onClose();
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to save project';
@@ -1166,7 +1166,7 @@ export default function CreateProjectModal({ isOpen, onClose, onSuccess, editPro
             if (!editProject) {
                 clearDraft(); // Clear draft on successful submission only for new projects
             }
-            onSuccess();
+            onSuccess({ projectType });
             onClose();
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to save project';

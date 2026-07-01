@@ -457,23 +457,24 @@ export default function Projects() {
     }
   };
 
-  const handleCreateSuccess = () => {
-    const wasEditing = !!(editingSellerProject || editingProject);
+  const handleCreateSuccess = (info?: { projectType?: string }) => {
     setCreateModalOpen(false);
     setEditingProject(null);
     setEditingSellerProject(null);
 
-    // A brand-new buyer/seller project lands in "My Projects" so the creator sees
-    // it. Edits (and any admin action) stay on the current tab and just refetch —
-    // otherwise we'd jump to a My Projects list that's empty for this role.
-    if (!wasEditing && (user?.role === 'buyer' || user?.role === 'seller')) {
+    // Land on the tab where the saved item actually lives, and refetch it, so the
+    // page never renders a blank list. Buyer RFPs (brownfield/greenfield) live in
+    // "My Projects"; generation projects show on the Marketplace tab (which also
+    // includes the company's own private/owned projects).
+    const isBuyerRfp = info?.projectType === 'brownfield' || info?.projectType === 'greenfield';
+    if (isBuyerRfp) {
       setActiveTab('my-projects');
-      if (user?.role === 'buyer') fetchBuyerProjects(); else fetchSellerProjects();
-      return;
+      fetchBuyerProjects();
+    } else {
+      setActiveTab('marketplace');
+      fetchMarketplaceProjects();
+      if (user?.role === 'seller') fetchSellerProjects();
     }
-    if (activeTab === 'marketplace') fetchMarketplaceProjects();
-    else if (user?.role === 'buyer') fetchBuyerProjects();
-    else if (user?.role === 'seller') fetchSellerProjects();
   };
 
   return (
