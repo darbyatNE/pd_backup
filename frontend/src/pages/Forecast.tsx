@@ -255,7 +255,7 @@ export default function Forecast() {
           startYear={startYear}
           endYear={endYear}
           selectedSites={selectedSites}
-          contracts={contracts}
+          contracts={energyContracts}
           chartYearMode={chartYearMode}
           chartActiveYear={chartActiveYear}
         />

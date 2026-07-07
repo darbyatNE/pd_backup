@@ -346,15 +346,18 @@ export function defaultShapeForGenType(generationType: string): ContractShape {
   return 'flat'; // nuclear, combined cycle, hydro → baseload
 }
 
-/** The load tier a contract is listed under in the chart legend, decided purely
- *  by generation type. Firm/dispatchable resources (nuclear, combined cycle,
- *  hydro, geothermal) are baseload; everything intermittent or short-duration
- *  (solar, wind, battery, peaker, hybrid, virtual) is peaking. A single contract
- *  gets ONE tier, so its capacity and energy bands list under the same group
- *  rather than straddling both Baseload and Peaking. */
+/** The load tier a contract is counted against and listed under, decided purely
+ *  by generation type. Baseload: firm/dispatchable (nuclear, combined cycle,
+ *  hydro, geothermal) plus WIND — wind blows mostly off-peak/overnight, so it
+ *  offsets baseload. Peaking: solar (midday), peaker, battery, hybrid, virtual.
+ *  A single contract gets ONE tier, so its capacity and energy bands list under
+ *  the same group rather than straddling both Baseload and Peaking. */
 export function tierForGenType(generationType: string): ContractTier {
   const g = (generationType || '').toLowerCase();
-  if (g.includes('nuclear') || g.includes('combined') || g.includes('hydro') || g.includes('geothermal')) {
+  if (
+    g.includes('nuclear') || g.includes('combined') || g.includes('hydro') ||
+    g.includes('geothermal') || g.includes('wind')
+  ) {
     return 'base';
   }
   return 'peak';
