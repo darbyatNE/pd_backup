@@ -6,6 +6,7 @@
 import { LOAD_PROFILE_MAP, getLoadMultiplierForYearMonth, type SiteLoadProfile } from './loadProfile';
 import { API_BASE_URL } from '../services/api';
 import { canDeliverCapacity } from './ldaData';
+import { daysInMonth } from './peakCalendar';
 
 // Buyer project from database
 interface BuyerProject {
@@ -997,13 +998,12 @@ export function getContractAnnualMwh(c: LinkedContract): number {
  *  hedged sites. Days per month follow the actual calendar (28–31). */
 export function getContractAnnualMwhForYear(c: LinkedContract, year: number): number {
   let total = 0;
-  const DAYS_PER_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   for (let m = 1; m <= 12; m++) {
     if (!isContractActiveAt(c, year, m)) continue;
     const mult = getContractLoadMultAt(c, year, m);
     let dayMwh = 0;
     for (let h = 0; h < 24; h++) dayMwh += contractMwAtHour(c, h, m) * mult;
-    total += dayMwh * DAYS_PER_MONTH[m - 1];
+    total += dayMwh * daysInMonth(year, m); // leap-year aware
   }
   return total;
 }

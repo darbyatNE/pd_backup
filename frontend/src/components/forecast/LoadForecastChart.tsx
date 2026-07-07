@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useScopeContext } from '../../contexts/ScopeContext'
 import type { LinkedContract } from '../../data/linkedContracts'
+import type { PeakMode } from '../../data/peakCalendar'
 import type { SiteLoadProfile } from '../../data/loadProfile'
 import { getForecastCapacityForYear } from '../../data/loadProfile'
 import { LoadShape2D } from './LoadShape2D'
@@ -15,9 +16,12 @@ interface LoadForecastChartProps {
   onYearChange?: (year: number) => void
   yearMode?: 'single' | 'all'
   onYearModeChange?: (mode: 'single' | 'all') => void
+  peakMode?: PeakMode
+  startHE?: number
+  endHE?: number
 }
 
-export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange }: LoadForecastChartProps) {
+export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange, peakMode = 'all', startHE = 1, endHE = 24 }: LoadForecastChartProps) {
   const [view, setView] = useState<'2d' | '3d'>('2d')
   const { startYear, endYear, startMonth, endMonth } = useScopeContext()
 
@@ -235,6 +239,9 @@ export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, ac
           endYear={endYear}
           endMonth={endMonth}
           selectedMonth={selectedMonth}
+          peakMode={peakMode}
+          startHE={startHE}
+          endHE={endHE}
           selected={selectedAssets}
           onToggleAsset={toggleAsset}
           onSelectAllAssets={selectAllAssets}

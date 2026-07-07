@@ -8,6 +8,7 @@ import {
   type SiteAttrs,
   type FilterCriteria,
 } from '../data/scopeDimensions';
+import type { PeakMode } from '../data/peakCalendar';
 
 // How the current scope was defined — drives only the summary label. The set of
 // site keys always lives in selectedSites (filters snapshot to a fixed set).
@@ -34,6 +35,9 @@ export interface ScopeState {
   startMonth: number;              // 1–12
   endYear: number;
   endMonth: number;                // 1–12
+  peakMode: PeakMode;              // all | onpeak (5×16) | offpeak | custom HE range
+  startHE: number;                 // hour-ending 1–24 (custom range start)
+  endHE: number;                   // hour-ending 1–24 (custom range end)
   loading: boolean;                // loading sites from DB
   error: string | null;            // error fetching sites
 }
@@ -48,6 +52,8 @@ interface ScopeContextValue extends ScopeState {
   endPeek: () => void;                     // restore the snapshotted scope
   setStartDate: (year: number, month: number) => void;
   setEndDate: (year: number, month: number) => void;
+  setPeakMode: (mode: PeakMode) => void;                 // all | onpeak | offpeak
+  setHERange: (startHE: number, endHE: number) => void;  // sets a custom HE range
   refreshSites: () => Promise<void>;  // manual refresh from DB
   applyFilter: (criteria: FilterCriteria) => void;   // snapshot dimension filter → scope
   applyGroup: (group: CustomGroup) => void;          // snapshot saved group → scope
@@ -72,6 +78,9 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
   const [startMonth, setStartMonth] = useState(1);
   const [endYear,    setEndYear]    = useState(2028);
   const [endMonth,   setEndMonth]   = useState(12);
+  const [peakMode,   setPeakMode]   = useState<PeakMode>('all');
+  const [startHE,    setStartHE]    = useState(1);
+  const [endHE,      setEndHE]      = useState(24);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -278,21 +287,24 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     try {
       const raw = localStorage.getItem(SCOPE_STORE_KEY);
       if (!raw) return;
-      const saved = JSON.parse(raw) as { selectedSites?: string[]; selection?: ScopeSelection };
+      const saved = JSON.parse(raw) as { selectedSites?: string[]; selection?: ScopeSelection; startHE?: number; endHE?: number; peakMode?: PeakMode };
       const valid = (saved.selectedSites ?? []).filter((k) => availableSites.includes(k));
       if (valid.length > 0) {
         setSelectedSites(valid);
         if (saved.selection) setSelection(saved.selection);
       }
+      if (saved.startHE != null) setStartHE(Math.max(1, Math.min(24, saved.startHE)));
+      if (saved.endHE != null) setEndHE(Math.max(1, Math.min(24, saved.endHE)));
+      if (saved.peakMode) setPeakMode(saved.peakMode);
     } catch { /* ignore malformed storage */ }
   }, [loading, availableSites]);
   useEffect(() => {
     if (!restoredRef.current || peekSnapshot !== null || selectedSites.length === 0) return;
     try {
-      localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify({ selectedSites, selection }));
+      localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify({ selectedSites, selection, startHE, endHE, peakMode }));
     } catch { /* ignore quota errors */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSites, selection]);
+  }, [selectedSites, selection, startHE, endHE, peakMode]);
 
   const setStartDate = (year: number, month: number) => {
     setStartYear(year);
@@ -317,14 +329,22 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Custom hour-ending range (1–24). Endpoints are independent: startHE > endHE
+  // wraps past midnight. Choosing a custom range switches peakMode to 'custom'.
+  const setHERange = (s: number, e: number) => {
+    setStartHE(Math.max(1, Math.min(24, Math.round(s))));
+    setEndHE(Math.max(1, Math.min(24, Math.round(e))));
+    setPeakMode('custom');
+  };
+
   return (
     <ScopeContext.Provider value={{
       selectedSites, availableSites, siteAttributes, selection, customGroups,
-      startYear, startMonth, endYear, endMonth,
+      startYear, startMonth, endYear, endMonth, peakMode, startHE, endHE,
       loading, error,
       toggleSite, addSite, removeSite, selectOnlySite,
       peekActive: peekSnapshot !== null, peekSite, endPeek,
-      setStartDate, setEndDate,
+      setStartDate, setEndDate, setPeakMode, setHERange,
       refreshSites: fetchSites,
       applyFilter, applyGroup, fetchGroups, saveGroup, deleteGroup,
     }}>

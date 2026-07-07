@@ -6,17 +6,20 @@ import {
 } from '../../data/loadProfile'
 import type { SiteLoadProfile } from '../../data/loadProfile'
 import {
-  getContractAnnualMwhForYear,
   contractMwAtHourInYear,
   isContractActiveAt,
 } from '../../data/linkedContracts'
 import type { LinkedContract } from '../../data/linkedContracts'
+import { scopeDayCount, daysInMonth, type PeakMode } from '../../data/peakCalendar'
 
 
 interface CapacityBoxProps {
   profile: SiteLoadProfile
   startYear: number
   endYear: number
+  peakMode?: PeakMode
+  startHE?: number
+  endHE?: number
   selectedSites?: string[]
   chartYearMode?: 'single' | 'all'
   chartActiveYear?: number
@@ -26,7 +29,10 @@ interface CapacityBoxProps {
   contracts?: LinkedContract[]
 }
 
-export function CapacityBox({ profile, startYear, endYear, selectedSites, chartYearMode, chartActiveYear, contracts = [] }: CapacityBoxProps) {
+export function CapacityBox({ profile, startYear, endYear, peakMode = 'all', startHE = 1, endHE = 24, selectedSites, chartYearMode, chartActiveYear, contracts = [] }: CapacityBoxProps) {
+  // Peak scope: KPIs below are weighted by the number of in-scope days per
+  // (month, hour) via the NERC 5×16 calendar — exact for on/off-peak.
+  const allHours = peakMode === 'all'
   // Determine effective year based on chart selection
   const isSingleYear = chartYearMode === 'single'
   const effectiveYear = isSingleYear && chartActiveYear ? chartActiveYear : endYear
@@ -34,70 +40,52 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
   // Calculate year-specific baseload and peak demand using load multipliers
   // Also calculate project coverage by tier (base vs peak)
   // Overhedge is calculated hour-by-hour since energy in one hour can't offset another hour
+  // Single hour-by-hour pass over the HE-scoped hours: accumulates load,
+  // per-tier contract coverage, overhedge, and the MWh/value totals used by the
+  // % hedged and avg-price KPIs. With the default HE range (1–24) this equals
+  // the full-year helpers; a narrowed range restricts every figure to those
+  // hours (energy in one hour can't offset another, so this stays hour-exact).
   const getYearlyLoadStats = (year: number) => {
-    // Use static profile values for baseload and peak demand (matches Planning tab)
-    // These represent the design capacity characteristics, not hour-by-hour effective loads
-    const avgBaseloadMw = Math.round(profile.baseloadMw * 10) / 10
-    const avgPeakMw = Math.round(profile.peakDemandMw * 10) / 10
-
-    let totalOverhedge = 0
-    let totalLoad = 0
-    const daysPerMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-
     const siteContracts = contracts
+    let totalOverhedge = 0, totalLoad = 0, baseSum = 0, peakSum = 0, hourInst = 0
+    let baseProjSum = 0, peakProjSum = 0, contractedSum = 0, contractedValue = 0
 
-    // Calculate overhedge using hour-by-hour method (this part still needs effective loads)
     for (let m = 1; m <= 12; m++) {
-      const days = daysPerMonth[m - 1]
       for (let h = 0; h < 24; h++) {
+        // Days this (month, hour) is in scope — 0 skips it, else the exact count.
+        const days = scopeDayCount(peakMode, startHE, endHE, year, m, h + 1)
+        if (days === 0) continue
         const eff = getEffectiveLoadAt(profile, h, m, year)
         const hourLoad = eff.baseloadMw + eff.peakMw
         totalLoad += hourLoad * days
+        baseSum += eff.baseloadMw * days
+        peakSum += eff.peakMw * days
+        hourInst += days
 
-        // Calculate total contracted MW for this hour-month
         let hourContracted = 0
         for (const c of siteContracts) {
           if (!isContractActiveAt(c, year, m)) continue
-          hourContracted += contractMwAtHourInYear(c, h, m, year)
+          const mw = contractMwAtHourInYear(c, h, m, year)
+          hourContracted += mw
+          contractedSum += mw * days
+          contractedValue += mw * c.pricePerMwh * days
+          if (c.tier === 'base') baseProjSum += mw * days
+          else if (c.tier === 'peak') peakProjSum += mw * days
         }
-
-        // Overhedge for this hour: excess contracted beyond load
-        const hourOverhedge = Math.max(0, hourContracted - hourLoad)
-        totalOverhedge += hourOverhedge * days
+        totalOverhedge += Math.max(0, hourContracted - hourLoad) * days
       }
     }
 
-    // Convert from daily sums to average MW (divide by total hours)
-    const totalHours = 365 * 24
+    const totalHours = hourInst || 1
     const avgOverhedgeMw = Math.round((totalOverhedge / totalHours) * 10) / 10
-    const avgTotalLoadMw = (totalLoad / totalHours)
-
-    // Calculate project coverage by tier for the year
-    let baseProjectsMw = 0
-    let peakProjectsMw = 0
-
-    for (const c of siteContracts) {
-      // Only count if contract is active in this year
-      const isActiveInYear = c.startYear <= year && c.endYear >= year
-      if (!isActiveInYear) continue
-
-      // Calculate average MW delivered by this contract for the year
-      // Annual MWh / (365 days * 24 hours) = average MW
-      const annualMwh = getContractAnnualMwhForYear(c, year)
-      const avgContractMw = annualMwh / (365 * 24)
-
-      if (c.tier === 'base') {
-        baseProjectsMw += avgContractMw
-      } else if (c.tier === 'peak') {
-        peakProjectsMw += avgContractMw
-      }
-    }
-
-    // Cap project coverage at respective load tiers (for display purposes)
-    baseProjectsMw = Math.min(baseProjectsMw, avgBaseloadMw)
-    peakProjectsMw = Math.min(peakProjectsMw, avgPeakMw)
-
-    // Calculate overhedge percentage based on total load
+    const avgTotalLoadMw = totalLoad / totalHours
+    // Headline baseload/peak stay the site's design characteristics for the full
+    // day; when the HE scope is narrowed the coverage bars use the selected-hours
+    // load averages instead.
+    const avgBaseloadMw = allHours ? Math.round(profile.baseloadMw * 10) / 10 : Math.round((baseSum / totalHours) * 10) / 10
+    const avgPeakMw = allHours ? Math.round(profile.peakDemandMw * 10) / 10 : Math.round((peakSum / totalHours) * 10) / 10
+    const baseProjectsMw = Math.min(baseProjSum / totalHours, avgBaseloadMw)
+    const peakProjectsMw = Math.min(peakProjSum / totalHours, avgPeakMw)
     const overhedgePct = avgTotalLoadMw > 0 ? Math.round((avgOverhedgeMw / avgTotalLoadMw) * 100) : 0
 
     return {
@@ -107,12 +95,13 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
       peakProjectsMw: Math.round(peakProjectsMw * 10) / 10,
       overhedgeMw: avgOverhedgeMw,
       overhedgePct,
+      loadMwh: totalLoad,
+      contractedMwh: contractedSum,
+      contractedValue,
     }
   }
 
   const yearStats = getYearlyLoadStats(effectiveYear)
-
-  const siteContracts = contracts
 
   // The years the KPI strip summarizes: a single pinned year, otherwise every
   // year in scope.
@@ -125,12 +114,11 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
   // Per-year, hour-weighted baseload (correct for aggregates) plus the peak
   // swing scaled by the same year-over-year load growth. "Peak Load" is total
   // demand = baseload floor + the peak swing above it.
-  const DAYS_PER_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
   const yearAdjustedLoad = (year: number) => {
     let baseSum = 0
     let hours = 0
     for (let m = 1; m <= 12; m++) {
-      const days = DAYS_PER_MONTH[m - 1]
+      const days = daysInMonth(year, m)
       for (let h = 0; h < 24; h++) {
         baseSum += getEffectiveLoadAt(profile, h, m, year).baseloadMw * days
         hours += days
@@ -154,34 +142,27 @@ export function CapacityBox({ profile, startYear, endYear, selectedSites, chartY
   const baseloadRange = fmtRange(adjusted.map((a) => a.baseloadMw))
   const peakLoadRange = fmtRange(adjusted.map((a) => a.peakLoadMw))
 
-  // Volume-weighted average contracted price across every year in scope.
-  let totalContractedMwh = 0
-  let totalContractedValue = 0
-  for (const y of displayYears) {
-    for (const c of siteContracts) {
-      const annualMwh = getContractAnnualMwhForYear(c, y)
-      totalContractedMwh += annualMwh
-      totalContractedValue += annualMwh * c.pricePerMwh
-    }
-  }
+  // Per-year HE-scoped aggregates — one source for price, load, and % hedged.
+  const perYear = displayYears.map(getYearlyLoadStats)
+
+  // Volume-weighted average contracted price across scope (HE-scoped MWh).
+  const totalContractedMwh = perYear.reduce((s, y) => s + y.contractedMwh, 0)
+  const totalContractedValue = perYear.reduce((s, y) => s + y.contractedValue, 0)
   const avgContractPrice = totalContractedMwh > 0 ? totalContractedValue / totalContractedMwh : 0
 
-  // Avg annual load across scope (or the single pinned year).
-  const annualMwh = isSingleYear && chartActiveYear
-    ? getEffectiveAnnualLoadMwh(profile, chartActiveYear)
-    : getScopeAvgAnnualLoadMwh(profile, startYear, endYear)
+  // Avg annual load: full-year helpers when the whole day is in scope; otherwise
+  // the average of the HE-scoped load MWh.
+  const annualMwh = allHours
+    ? (isSingleYear && chartActiveYear
+        ? getEffectiveAnnualLoadMwh(profile, chartActiveYear)
+        : getScopeAvgAnnualLoadMwh(profile, startYear, endYear))
+    : perYear.reduce((s, y) => s + y.loadMwh, 0) / perYear.length
   const annualGwh = Math.round(annualMwh / 1000)
 
-  // % hedged — averaged across the scope (or single pinned year).
-  let totalContractedMwhAll = 0
-  let totalLoadMwh = 0
-  for (const y of displayYears) {
-    totalLoadMwh += getEffectiveAnnualLoadMwh(profile, y)
-    for (const c of siteContracts) totalContractedMwhAll += getContractAnnualMwhForYear(c, y)
-  }
-  const avgLoadMwh = totalLoadMwh / displayYears.length
-  const avgContractedMwhAll = totalContractedMwhAll / displayYears.length
-  const pctHedged = avgLoadMwh > 0 ? Math.round((avgContractedMwhAll / avgLoadMwh) * 100) : 0
+  // % hedged = contracted MWh ÷ load MWh, both over the in-scope hours.
+  const totalLoadMwhAll = perYear.reduce((s, y) => s + y.loadMwh, 0)
+  const totalContractedMwhAll = perYear.reduce((s, y) => s + y.contractedMwh, 0)
+  const pctHedged = totalLoadMwhAll > 0 ? Math.round((totalContractedMwhAll / totalLoadMwhAll) * 100) : 0
 
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-3 flex items-center justify-between gap-4">

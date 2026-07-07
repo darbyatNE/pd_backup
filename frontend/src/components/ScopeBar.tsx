@@ -8,6 +8,7 @@ import {
   type FilterCriteria,
   type SiteAttrs,
 } from '../data/scopeDimensions';
+import { peakModeLabel } from '../data/peakCalendar';
 
 const SHORT_NAMES: Record<string, string> = {
   'ashburn-dc':          'Ashburn DC',
@@ -36,8 +37,8 @@ type EditorTab = 'sites' | 'dimension' | 'groups';
 export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
   const {
     selectedSites, availableSites, siteAttributes, selection, customGroups,
-    startYear, startMonth, endYear, endMonth,
-    loading, toggleSite, addSite, setStartDate, setEndDate,
+    startYear, startMonth, endYear, endMonth, peakMode, startHE, endHE,
+    loading, toggleSite, addSite, setStartDate, setEndDate, setPeakMode, setHERange,
     applyFilter, applyGroup, saveGroup, deleteGroup,
   } = useScopeContext();
 
@@ -60,6 +61,9 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
   const [newGroupName, setNewGroupName] = useState('');
 
   const dateRangeLabel = `${MONTH_NAMES[startMonth - 1]} ${startYear} – ${MONTH_NAMES[endMonth - 1]} ${endYear}`;
+  const allHours = peakMode === 'all';
+  const heLabel = peakModeLabel(peakMode, startHE, endHE);
+  const HES = Array.from({ length: 24 }, (_, i) => i + 1);
 
   // Attributes restricted to the sites the user can actually scope/render.
   const availableAttrs = useMemo<Record<string, SiteAttrs>>(() => {
@@ -142,6 +146,12 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
               <span aria-hidden className="text-slate-400">📅</span>
               {dateRangeLabel}
             </span>
+            {!allHours && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
+                <span aria-hidden className="text-slate-400">🕐</span>
+                {heLabel}
+              </span>
+            )}
           </>
         )}
 
@@ -377,6 +387,45 @@ export default function ScopeBar({ fullWidth = false }: ScopeBarProps) {
                 <select value={endYear} onChange={(e) => setEndDate(Number(e.target.value), endMonth)}
                   className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300">
                   {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Peak scope — on/off-peak use the NERC 5×16 calendar (non-holiday
+                M–F HE8–23 EPT); custom is a plain hour-ending range across all days. */}
+            {!isProfileView && (
+              <div className="flex items-center gap-2 text-xs flex-wrap border-t border-slate-100 mt-3 pt-3">
+                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Hours</span>
+                {([
+                  ['All', 'all', '7×24 — every hour'],
+                  ['On-peak', 'onpeak', '5×16 — non-holiday Mon–Fri, HE8–23 EPT'],
+                  ['Off-peak', 'offpeak', 'Everything outside the 5×16 on-peak block'],
+                  ['5×8', '5x8', 'Mon–Fri overnight — HE24 + HE1–7'],
+                  ['7×8', '7x8', 'All 7 days overnight — HE24 + HE1–7'],
+                  ['2×24', '2x24', 'Weekend — Sat + Sun, all 24 hours'],
+                ] as const).map(([label, mode, title]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    title={title}
+                    onClick={() => setPeakMode(mode)}
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
+                      peakMode === mode ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <span className="w-px h-4 bg-slate-200" />
+                <span className={`text-[10px] font-semibold uppercase tracking-widest ${peakMode === 'custom' ? 'text-teal-600' : 'text-slate-400'}`}>Custom HE</span>
+                <select value={startHE} onChange={(e) => setHERange(Number(e.target.value), endHE)}
+                  className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300">
+                  {HES.map((h) => <option key={h} value={h}>HE{h}</option>)}
+                </select>
+                <span className="text-slate-400 font-medium">→</span>
+                <select value={endHE} onChange={(e) => setHERange(startHE, Number(e.target.value))}
+                  className="border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-700 text-xs outline-none cursor-pointer hover:border-slate-300">
+                  {HES.map((h) => <option key={h} value={h}>HE{h}</option>)}
                 </select>
               </div>
             )}

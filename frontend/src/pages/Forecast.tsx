@@ -47,7 +47,7 @@ const GEN_COLORS: Record<string, string> = {
 type XAxisMode = 'hours' | 'months'
 
 export default function Forecast() {
-  const { selectedSites, startYear, endYear, peekActive, endPeek } = useScopeContext()
+  const { selectedSites, startYear, endYear, peakMode, startHE, endHE, peekActive, endPeek } = useScopeContext()
   const { subTab: activeTab, setView } = useDashboardView()
   const navigate = useNavigate()
 
@@ -254,6 +254,9 @@ export default function Forecast() {
           profile={profile}
           startYear={startYear}
           endYear={endYear}
+          peakMode={peakMode}
+          startHE={startHE}
+          endHE={endHE}
           selectedSites={selectedSites}
           contracts={energyContracts}
           chartYearMode={chartYearMode}
@@ -263,6 +266,9 @@ export default function Forecast() {
           <LoadForecastChart
             profile={profile}
             contracts={energyContracts}
+            peakMode={peakMode}
+            startHE={startHE}
+            endHE={endHE}
             xAxis={loadXAxis}
             onXAxisChange={setLoadXAxis}
             activeYear={chartActiveYear}

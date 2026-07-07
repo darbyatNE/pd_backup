@@ -15,9 +15,9 @@ import {
   getForecastCapacityForYear,
 } from '../../data/loadProfile'
 import type { SiteLoadProfile } from '../../data/loadProfile'
+import { heColumnInScope, scopeDayCount, type PeakMode } from '../../data/peakCalendar'
 import {
   contractMwAtHourInYear,
-  contractMwForMonthInYear,
   LOAD_COLORS,
   getGenerationTypeOrder,
   GENERATION_TYPE_ORDER,
@@ -153,6 +153,10 @@ interface LoadShape2DProps {
   endMonth?: number
   // Hours view: which month(s) feed the typical-day average ('all' = every in-scope month)
   selectedMonth?: number | 'all'
+  // Peak scope: narrows the hours axis and calendar-weights the months-view average.
+  peakMode?: PeakMode
+  startHE?: number
+  endHE?: number
   // Per-asset chart selection (owned by the parent so it stays in sync with 3D)
   selected: Set<string>
   onToggleAsset: (projectName: string) => void
@@ -160,7 +164,13 @@ interface LoadShape2DProps {
   onDeselectAllAssets: () => void
 }
 
-export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, startYear, startMonth = 1, endYear, endMonth = 12, selectedMonth = 'all', selected, onToggleAsset, onSelectAllAssets, onDeselectAllAssets }: LoadShape2DProps) {
+export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, startYear, startMonth = 1, endYear, endMonth = 12, selectedMonth = 'all', peakMode = 'all', startHE = 1, endHE = 24, selected, onToggleAsset, onSelectAllAssets, onDeselectAllAssets }: LoadShape2DProps) {
+  // Which HE columns (1..24 ⇒ index 0..23) belong to the active peak scope.
+  const heInScope = (hourIndex: number) => heColumnInScope(peakMode, startHE, endHE, hourIndex + 1)
+  // A contiguous in-scope block compacts to just those hours; a non-contiguous
+  // one (custom wrap) keeps the full axis with out-of-scope hours blanked.
+  const scopedIdx = Array.from({ length: 24 }, (_, h) => h).filter(heInScope)
+  const contiguousHE = scopedIdx.length > 0 && scopedIdx[scopedIdx.length - 1] - scopedIdx[0] + 1 === scopedIdx.length
   // Only selected contracts are charted; the legend still lists them all.
   const chartContracts = useMemo(
     () => contracts.filter((c) => selected.has(c.projectName)),
@@ -238,9 +248,17 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     return pairs
   }, [fullScopeYears, year, selectedMonth, startYear, startMonth, endYear, endMonth])
 
+  // A contiguous in-scope block (all, on-peak HE8–23, custom start≤end) compacts
+  // to just those hours. A non-contiguous set (custom wrap) keeps the full
+  // HE1–HE24 axis with the out-of-scope hours blanked so the order stays natural.
   const hourlyData = useMemo(() => {
     const n = hoursPairs.length || 1
-    return Array.from({ length: 24 }, (_, h) => {
+    const rows = Array.from({ length: 24 }, (_, h) => {
+      const hourHE = `HE${h + 1}` // HE (Hour Ending) — energy industry standard
+      if (!contiguousHE && !heInScope(h)) {
+        // Out-of-scope hour on a full axis: labelled column, no bars.
+        return buildRow(hourHE, 0, 0, sortedContracts.map(() => 0))
+      }
       let baseSum = 0
       let peakSum = 0
       for (const { y, m } of hoursPairs) {
@@ -248,8 +266,6 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
         baseSum += eff.baseloadMw
         peakSum += eff.peakMw
       }
-      // Use HE (Hour Ending) format for energy industry standard
-      const hourHE = `HE${h + 1}`
       return buildRow(hourHE, baseSum / n, peakSum / n,
         sortedContracts.map((c) => {
           let s = 0
@@ -258,23 +274,37 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
         }),
       )
     })
+    return contiguousHE ? rows.filter((_, h) => heInScope(h)) : rows
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, sortedContracts, hoursPairs])
+  }, [profile, sortedContracts, hoursPairs, peakMode, startHE, endHE, contiguousHE])
 
   const monthRows = useMemo(() => {
     const yy = (y: number) => `'${String(y).slice(-2)}`
+    // Calendar-weighted monthly average: each hour is weighted by the number of
+    // in-scope days that month (so off-peak counts weekends/holidays correctly).
     const rowFor = (month: number, y: number, label: string) => {
       let baseSum = 0
       let peakSum = 0
+      let denom = 0
       for (let h = 0; h < 24; h++) {
+        const dc = scopeDayCount(peakMode, startHE, endHE, y, month, h + 1)
+        if (dc === 0) continue
         const eff = getEffectiveLoadAt(profile, h, month, y)
-        baseSum += eff.baseloadMw
-        peakSum += eff.peakMw
+        baseSum += eff.baseloadMw * dc
+        peakSum += eff.peakMw * dc
+        denom += dc
       }
-      const baseMw = baseSum / 24
-      const peakMw = peakSum / 24
+      const baseMw = denom ? baseSum / denom : 0
+      const peakMw = denom ? peakSum / denom : 0
       return buildRow(label, baseMw, peakMw,
-        sortedContracts.map((c) => contractMwForMonthInYear(c, y, month)),
+        sortedContracts.map((c) => {
+          let s = 0
+          for (let h = 0; h < 24; h++) {
+            const dc = scopeDayCount(peakMode, startHE, endHE, y, month, h + 1)
+            if (dc > 0) s += contractMwAtHourInYear(c, h, month, y) * dc
+          }
+          return denom ? s / denom : 0
+        }),
       )
     }
     const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -300,7 +330,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     }
     return monthsInScope.map((m) => rowFor(m, year, monthLabels[m - 1]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, fullScopeYears, profile, sortedContracts])
+  }, [year, fullScopeYears, profile, sortedContracts, peakMode, startHE, endHE, startMonth, endMonth, startYear, endYear])
 
   const data = xAxis === 'hours' ? hourlyData : monthRows
   const yLabel = xAxis === 'hours' ? 'MW' : 'MW avg'
@@ -312,6 +342,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     '|sel:' + Array.from(selected).sort().join(',') +
     '|x:' + xAxis +
     '|m:' + String(selectedMonth) +
+    '|he:' + peakMode + startHE + '-' + endHE +
     '|y:' + yearsKey
 
   // Calculate max capacity to ensure Y-axis includes the capacity line
