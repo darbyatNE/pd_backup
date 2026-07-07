@@ -457,12 +457,12 @@ export default function CapacityCoverageChart({ profile, extraSources }: { profi
       {yearOptions.length > 1 && (
         <div className="flex items-center gap-3 mb-4 flex-wrap">
           <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Year</span>
-          <div className="bg-slate-100 rounded-lg p-1 flex gap-1">
+          <div className="bg-slate-100 rounded-lg p-1 flex gap-1 max-w-[360px] overflow-x-auto">
             {yearOptions.map((yr) => (
               <button
                 key={yr}
                 onClick={() => { setSelectedYear(yr); setYearMode('single') }}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                className={`flex-shrink-0 px-3 py-1 rounded-md text-xs font-medium transition-all ${
                   yearMode === 'single' && activeYear === yr
                     ? 'bg-white shadow-sm text-slate-900'
                     : 'text-slate-500 hover:text-slate-700'
@@ -474,7 +474,7 @@ export default function CapacityCoverageChart({ profile, extraSources }: { profi
             {xAxis === 'months' && (
               <button
                 onClick={() => setYearMode('all')}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                className={`flex-shrink-0 px-3 py-1 rounded-md text-xs font-medium transition-all ${
                   yearMode === 'all'
                     ? 'bg-white shadow-sm text-slate-900'
                     : 'text-slate-500 hover:text-slate-700'

@@ -16,7 +16,7 @@ import RecommendationFilters from '../components/forecast/RecommendationFilters'
 import { getSuggestedBessMw } from '../utils/capacity'
 import { useScopeContext } from '../contexts/ScopeContext'
 import { useDashboardView } from '../contexts/DashboardViewContext'
-import { SiteCapacityCard, CapacityRollup } from '../components/CapacitySettlement'
+import { CapacityRollup } from '../components/CapacitySettlement'
 import CapacityCoverageChart from '../components/CapacityCoverageChart'
 import ModuleHandoffDialog from '../components/ModuleHandoffDialog'
 import TryOnOverlay from '../components/TryOnOverlay'
@@ -27,7 +27,10 @@ import {
   LoadForecastChart,
   CostTimeChart,
   EnergyMixChart,
+  ContractPortfolioTable,
+  BtmCapacityOptions,
 } from '../components/forecast'
+import type { BtmOption } from '../components/forecast'
 
 const GEN_COLORS: Record<string, string> = {
   Solar: '#f59e0b',
@@ -154,6 +157,28 @@ export default function Forecast() {
     setTryOnSite(selectedSites[0])
   }
 
+  // Engage a behind-the-meter capacity option against a chosen in-scope site:
+  // size the resource to that site's capacity requirement and open the Try-On
+  // so it can be added as a capacity contract fulfilling that site's need.
+  const engageBtmOption = (opt: BtmOption, siteKey: string) => {
+    const p = profiles.find((pr) => pr.siteKey === siteKey) ?? profile
+    const suggestedMw = getSuggestedBessMw(p, startYear, endYear)
+    const btmProject: Project = {
+      id: `btm-${opt.key}-${siteKey}`,
+      seller_id: 'capacity-tab',
+      name: `${opt.path} — ${p.name}`,
+      generation_type: opt.generationType,
+      capacity_mw: suggestedMw,
+      location: '',
+      status: 'published',
+      expected_cod: new Date(startYear + 1, 0).toISOString(),
+      delivery_term_years: 15,
+      metadata: { isBTMOption: true, btmAssetType: opt.btmAssetType },
+    }
+    setTryOnProject(btmProject)
+    setTryOnSite(siteKey)
+  }
+
   // Deep link from the Projects list: /dashboard?examine=<projectId> opens the
   // Try-On for that project once the marketplace list has loaded.
   const [searchParams, setSearchParams] = useSearchParams()
@@ -205,43 +230,22 @@ export default function Forecast() {
               <CapacityCoverageChart profile={profile} extraSources={contractCapacitySources} />
             </div>
           )}
-          {profiles.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">
-              Select at least one site in the scope bar to review capacity settlement.
+          {/* Capacity contract portfolio — capacity-component contracts attached
+              to in-scope sites (already scope-filtered). */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100">
+              <h2 className="text-base font-bold text-slate-900">Capacity Contract Portfolio</h2>
+              <p className="text-xs text-slate-500">Capacity positions linked to in-scope sites.</p>
             </div>
-          ) : (
-            profiles.map((p) => (
-              <SiteCapacityCard 
-                key={p.siteKey} 
-                profile={p} 
-                endYear={endYear} 
-                onExamineFit={() => {
-                  // Use shared utility to calculate suggested BESS size
-                  const suggestedMw = getSuggestedBessMw(p, startYear, endYear);
-                  console.log(`[ExamineFit] Site: ${p.siteKey}, Years: ${startYear}-${endYear}, Suggested BESS: ${suggestedMw}MW`);
-                  
-                  // Create synthetic BESS project for this site's profile
-                  const bessProject: Project = {
-                    id: `bess-capacity-${p.siteKey}`,
-                    seller_id: 'capacity-tab',
-                    name: `BESS - ${p.siteKey}`,
-                    generation_type: 'Battery',
-                    capacity_mw: suggestedMw,
-                    location: '',
-                    status: 'published',
-                    expected_cod: new Date(startYear + 1, 0).toISOString(),
-                    delivery_term_years: 15,
-                    metadata: {
-                      isBTMOption: true,
-                      btmAssetType: 'BESS',
-                    }
-                  };
-                  setTryOnProject(bessProject);
-                  setTryOnSite(p.siteKey); // Set the specific site for scope
-                }}
-              />
-            ))
-          )}
+            <div className="p-2">
+              <ContractPortfolioTable contracts={capacityContracts} component="capacity" />
+            </div>
+          </div>
+          {/* BTM options — global, transactable against any in-scope site. */}
+          <BtmCapacityOptions
+            sites={profiles.map((p) => ({ siteKey: p.siteKey, name: p.name }))}
+            onEngage={engageBtmOption}
+          />
         </div>
       )}
 
@@ -266,6 +270,17 @@ export default function Forecast() {
             yearMode={chartYearMode}
             onYearModeChange={setChartYearMode}
           />
+        </div>
+        {/* Energy contract portfolio — energy-component contracts attached to
+            in-scope sites (already scope-filtered). */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <h2 className="text-base font-bold text-slate-900">Energy Contract Portfolio</h2>
+            <p className="text-xs text-slate-500">Energy positions linked to in-scope sites.</p>
+          </div>
+          <div className="p-2">
+            <ContractPortfolioTable contracts={energyContracts} component="energy" />
+          </div>
         </div>
         {/* Recommended projects — sits directly under the load chart */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">

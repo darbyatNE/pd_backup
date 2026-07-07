@@ -17,7 +17,13 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { fac_id, ledger } = req.query;
     const params = [req.user.id, req.user.companyId ?? null];
-    let sql = `SELECT * FROM site_contracts WHERE ${scopeClause(1)}`;
+    // Inherit the pricing point from the linked project (settlement_point, else
+    // zone) when the contract row has no lmp_node of its own — so a contract
+    // saved before its project's pricing point was set still shows it.
+    let sql = `SELECT sc.*,
+        (SELECT COALESCE(p.settlement_point, p.zone)
+           FROM projects p WHERE p.id = sc.project_id) AS _project_lmp_node
+      FROM site_contracts sc WHERE ${scopeClause(1)}`;
     if (!ledger) sql += " AND status <> 'rejected'";
     if (fac_id) {
       params.push(fac_id);
@@ -25,7 +31,11 @@ router.get('/', authenticate, async (req, res) => {
     }
     sql += ' ORDER BY created_at DESC';
     const { rows } = await query(sql, params);
-    res.json({ contracts: rows });
+    const contracts = rows.map(({ _project_lmp_node, ...r }) => ({
+      ...r,
+      lmp_node: r.lmp_node ?? _project_lmp_node ?? null,
+    }));
+    res.json({ contracts });
   } catch (err) {
     console.error('Get site contracts error:', err);
     res.status(500).json({ error: 'Failed to fetch site contracts' });

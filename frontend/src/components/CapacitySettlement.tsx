@@ -154,74 +154,19 @@ export const SITE_CAPACITY_META: Record<string, SiteCapacityMeta> = {
   },
 };
 
-// ─── Capacity option model ───────────────────────────────────────────────────
-
-export interface CapacityOption {
-  path: string;
-  description: string;
-  termNote: string;
-  costBand: string;
-  status: string;
-  eligible: boolean;
-  ineligibleReason?: string;
-  cta: string;
-}
-
-export function buildCapacityOptions(forecastMw: number, state: string): CapacityOption[] {
-  const competitiveEligible = state === 'VA' && forecastMw > 5;
-  return [
-    {
-      path: 'Utility Queue (DOM via PJM BRA)',
-      description: 'Pass-through of PJM Base Residual Auction clear at the DOM zone — re-priced annually',
-      termNote: 'Annual — exposed to BRA volatility',
-      costBand: '$220–290 / MW-day (DY 2026/27 cleared $269.92)',
-      status: 'Default path',
-      eligible: true,
-      cta: 'View document',
-    },
-    {
-      path: 'Competitive Supplier · multi-year fixed',
-      description: 'Retail supplier locks the BRA pass-through at a fixed $/MW-day for a 1, 3, or 5-yr term',
-      termNote: '1 / 3 / 5-yr fixed — supplier absorbs auction risk',
-      costBand: '$235–275 / MW-day (3-yr) · $245–290 (5-yr)',
-      status: competitiveEligible ? '4 suppliers in DOM' : '—',
-      eligible: competitiveEligible,
-      ineligibleReason: state !== 'VA'
-        ? 'Only available for VA sites'
-        : 'Forecast must exceed 5 MW (VA threshold)',
-      cta: 'Solicit RFQ',
-    },
-    {
-      path: 'BTM BESS (4-hr)',
-      description: 'Battery system sited at the load — clears capacity through PJM as a self-supply resource',
-      termNote: '~15-yr asset life · capex amortized',
-      costBand: '$1.2M–1.5M / MW capex · ~$30/kW-yr O&M',
-      status: '3 installers in region',
-      eligible: true,
-      cta: 'Solicit RFQ',
-    },
-    {
-      path: 'BTM Mini-NG (5–25 MW)',
-      description: 'Behind-the-meter NG peaker — capacity self-supply + occasional energy dispatch',
-      termNote: '~20-yr asset life',
-      costBand: '$0.8M–1.1M / MW capex · 8–12 MMBtu/MWh heat rate',
-      status: '2 installers in region',
-      eligible: true,
-      cta: 'Solicit RFQ',
-    },
-  ];
-}
-
 // ─── Per-site card (decision view) ───────────────────────────────────────────
+//
+// Behind-the-meter options (BESS / Mini-NG) and the retired Utility Queue /
+// Competitive Supplier paths used to live here as a per-site options table. BTM
+// options are now a global panel (transactable against any site); the legacy
+// utility paths are entered directly as New Projects with a capacity component.
 
 export function SiteCapacityCard({
   profile,
   endYear,
-  onExamineFit,
 }: {
   profile: SiteLoadProfile;
   endYear: number;
-  onExamineFit?: () => void;
 }) {
   const meta = SITE_CAPACITY_META[profile.siteKey] ?? { projectType: 'greenfield' as const, state: 'VA' };
   // Use unified forecast calculation (documented capacity or 5% growth from 2026)
@@ -337,64 +282,14 @@ export function SiteCapacityCard({
               </span>
             )}
           </div>
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-slate-500 uppercase tracking-wide text-[10px]">
-                <tr>
-                  <th className="text-left px-3 py-2 font-semibold">Path</th>
-                  <th className="text-left px-3 py-2 font-semibold">Term</th>
-                  <th className="text-left px-3 py-2 font-semibold">Cost band</th>
-                  <th className="text-left px-3 py-2 font-semibold">Availability</th>
-                  <th className="text-right px-3 py-2 font-semibold">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {buildCapacityOptions(forecastMw, meta.state).map((opt) => (
-                  <tr key={opt.path} className={opt.eligible ? '' : 'opacity-50'}>
-                    <td className="px-3 py-3 align-top">
-                      <p className="font-semibold text-slate-800">{opt.path}</p>
-                      <p className="text-slate-500 text-[11px] leading-snug">{opt.description}</p>
-                    </td>
-                    <td className="px-3 py-3 align-top text-slate-700 whitespace-nowrap">{opt.termNote}</td>
-                    <td className="px-3 py-3 align-top text-slate-700">{opt.costBand}</td>
-                    <td className="px-3 py-3 align-top text-slate-500">
-                      {opt.eligible ? opt.status : (
-                        <span className="italic">Ineligible — {opt.ineligibleReason}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 align-top text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {opt.eligible && (opt.description.toLowerCase().includes('battery') || opt.path.toLowerCase().includes('bess')) && onExamineFit && (
-                          <button
-                            type="button"
-                            onClick={onExamineFit}
-                            className="text-xs font-semibold px-2 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-                          >
-                            ▶ Examine Fit
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          disabled={!opt.eligible}
-                          onClick={() => {
-                            if (!opt.eligible) return;
-                            if (opt.cta === 'Solicit RFQ') setDialogKind('rfq');
-                            else if (opt.cta === 'View document') setTariffOpen(true);
-                          }}
-                          className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${
-                            opt.eligible
-                              ? 'bg-slate-900 text-white hover:bg-slate-800'
-                              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                          }`}
-                        >
-                          {opt.cta}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600 leading-relaxed">
+            No capacity settlement details on file for this site. Attach the current channel, volume,
+            cleared price and delivery year when the site is profiled, and they'll show here.
+            <div className="mt-1.5 text-slate-500">
+              To cover this site's forecast ({forecastMw} MW), use the{' '}
+              <span className="font-semibold text-slate-700">Behind-the-Meter Capacity Options</span> above,
+              or add a supply contract directly as a New Project with a capacity component.
+            </div>
           </div>
         </div>
       )}
