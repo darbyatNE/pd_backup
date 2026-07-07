@@ -176,7 +176,8 @@ export default function RecommendationFilters({
                     className="w-full accent-teal-600"
                   />
                   <div className="flex items-center justify-between text-[10px] text-slate-400 mt-0.5">
-                    <span>Don't care</span>
+                    <span>Exclude</span>
+                    <span>Indifferent</span>
                     <span>Requirement</span>
                   </div>
                 </div>

@@ -28,6 +28,11 @@ export interface RecPreferences {
   requireCapacity: boolean
   requireEnergy: boolean
   requireRec: boolean
+  // Exclude = only show contracts WITHOUT that component (the low end of the
+  // Exclude ↔ Indifferent ↔ Requirement dial). Absent ⇒ no exclusion.
+  excludeCapacity?: boolean
+  excludeEnergy?: boolean
+  excludeRec?: boolean
   maxEnergyPricePerMwh: number | null      // null = uncapped
   maxCapacityPricePerMwDay: number | null  // null = uncapped
   // Optional tuning from the qualitative "guided finder" (absent ⇒ legacy scoring):
@@ -180,6 +185,10 @@ export function evaluateProjects(
     if (prefs.requireCapacity && !summary?.has_capacity) continue
     if (prefs.requireEnergy && !summary?.has_energy) continue
     if (prefs.requireRec && !summary?.has_rec) continue
+    // Excluded components — filter out contracts that carry them
+    if (prefs.excludeCapacity && summary?.has_capacity) continue
+    if (prefs.excludeEnergy && summary?.has_energy) continue
+    if (prefs.excludeRec && summary?.has_rec) continue
     // Price ceilings
     const energyPrice = pnum(summary?.energy_price_per_mwh ?? null)
     if (prefs.maxEnergyPricePerMwh != null && summary?.has_energy &&
@@ -249,9 +258,9 @@ export const DEFAULT_DIALS: QualitativeDials = {
   cleanEnergy: 20,     // all sources
   readiness: 20,       // available now
   priority: 60,        // fit-leaning (matches legacy distance-dominant scoring)
-  needEnergy: 20,
-  needCapacity: 20,
-  needRec: 20,
+  needEnergy: 50,      // indifferent (Exclude 0 ↔ Indifferent 50 ↔ Requirement 100)
+  needCapacity: 50,
+  needRec: 50,
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
@@ -279,6 +288,9 @@ export function qualitativeToPreferences(d: QualitativeDials, scopeIsos: string[
     requireCapacity: d.needCapacity >= 60,
     requireEnergy: d.needEnergy >= 60,
     requireRec: d.needRec >= 60,
+    excludeCapacity: d.needCapacity <= 40,
+    excludeEnergy: d.needEnergy <= 40,
+    excludeRec: d.needRec <= 40,
     maxEnergyPricePerMwh: d.priceAppetite >= 95 ? null : geo(d.priceAppetite, 20, 120),
     maxCapacityPricePerMwDay: d.priceAppetite >= 95 ? null : geo(d.priceAppetite, 100, 1000),
     priority: clamp(d.priority, 0, 100) / 100,
@@ -299,8 +311,8 @@ export function preferencesToQualitative(p: RecPreferences): QualitativeDials {
     cleanEnergy: greenOnly ? 85 : lowCarbon ? 50 : 15,
     readiness: p.onlyAvailable ? 20 : 75,
     priority: p.priority == null ? DEFAULT_DIALS.priority : Math.round(p.priority * 100),
-    needEnergy: p.requireEnergy ? 80 : 20,
-    needCapacity: p.requireCapacity ? 80 : 20,
-    needRec: p.requireRec ? 80 : 20,
+    needEnergy: p.excludeEnergy ? 20 : p.requireEnergy ? 80 : 50,
+    needCapacity: p.excludeCapacity ? 20 : p.requireCapacity ? 80 : 50,
+    needRec: p.excludeRec ? 20 : p.requireRec ? 80 : 50,
   }
 }

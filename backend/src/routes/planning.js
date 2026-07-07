@@ -19,9 +19,9 @@ const DIAL_PROPS = {
   cleanEnergy:    { type: 'integer', description: '0–100. 0 = cost-first, any generation source, 100 = green-first (renewables only)' },
   readiness:      { type: 'integer', description: '0–100. 0 = must be available now, 100 = future/planned builds are fine' },
   priority:       { type: 'integer', description: '0–100. 0 = optimize for best price, 100 = optimize for best fit (closest/highest quality)' },
-  needEnergy:     { type: 'integer', description: '0–100. How important the contract supplies ENERGY. 0 = don\'t care, 100 = must-have' },
-  needCapacity:   { type: 'integer', description: '0–100. How important the contract supplies CAPACITY. 0 = don\'t care, 100 = must-have' },
-  needRec:        { type: 'integer', description: '0–100. How important the contract supplies RECs / green attributes. 0 = don\'t care, 100 = must-have' },
+  needEnergy:     { type: 'integer', description: '0–100 for the ENERGY component. 0 = exclude (only contracts without energy), 50 = indifferent, 100 = require (must supply energy)' },
+  needCapacity:   { type: 'integer', description: '0–100 for the CAPACITY component. 0 = exclude (only contracts without capacity), 50 = indifferent, 100 = require (must supply capacity)' },
+  needRec:        { type: 'integer', description: '0–100 for RECs / green attributes. 0 = exclude (only contracts without RECs), 50 = indifferent, 100 = require (must supply RECs)' },
 };
 const DIAL_KEYS = Object.keys(DIAL_PROPS);
 
