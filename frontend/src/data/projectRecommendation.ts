@@ -30,6 +30,9 @@ export interface RecPreferences {
   requireRec: boolean
   maxEnergyPricePerMwh: number | null      // null = uncapped
   maxCapacityPricePerMwDay: number | null  // null = uncapped
+  // Optional tuning from the qualitative "guided finder" (absent ⇒ legacy scoring):
+  priority?: number                        // 0 = best price … 1 = best fit (proximity)
+  minCapacityMw?: number | null            // floor on project size (null = none)
 }
 
 export interface ScopeWindow {
@@ -185,6 +188,9 @@ export function evaluateProjects(
     if (prefs.maxCapacityPricePerMwDay != null &&
       capPrice != null && capPrice > prefs.maxCapacityPricePerMwDay) continue
 
+    // Minimum deal size (from the qualitative "deal size" dial).
+    if (prefs.minCapacityMw != null && Number(p.capacity_mw || 0) < prefs.minCapacityMw) continue
+
     // Distance — unknown coords PASS the range filter (don't silently hide
     // SPP/WECC projects whose zones have no coords) but sort last.
     const distanceMiles = projectDistanceMiles(p, siteCoords)
@@ -201,7 +207,11 @@ export function evaluateProjects(
       priceComp = Math.max(0, 1 - energyPrice / prefs.maxEnergyPricePerMwh)
     }
     const sizeComp = Math.min(1, Number(p.capacity_mw || 0) / 500)
-    const score = distComp * 3 + priceComp + sizeComp * 0.5
+    // When the guided finder sets a price↔fit priority, weight distance vs price
+    // accordingly; otherwise fall back to the legacy fixed weighting.
+    const score = prefs.priority == null
+      ? distComp * 3 + priceComp + sizeComp * 0.5
+      : distComp * (1 + prefs.priority * 3) + priceComp * (1 + (1 - prefs.priority) * 3) + sizeComp * 0.5
 
     ranked.push({ project: p, summary, distanceMiles, score })
   }
@@ -211,4 +221,86 @@ export function evaluateProjects(
     return Number(b.project.capacity_mw || 0) - Number(a.project.capacity_mw || 0)
   })
   return ranked
+}
+
+// ─── Qualitative "guided finder" dials ───────────────────────────────────────
+// Customers describe preferences in plain terms; the AI (or the sliders) set
+// these 0–100 dials, which map to the quantitative RecPreferences the engine
+// above consumes. This keeps the filter/scoring logic unchanged.
+
+export interface QualitativeDials {
+  locality: number        // 0 = anywhere → 100 = must be right next door
+  priceAppetite: number   // 0 = bargain only → 100 = premium OK
+  termCommitment: number  // 0 = any overlap → 100 = must cover whole window
+  dealSize: number        // 0 = small & flexible → 100 = large anchor deal
+  cleanEnergy: number     // 0 = cost-first (any source) → 100 = green-first
+  readiness: number       // 0 = ready now only → 100 = future builds OK
+  priority: number        // 0 = best price → 100 = best fit (proximity/quality)
+  needEnergy: number      // 0 = don't care → 100 = must-have
+  needCapacity: number
+  needRec: number
+}
+
+export const DEFAULT_DIALS: QualitativeDials = {
+  locality: 50,        // ≈ 150 mi
+  priceAppetite: 100,  // any price
+  termCommitment: 25,  // overlaps
+  dealSize: 20,        // no size floor
+  cleanEnergy: 20,     // all sources
+  readiness: 20,       // available now
+  priority: 60,        // fit-leaning (matches legacy distance-dominant scoring)
+  needEnergy: 20,
+  needCapacity: 20,
+  needRec: 20,
+}
+
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
+// Geometric interpolation from `lo` to `hi` across a 0–100 dial (feels linear to
+// the eye for quantities like miles and $ that span an order of magnitude).
+const geo = (dial: number, lo: number, hi: number) => Math.round(lo * Math.pow(hi / lo, clamp(dial, 0, 100) / 100))
+const invGeo = (value: number, lo: number, hi: number) => Math.round(100 * Math.log(value / lo) / Math.log(hi / lo))
+
+const GREEN: GenerationType[] = ['Solar', 'Wind', 'Hydro']
+const LOW_CARBON: GenerationType[] = ['Solar', 'Wind', 'Hydro', 'Nuclear', 'Hybrid', 'Battery', 'Virtual']
+
+/** Map the qualitative dials to the engine's RecPreferences. */
+export function qualitativeToPreferences(d: QualitativeDials, scopeIsos: string[]): RecPreferences {
+  const genTypes =
+    d.cleanEnergy >= 67 ? [...GREEN]
+    : d.cleanEnergy >= 34 ? [...LOW_CARBON]
+    : [...ALL_GEN_TYPES]
+  return {
+    isos: scopeIsos,
+    onlyAvailable: d.readiness < 50,
+    coverage: d.termCommitment > 50 ? 'full' : 'overlap',
+    // High locality ⇒ tight radius; 0 ⇒ anywhere.
+    maxMiles: d.locality <= 5 ? null : geo(100 - d.locality, 25, MAX_MILES_LIMIT),
+    genTypes,
+    requireCapacity: d.needCapacity >= 60,
+    requireEnergy: d.needEnergy >= 60,
+    requireRec: d.needRec >= 60,
+    maxEnergyPricePerMwh: d.priceAppetite >= 95 ? null : geo(d.priceAppetite, 20, 120),
+    maxCapacityPricePerMwDay: d.priceAppetite >= 95 ? null : geo(d.priceAppetite, 100, 1000),
+    priority: clamp(d.priority, 0, 100) / 100,
+    // Only the top of the dial imposes a size floor, so it never nukes results.
+    minCapacityMw: d.dealSize >= 80 ? Math.round(((d.dealSize - 80) / 20) * 200) : null,
+  }
+}
+
+/** Approximate inverse — seed the sliders from the current preferences. */
+export function preferencesToQualitative(p: RecPreferences): QualitativeDials {
+  const greenOnly = p.genTypes.length > 0 && p.genTypes.every((g) => GREEN.includes(g))
+  const lowCarbon = !greenOnly && p.genTypes.length > 0 && p.genTypes.every((g) => LOW_CARBON.includes(g))
+  return {
+    locality: p.maxMiles == null ? 0 : clamp(100 - invGeo(p.maxMiles, 25, MAX_MILES_LIMIT), 0, 100),
+    priceAppetite: p.maxEnergyPricePerMwh == null ? 100 : clamp(invGeo(p.maxEnergyPricePerMwh, 20, 120), 0, 100),
+    termCommitment: p.coverage === 'full' ? 75 : 25,
+    dealSize: p.minCapacityMw == null ? DEFAULT_DIALS.dealSize : clamp(80 + Math.round((p.minCapacityMw / 200) * 20), 0, 100),
+    cleanEnergy: greenOnly ? 85 : lowCarbon ? 50 : 15,
+    readiness: p.onlyAvailable ? 20 : 75,
+    priority: p.priority == null ? DEFAULT_DIALS.priority : Math.round(p.priority * 100),
+    needEnergy: p.requireEnergy ? 80 : 20,
+    needCapacity: p.requireCapacity ? 80 : 20,
+    needRec: p.requireRec ? 80 : 20,
+  }
 }
