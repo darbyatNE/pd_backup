@@ -1,11 +1,35 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { API_BASE_URL } from '../services/api';
 import { LOAD_PROFILE_MAP } from '../data/loadProfile';
+import {
+  resolveFilter,
+  labelForCriteria,
+  type SiteAttrs,
+  type FilterCriteria,
+} from '../data/scopeDimensions';
+
+// How the current scope was defined — drives only the summary label. The set of
+// site keys always lives in selectedSites (filters snapshot to a fixed set).
+export type ScopeSelection =
+  | { mode: 'sites' }
+  | { mode: 'filter'; label: string; criteria: FilterCriteria }
+  | { mode: 'group'; groupId: string; name: string };
+
+export interface CustomGroup {
+  id: string;
+  name: string;
+  color?: string | null;
+  description?: string | null;
+  members: string[];
+}
 
 export interface ScopeState {
   selectedSites: string[];         // site keys currently checked
   availableSites: string[];        // all sites user has access to (from DB)
+  siteAttributes: Record<string, SiteAttrs>; // grouping attributes per FAC_ID
+  selection: ScopeSelection;       // how the scope was defined (label only)
+  customGroups: CustomGroup[];     // saved company/user groups
   startYear: number;
   startMonth: number;              // 1–12
   endYear: number;
@@ -25,6 +49,11 @@ interface ScopeContextValue extends ScopeState {
   setStartDate: (year: number, month: number) => void;
   setEndDate: (year: number, month: number) => void;
   refreshSites: () => Promise<void>;  // manual refresh from DB
+  applyFilter: (criteria: FilterCriteria) => void;   // snapshot dimension filter → scope
+  applyGroup: (group: CustomGroup) => void;          // snapshot saved group → scope
+  fetchGroups: () => Promise<void>;
+  saveGroup: (name: string, members: string[], color?: string, description?: string) => Promise<void>;
+  deleteGroup: (id: string) => Promise<void>;
 }
 
 const ScopeContext = createContext<ScopeContextValue | null>(null);
@@ -36,6 +65,9 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [availableSites, setAvailableSites] = useState<string[]>([]);
   const [selectedSites, setSelectedSites] = useState<string[]>([]);
+  const [siteAttributes, setSiteAttributes] = useState<Record<string, SiteAttrs>>({});
+  const [customGroups, setCustomGroups] = useState<CustomGroup[]>([]);
+  const [selection, setSelection] = useState<ScopeSelection>({ mode: 'sites' });
   const [startYear,  setStartYear]  = useState(2026);
   const [startMonth, setStartMonth] = useState(1);
   const [endYear,    setEndYear]    = useState(2028);
@@ -100,7 +132,89 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  const authHeaders = () => {
+    const token = localStorage.getItem('pd_access_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  // Per-site grouping attributes (drives the dimension-based scope editor).
+  const fetchAttributes = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/planning/site-attributes?buyer_id=${encodeURIComponent(user.id)}`,
+        { headers: { ...authHeaders() } },
+      );
+      if (!res.ok) return;
+      const { attributes } = (await res.json()) as { attributes: Record<string, SiteAttrs> };
+      setSiteAttributes(attributes ?? {});
+    } catch {
+      /* attributes are best-effort; the by-site editor still works without them */
+    }
+  };
+
+  const fetchGroups = async () => {
+    if (!user) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/planning/groups`, { headers: { ...authHeaders() } });
+      if (!res.ok) return;
+      const { groups } = (await res.json()) as { groups: CustomGroup[] };
+      setCustomGroups(groups ?? []);
+    } catch {
+      /* groups are best-effort */
+    }
+  };
+
+  useEffect(() => {
+    fetchAttributes();
+    fetchGroups();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const saveGroup = async (name: string, members: string[], color?: string, description?: string) => {
+    if (!user) return;
+    const res = await fetch(`${API_BASE_URL}/planning/groups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ name, members, color, description }),
+    });
+    if (res.ok) await fetchGroups();
+  };
+
+  const deleteGroup = async (id: string) => {
+    if (!user) return;
+    const res = await fetch(`${API_BASE_URL}/planning/groups/${id}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    if (res.ok) {
+      setCustomGroups((prev) => prev.filter((g) => g.id !== id));
+    }
+  };
+
+  // Snapshot a dimension filter to a fixed scope set. Only sites we can render
+  // (in availableSites) are scoped; a filter that matches nothing is a no-op so
+  // the scope is never emptied (downstream consumers expect ≥1 site).
+  const applyFilter = (criteria: FilterCriteria) => {
+    const resolved = resolveFilter(criteria, siteAttributes);
+    const inScope = resolved.filter((k) => availableSites.includes(k));
+    const finalSites = inScope.length > 0 ? inScope : resolved;
+    if (finalSites.length === 0) return;
+    setSelectedSites(finalSites);
+    setSelection({ mode: 'filter', label: labelForCriteria(criteria), criteria });
+  };
+
+  const applyGroup = (group: CustomGroup) => {
+    const members = group.members ?? [];
+    if (members.length === 0) return;
+    // Group members are real saved site keys; make sure they're renderable.
+    setAvailableSites((prev) => Array.from(new Set([...prev, ...members])));
+    setSelectedSites(members);
+    setSelection({ mode: 'group', groupId: group.id, name: group.name });
+  };
+
   const toggleSite = (key: string) => {
+    setSelection({ mode: 'sites' });
     setSelectedSites((prev) => {
       if (prev.includes(key)) {
         return prev.length > 1 ? prev.filter((k) => k !== key) : prev;
@@ -114,6 +228,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
   };
 
   const addSite = (key: string) => {
+    setSelection({ mode: 'sites' });
     setSelectedSites((prev) => {
       if (prev.includes(key)) return prev;
       // Only allow adding available sites
@@ -125,6 +240,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
   };
 
   const removeSite = (key: string) => {
+    setSelection({ mode: 'sites' });
     setSelectedSites((prev) => {
       return prev.length > 1 ? prev.filter((k) => k !== key) : prev;
     });
@@ -133,6 +249,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
   // Scope to a single data center. If the key isn't a known site, also make it
   // available so the chart can render it.
   const selectOnlySite = (key: string) => {
+    setSelection({ mode: 'sites' });
     setAvailableSites((prev) => (prev.includes(key) ? prev : [...prev, key]));
     setSelectedSites([key]);
   };
@@ -150,6 +267,33 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     setPeekSnapshot(null);
   };
 
+  // Persist the scope across reloads. Restore once after sites load, then save
+  // on change. The restoredRef gate prevents the load-time "select all" render
+  // from overwriting the saved scope before we've restored it.
+  const restoredRef = useRef(false);
+  const SCOPE_STORE_KEY = 'pd_scope_v1';
+  useEffect(() => {
+    if (restoredRef.current || loading || availableSites.length === 0) return;
+    restoredRef.current = true;
+    try {
+      const raw = localStorage.getItem(SCOPE_STORE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as { selectedSites?: string[]; selection?: ScopeSelection };
+      const valid = (saved.selectedSites ?? []).filter((k) => availableSites.includes(k));
+      if (valid.length > 0) {
+        setSelectedSites(valid);
+        if (saved.selection) setSelection(saved.selection);
+      }
+    } catch { /* ignore malformed storage */ }
+  }, [loading, availableSites]);
+  useEffect(() => {
+    if (!restoredRef.current || peekSnapshot !== null || selectedSites.length === 0) return;
+    try {
+      localStorage.setItem(SCOPE_STORE_KEY, JSON.stringify({ selectedSites, selection }));
+    } catch { /* ignore quota errors */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSites, selection]);
+
   const setStartDate = (year: number, month: number) => {
     setStartYear(year);
     setStartMonth(month);
@@ -160,7 +304,7 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const MAX_SCOPE_YEAR = 2030;
+  const MAX_SCOPE_YEAR = 2050;
 
   const setEndDate = (year: number, month: number) => {
     const clampedYear = Math.min(year, MAX_SCOPE_YEAR);
@@ -175,12 +319,14 @@ export function ScopeProvider({ children }: { children: ReactNode }) {
 
   return (
     <ScopeContext.Provider value={{
-      selectedSites, availableSites, startYear, startMonth, endYear, endMonth,
+      selectedSites, availableSites, siteAttributes, selection, customGroups,
+      startYear, startMonth, endYear, endMonth,
       loading, error,
       toggleSite, addSite, removeSite, selectOnlySite,
       peekActive: peekSnapshot !== null, peekSite, endPeek,
       setStartDate, setEndDate,
       refreshSites: fetchSites,
+      applyFilter, applyGroup, fetchGroups, saveGroup, deleteGroup,
     }}>
       {children}
     </ScopeContext.Provider>

@@ -16,6 +16,7 @@ import mapRoutes from './routes/map.js';
 import siteContractRoutes from './routes/siteContracts.js';
 import adminRoutes from './routes/admin.js';
 import projectProductRoutes from './routes/projectProducts.js';
+import planningRoutes from './routes/planning.js';
 
 import { errorHandler } from './middleware/errorHandler.js';
 import clientErrorLogger from './middleware/clientErrorLogger.js';
@@ -54,6 +55,7 @@ app.use('/api/map', mapRoutes);
 app.use('/api/site-contracts', siteContractRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/project-products', projectProductRoutes);
+app.use('/api/planning', planningRoutes);
 
 // ==========================================
 // Optional: Client Error Reporting
