@@ -59,6 +59,10 @@ scripts/
 # PD Module
 energy-market/config/ec2-db.json
 
+# Data-pipeline scripts deployed to the EC2 hydrate box (not app code)
+energy-market/hydrate/hydrate_da_lmp.py
+energy-market/hydrate/run_hydrate_daily.sh
+
 # Terraform
 infrastructure/.terraform/
 infrastructure/.terraform.lock.hcl
