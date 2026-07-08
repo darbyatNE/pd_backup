@@ -19,9 +19,14 @@ interface LoadForecastChartProps {
   peakMode?: PeakMode
   startHE?: number
   endHE?: number
+  // Notifies the parent which assets are currently checked, so the KPI strip can
+  // reflect only the charted contracts.
+  onSelectionChange?: (selected: Set<string>) => void
+  // Notifies the parent of the chart's Month selection so the KPI strip matches.
+  onMonthChange?: (month: number | 'all') => void
 }
 
-export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange, peakMode = 'all', startHE = 1, endHE = 24 }: LoadForecastChartProps) {
+export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange, peakMode = 'all', startHE = 1, endHE = 24, onSelectionChange, onMonthChange }: LoadForecastChartProps) {
   const [view, setView] = useState<'2d' | '3d'>('2d')
   const { startYear, endYear, startMonth, endMonth } = useScopeContext()
 
@@ -48,6 +53,8 @@ export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, ac
     })
   const selectAllAssets = () => setSelectedAssets(new Set(contracts.map((c) => c.projectName)))
   const deselectAllAssets = () => setSelectedAssets(new Set())
+  // Surface the checked set so the KPI strip counts only charted contracts.
+  useEffect(() => { onSelectionChange?.(selectedAssets) }, [selectedAssets, onSelectionChange])
 
   const yearOptions = useMemo(() => {
     const out: number[] = []
@@ -59,6 +66,7 @@ export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, ac
   const [internalSelectedYear, setInternalSelectedYear] = useState<number>(startYear)
   // Hours view: which month feeds the typical-day average ('all' = every in-scope month)
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>('all')
+  useEffect(() => { onMonthChange?.(selectedMonth) }, [selectedMonth, onMonthChange])
 
   const yearMode = externalYearMode ?? internalYearMode
   const selectedYear = externalYear ?? internalSelectedYear
@@ -218,11 +226,6 @@ export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, ac
               }
             </span>
           </div>
-          {showFullScope && profile.capacityByYear && Object.keys(profile.capacityByYear).length > 1 && (
-            <div className="text-[11px] text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-0.5 font-medium">
-              Red line shows summed capacity per year — steps up as build-out lands
-            </div>
-          )}
           <span className="text-slate-400">Bars are filled in by linked contracts; uncovered remainder shown as <strong>Unhedged</strong>.</span>
         </div>
       )}

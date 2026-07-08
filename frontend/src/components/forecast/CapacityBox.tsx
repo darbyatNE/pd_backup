@@ -1,7 +1,5 @@
 import {
   getForecastCapacityForYear,
-  getScopeAvgAnnualLoadMwh,
-  getEffectiveAnnualLoadMwh,
   getEffectiveLoadAt,
 } from '../../data/loadProfile'
 import type { SiteLoadProfile } from '../../data/loadProfile'
@@ -17,9 +15,12 @@ interface CapacityBoxProps {
   profile: SiteLoadProfile
   startYear: number
   endYear: number
+  startMonth?: number
+  endMonth?: number
   peakMode?: PeakMode
   startHE?: number
   endHE?: number
+  selectedMonth?: number | 'all'  // chart Month selection ('all' = every in-scope month)
   selectedSites?: string[]
   chartYearMode?: 'single' | 'all'
   chartActiveYear?: number
@@ -29,10 +30,18 @@ interface CapacityBoxProps {
   contracts?: LinkedContract[]
 }
 
-export function CapacityBox({ profile, startYear, endYear, peakMode = 'all', startHE = 1, endHE = 24, selectedSites, chartYearMode, chartActiveYear, contracts = [] }: CapacityBoxProps) {
+export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMonth = 12, peakMode = 'all', startHE = 1, endHE = 24, selectedMonth = 'all', selectedSites, chartYearMode, chartActiveYear, contracts = [] }: CapacityBoxProps) {
   // Peak scope: KPIs below are weighted by the number of in-scope days per
   // (month, hour) via the NERC 5×16 calendar — exact for on/off-peak.
   const allHours = peakMode === 'all'
+  // A month is in scope when it's inside the scope date range (bounded on the
+  // boundary years) and matches the chart's Month selection.
+  const monthInScope = (year: number, m: number) => {
+    if (selectedMonth !== 'all' && m !== selectedMonth) return false
+    if (year === startYear && m < startMonth) return false
+    if (year === endYear && m > endMonth) return false
+    return true
+  }
   // Determine effective year based on chart selection
   const isSingleYear = chartYearMode === 'single'
   const effectiveYear = isSingleYear && chartActiveYear ? chartActiveYear : endYear
@@ -47,45 +56,62 @@ export function CapacityBox({ profile, startYear, endYear, peakMode = 'all', sta
   // hours (energy in one hour can't offset another, so this stays hour-exact).
   const getYearlyLoadStats = (year: number) => {
     const siteContracts = contracts
-    let totalOverhedge = 0, totalLoad = 0, baseSum = 0, peakSum = 0, hourInst = 0
-    let baseProjSum = 0, peakProjSum = 0, contractedSum = 0, contractedValue = 0
+    let baseOverSum = 0, peakOverSum = 0, totalLoad = 0, baseSum = 0, peakSum = 0, hourInst = 0
+    let baseCovSum = 0, peakCovSum = 0, coveredSum = 0, contractedSum = 0, contractedValue = 0
 
     for (let m = 1; m <= 12; m++) {
+      if (!monthInScope(year, m)) continue
       for (let h = 0; h < 24; h++) {
         // Days this (month, hour) is in scope — 0 skips it, else the exact count.
         const days = scopeDayCount(peakMode, startHE, endHE, year, m, h + 1)
         if (days === 0) continue
         const eff = getEffectiveLoadAt(profile, h, m, year)
-        const hourLoad = eff.baseloadMw + eff.peakMw
-        totalLoad += hourLoad * days
-        baseSum += eff.baseloadMw * days
-        peakSum += eff.peakMw * days
+        const baseLd = eff.baseloadMw
+        const peakLd = eff.peakMw
+        totalLoad += (baseLd + peakLd) * days
+        baseSum += baseLd * days
+        peakSum += peakLd * days
         hourInst += days
 
-        let hourContracted = 0
+        // Sum contracted MW in this hour, split by the load tier each contract
+        // hedges (wind/nuclear → base, solar/peaker → peak).
+        let baseC = 0, peakC = 0
         for (const c of siteContracts) {
           if (!isContractActiveAt(c, year, m)) continue
           const mw = contractMwAtHourInYear(c, h, m, year)
-          hourContracted += mw
           contractedSum += mw * days
           contractedValue += mw * c.pricePerMwh * days
-          if (c.tier === 'base') baseProjSum += mw * days
-          else if (c.tier === 'peak') peakProjSum += mw * days
+          if (c.tier === 'base') baseC += mw
+          else if (c.tier === 'peak') peakC += mw
         }
-        totalOverhedge += Math.max(0, hourContracted - hourLoad) * days
+        // Headline % hedged: LENIENT — total bought vs total load this hour,
+        // regardless of type (no headline overhedge is surfaced).
+        const hourContracted = baseC + peakC
+        const hourLoad = baseLd + peakLd
+        coveredSum += Math.min(hourContracted, hourLoad) * days
+        // Load Type Coverage: STRICT — each tier capped by its own load, and its
+        // overhedge is the per-tier excess. So wind (baseload-tier) exceeding
+        // baseload shows as overhedge even when total load still exceeds it.
+        baseCovSum += Math.min(baseC, baseLd) * days
+        peakCovSum += Math.min(peakC, peakLd) * days
+        baseOverSum += Math.max(0, baseC - baseLd) * days
+        peakOverSum += Math.max(0, peakC - peakLd) * days
       }
     }
 
     const totalHours = hourInst || 1
-    const avgOverhedgeMw = Math.round((totalOverhedge / totalHours) * 10) / 10
+    const baseOverhedgeMw = Math.round((baseOverSum / totalHours) * 10) / 10
+    const peakOverhedgeMw = Math.round((peakOverSum / totalHours) * 10) / 10
+    const avgOverhedgeMw = Math.round(((baseOverSum + peakOverSum) / totalHours) * 10) / 10
     const avgTotalLoadMw = totalLoad / totalHours
     // Headline baseload/peak stay the site's design characteristics for the full
     // day; when the HE scope is narrowed the coverage bars use the selected-hours
     // load averages instead.
     const avgBaseloadMw = allHours ? Math.round(profile.baseloadMw * 10) / 10 : Math.round((baseSum / totalHours) * 10) / 10
     const avgPeakMw = allHours ? Math.round(profile.peakDemandMw * 10) / 10 : Math.round((peakSum / totalHours) * 10) / 10
-    const baseProjectsMw = Math.min(baseProjSum / totalHours, avgBaseloadMw)
-    const peakProjectsMw = Math.min(peakProjSum / totalHours, avgPeakMw)
+    // Per-hour-capped covered MW (never exceeds the tier's load average).
+    const baseProjectsMw = Math.min(baseCovSum / totalHours, avgBaseloadMw)
+    const peakProjectsMw = Math.min(peakCovSum / totalHours, avgPeakMw)
     const overhedgePct = avgTotalLoadMw > 0 ? Math.round((avgOverhedgeMw / avgTotalLoadMw) * 100) : 0
 
     return {
@@ -93,9 +119,12 @@ export function CapacityBox({ profile, startYear, endYear, peakMode = 'all', sta
       avgPeakMw,
       baseProjectsMw: Math.round(baseProjectsMw * 10) / 10,
       peakProjectsMw: Math.round(peakProjectsMw * 10) / 10,
+      baseOverhedgeMw,
+      peakOverhedgeMw,
       overhedgeMw: avgOverhedgeMw,
       overhedgePct,
       loadMwh: totalLoad,
+      coveredMwh: coveredSum,
       contractedMwh: contractedSum,
       contractedValue,
     }
@@ -118,6 +147,7 @@ export function CapacityBox({ profile, startYear, endYear, peakMode = 'all', sta
     let baseSum = 0
     let hours = 0
     for (let m = 1; m <= 12; m++) {
+      if (!monthInScope(year, m)) continue
       const days = daysInMonth(year, m)
       for (let h = 0; h < 24; h++) {
         baseSum += getEffectiveLoadAt(profile, h, m, year).baseloadMw * days
@@ -150,19 +180,18 @@ export function CapacityBox({ profile, startYear, endYear, peakMode = 'all', sta
   const totalContractedValue = perYear.reduce((s, y) => s + y.contractedValue, 0)
   const avgContractPrice = totalContractedMwh > 0 ? totalContractedValue / totalContractedMwh : 0
 
-  // Avg annual load: full-year helpers when the whole day is in scope; otherwise
-  // the average of the HE-scoped load MWh.
-  const annualMwh = allHours
-    ? (isSingleYear && chartActiveYear
-        ? getEffectiveAnnualLoadMwh(profile, chartActiveYear)
-        : getScopeAvgAnnualLoadMwh(profile, startYear, endYear))
-    : perYear.reduce((s, y) => s + y.loadMwh, 0) / perYear.length
+  // Avg annual load — the mean of the in-scope load MWh across the display
+  // years. Reflects the active hour + month scope (equals the full-year total
+  // when nothing is narrowed), so it stays in step with the chart controls.
+  const annualMwh = perYear.reduce((s, y) => s + y.loadMwh, 0) / (perYear.length || 1)
   const annualGwh = Math.round(annualMwh / 1000)
 
-  // % hedged = contracted MWh ÷ load MWh, both over the in-scope hours.
+  // % hedged = per-hour-capped covered MWh ÷ load MWh (over the in-scope hours).
+  // Covered caps at each hour's load, so an over-buy in one hour can't inflate
+  // the coverage of an under-hedged hour.
   const totalLoadMwhAll = perYear.reduce((s, y) => s + y.loadMwh, 0)
-  const totalContractedMwhAll = perYear.reduce((s, y) => s + y.contractedMwh, 0)
-  const pctHedged = totalLoadMwhAll > 0 ? Math.round((totalContractedMwhAll / totalLoadMwhAll) * 100) : 0
+  const totalCoveredMwhAll = perYear.reduce((s, y) => s + y.coveredMwh, 0)
+  const pctHedged = totalLoadMwhAll > 0 ? Math.round((totalCoveredMwhAll / totalLoadMwhAll) * 100) : 0
 
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-3 flex items-center justify-between gap-4">
@@ -261,61 +290,57 @@ export function CapacityBox({ profile, startYear, endYear, peakMode = 'all', sta
         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2">
           LOAD TYPE COVERAGE {isSingleYear && chartActiveYear && `· ${chartActiveYear}`}
         </p>
-        <div className="flex">
-          {/* Baseload bar (left) - sized by MW proportion, fully rounded */}
-          <LoadTierBar
-            loadMw={yearStats.avgBaseloadMw}
-            projectsMw={yearStats.baseProjectsMw}
-            bgColor="bg-teal-400"
-            rounded="all"
-            widthPct={yearStats.avgBaseloadMw + yearStats.avgPeakMw > 0
-              ? (yearStats.avgBaseloadMw / (yearStats.avgBaseloadMw + yearStats.avgPeakMw)) * 100
-              : 50}
-          />
-          <span className="w-2" />
-          {/* Peak bar (middle) - sized by MW proportion, fully rounded */}
-          <LoadTierBar
-            loadMw={yearStats.avgPeakMw}
-            projectsMw={yearStats.peakProjectsMw}
-            bgColor="bg-amber-400"
-            rounded="all"
-            widthPct={yearStats.avgBaseloadMw + yearStats.avgPeakMw > 0
-              ? (yearStats.avgPeakMw / (yearStats.avgBaseloadMw + yearStats.avgPeakMw)) * 100
-              : 50}
-          />
-          {/* Overhedge bar (right) - only shown when overhedge exists, sized by % of load */}
-          {yearStats.overhedgeMw > 0 && (
+        {(() => {
+          const loadTotal = yearStats.avgBaseloadMw + yearStats.avgPeakMw
+          const w = (mw: number) => (loadTotal > 0 ? (mw / loadTotal) * 100 : 0)
+          const baseOverPct = yearStats.avgBaseloadMw > 0 ? Math.round((yearStats.baseOverhedgeMw / yearStats.avgBaseloadMw) * 100) : 0
+          const peakOverPct = yearStats.avgPeakMw > 0 ? Math.round((yearStats.peakOverhedgeMw / yearStats.avgPeakMw) * 100) : 0
+          return (
             <>
-              <span className="w-2" />
-              <LoadTierBar
-                loadMw={yearStats.avgBaseloadMw + yearStats.avgPeakMw}
-                projectsMw={0}
-                bgColor="bg-rose-400"
-                rounded="all"
-                widthPct={yearStats.overhedgePct}
-              />
+              <div className="flex">
+                {/* Baseload bar */}
+                <LoadTierBar loadMw={yearStats.avgBaseloadMw} projectsMw={yearStats.baseProjectsMw}
+                  bgColor="bg-teal-400" rounded="all" widthPct={loadTotal > 0 ? w(yearStats.avgBaseloadMw) : 50} />
+                {/* Baseload overhedge — between the baseload and peak bars. Fully
+                    pattern-filled: it's all purchased energy sitting above load. */}
+                {yearStats.baseOverhedgeMw > 0 && (
+                  <>
+                    <span className="w-1" />
+                    <LoadTierBar loadMw={1} projectsMw={1} bgColor="bg-rose-400" rounded="all" widthPct={w(yearStats.baseOverhedgeMw)} />
+                  </>
+                )}
+                <span className="w-2" />
+                {/* Peak bar */}
+                <LoadTierBar loadMw={yearStats.avgPeakMw} projectsMw={yearStats.peakProjectsMw}
+                  bgColor="bg-amber-400" rounded="all" widthPct={loadTotal > 0 ? w(yearStats.avgPeakMw) : 50} />
+                {/* Peak overhedge — after the peak bar. Fully pattern-filled:
+                    it's all purchased energy sitting above load. */}
+                {yearStats.peakOverhedgeMw > 0 && (
+                  <>
+                    <span className="w-1" />
+                    <LoadTierBar loadMw={1} projectsMw={1} bgColor="bg-rose-400" rounded="all" widthPct={w(yearStats.peakOverhedgeMw)} />
+                  </>
+                )}
+              </div>
+              <div className="flex justify-between text-[10px] text-slate-400 mt-1.5">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-sm bg-teal-500" />Baseload
+                  {yearStats.baseProjectsMw > 0 && (
+                    <span className="text-teal-600">({Math.round((yearStats.baseProjectsMw / yearStats.avgBaseloadMw) * 100)}% hedged)</span>
+                  )}
+                  {yearStats.baseOverhedgeMw > 0 && <span className="text-rose-500">(+{baseOverPct}% over)</span>}
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />Peak
+                  {yearStats.peakProjectsMw > 0 && (
+                    <span className="text-amber-600">({Math.round((yearStats.peakProjectsMw / yearStats.avgPeakMw) * 100)}% hedged)</span>
+                  )}
+                  {yearStats.peakOverhedgeMw > 0 && <span className="text-rose-500">(+{peakOverPct}% over)</span>}
+                </span>
+              </div>
             </>
-          )}
-        </div>
-        <div className="flex justify-between text-[10px] text-slate-400 mt-1.5">
-          <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-sm bg-teal-500" />Baseload
-            {yearStats.baseProjectsMw > 0 && (
-              <span className="text-teal-600">({Math.round((yearStats.baseProjectsMw / yearStats.avgBaseloadMw) * 100)}% hedged)</span>
-            )}
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block w-2 h-2 rounded-sm bg-amber-500" />Peak
-            {yearStats.peakProjectsMw > 0 && (
-              <span className="text-amber-600">({Math.round((yearStats.peakProjectsMw / yearStats.avgPeakMw) * 100)}% hedged)</span>
-            )}
-          </span>
-          {yearStats.overhedgeMw > 0 && (
-            <span className="flex items-center gap-1 text-rose-500">
-              <span className="inline-block w-2 h-2 rounded-sm bg-rose-500" />Overhedge {yearStats.overhedgePct}%
-            </span>
-          )}
-        </div>
+          )
+        })()}
       </div>
     </div>
   )

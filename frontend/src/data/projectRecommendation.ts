@@ -7,6 +7,7 @@ import { LOAD_PROFILE_MAP } from './loadProfile'
 import { getZoneCoords } from '../utils/pjmZones'
 import { haversineMiles } from '../utils/geo'
 import { pnum } from './projectDisplay'
+import { canDeliverCapacity } from './ldaData'
 
 export const ALL_GEN_TYPES: GenerationType[] = [
   'Solar', 'Wind', 'Nuclear', 'Battery', 'Hydro', 'Hybrid', 'Combined Cycle', 'Peaker', 'Virtual',
@@ -23,7 +24,10 @@ export interface RecPreferences {
   isos: string[]                 // empty = any ISO
   onlyAvailable: boolean         // status === Available
   coverage: CoverageMode         // 'overlap' = term touches the window; 'full' = term spans it
-  maxMiles: number | null        // null = any distance
+  // Locational strictness. 'zone' = must align to the site's pricing point
+  // (energy) / capacity zone (capacity); 'iso' = same market; 'any' = no gate.
+  minProximity?: MinProximity
+  maxMiles: number | null        // null = any distance (legacy; kept for display/tiebreak)
   genTypes: GenerationType[]     // empty = none allowed; defaults to all
   requireCapacity: boolean
   requireEnergy: boolean
@@ -83,12 +87,120 @@ export function siteCoordsInScope(selectedSites: string[]): [number, number][] {
   return out
 }
 
+// ─── Locational proximity ─────────────────────────────────────────────────
+// A contract has TWO distinct locations, and physical miles is only a rough
+// proxy for neither. The determinants that actually matter differ by component:
+//   • Energy   → the LMP *pricing node* (settlement_point) where the deal
+//                settles. A PPA can price energy at a node different from where
+//                it physically connects, so energy proximity keys off the
+//                pricing node, not the connection point. A plant 300 mi away
+//                that settles at the site's node hedges better than a neighbour
+//                that settles elsewhere.
+//   • Capacity → the physical *connection point* and its capacity zone (LDA).
+//                Capacity is not variable — it delivers only from where the
+//                resource ties to the grid — so capacity proximity keys off the
+//                connection point / LDA and never the pricing node. Being in the
+//                same ISO but a non-deliverable LDA does not hedge capacity.
+export type ProximityTier = 'in-zone' | 'in-iso' | 'out' | 'n/a'
+export type MinProximity = 'any' | 'iso' | 'zone'
+
+export interface ProjectProximity {
+  energy: ProximityTier    // pricing-point alignment (n/a ⇒ no energy product)
+  capacity: ProximityTier  // capacity-zone/LDA alignment (n/a ⇒ no capacity product)
+  score: number            // 0–1, best of the applicable components (for ranking)
+  label: string            // short human label for the table
+}
+
+const norm = (s: string | null | undefined): string => (s ?? '').toUpperCase().trim()
+const TIER_SCORE: Record<ProximityTier, number> = { 'in-zone': 1, 'in-iso': 0.45, out: 0.05, 'n/a': 0 }
+
+/** The zones / LDAs / ISOs covering the selected sites (normalised, for matching). */
+export interface ScopeLocations { zones: Set<string>; ldas: Set<string>; isos: Set<string> }
+export function siteLocationsInScope(selectedSites: string[]): ScopeLocations {
+  const zones = new Set<string>(), ldas = new Set<string>(), isos = new Set<string>()
+  for (const key of selectedSites) {
+    const p = LOAD_PROFILE_MAP[key]
+    if (!p) continue
+    if (p.settlementZone) zones.add(norm(p.settlementZone))
+    ldas.add(norm(p.lda ?? p.settlementZone))
+    isos.add(settlementZoneToIso(p.lda ?? p.settlementZone))
+  }
+  return { zones, ldas, isos }
+}
+
+/** True when a resource in `genLda` can deliver capacity to `loadLda`; null when
+ *  the codes aren't recognised LDAs (caller falls back to zone equality). */
+function capacityDeliverable(genLda: string, loadLda: string): boolean | null {
+  if (!genLda || !loadLda) return null
+  if (norm(genLda) === norm(loadLda)) return true
+  // Best-effort against the modelled LDA graph (codes have mixed casing there,
+  // so try the raw values as given before giving up).
+  try {
+    if (canDeliverCapacity(genLda, loadLda) || canDeliverCapacity(loadLda, genLda)) return true
+  } catch { /* unrecognised code */ }
+  return false
+}
+
+/** Classify a project's locational fit to the in-scope sites — separately for
+ *  its energy (pricing point) and capacity (LDA) components. */
+export function projectProximity(
+  p: Project, summary: ProjectProductSummary | undefined, sites: ScopeLocations,
+): ProjectProximity {
+  const sameIso = !p.iso || sites.isos.size === 0 || sites.isos.has(p.iso)
+  const hasSummary = !!summary
+
+  // Energy → the LMP *pricing node* where the deal settles (settlement_point).
+  // A PPA can settle at a node different from where it physically connects, so
+  // energy proximity NEVER looks at the connection point — only the pricing
+  // node, with the energy zone as a coarser fallback when no node is on file.
+  const energyApplies = !hasSummary || !!summary?.has_energy
+  const pricingNode = norm(p.settlement_point)
+  const energyZone = norm(summary?.zone || p.zone)
+  let energy: ProximityTier = 'n/a'
+  if (energyApplies) {
+    const nodeInScope = pricingNode !== '' && sites.zones.has(pricingNode)
+    const zoneInScope = energyZone !== '' && sites.zones.has(energyZone)
+    energy = nodeInScope || zoneInScope ? 'in-zone' : sameIso ? 'in-iso' : 'out'
+  }
+
+  // Capacity → the physical *connection point* and its LDA. Capacity is not
+  // variable: it can only be delivered from where the resource ties to the grid,
+  // so capacity proximity NEVER looks at the pricing node — only the LDA / zone
+  // implied by the connection point.
+  const capacityApplies = !!summary?.has_capacity
+  let capacity: ProximityTier = 'n/a'
+  if (capacityApplies) {
+    const genLda = summary?.eda || p.connection_point || p.zone || ''
+    let deliverable = false
+    let resolved = false
+    for (const loadLda of sites.ldas) {
+      const d = capacityDeliverable(genLda, loadLda)
+      if (d != null) resolved = true
+      if (d) { deliverable = true; break }
+    }
+    // If neither code is a modelled LDA, fall back to plain zone equality.
+    if (!resolved) deliverable = !!norm(genLda) && sites.zones.has(norm(genLda))
+    capacity = deliverable ? 'in-zone' : sameIso ? 'in-iso' : 'out'
+  }
+
+  const applicable = [energy, capacity].filter((t) => t !== 'n/a')
+  const score = applicable.length ? Math.max(...applicable.map((t) => TIER_SCORE[t])) : TIER_SCORE.out
+
+  let label = 'Out of area'
+  if (energy === 'in-zone' && capacity === 'in-zone') label = 'In-zone'
+  else if (energy === 'in-zone') label = 'Pricing zone'
+  else if (capacity === 'in-zone') label = 'Capacity zone'
+  else if (applicable.includes('in-iso')) label = 'Same ISO'
+  return { energy, capacity, score, label }
+}
+
 /** Preference defaults derived from the in-scope ISOs. */
 export function defaultPreferences(scopeIsos: string[]): RecPreferences {
   return {
     isos: scopeIsos,
     onlyAvailable: true,
     coverage: 'overlap',
+    minProximity: 'any',
     maxMiles: DEFAULT_MAX_MILES,
     genTypes: [...ALL_GEN_TYPES],
     requireCapacity: false,
@@ -151,6 +263,7 @@ export interface RankedProject {
   project: Project
   summary?: ProjectProductSummary
   distanceMiles: number | null
+  proximity: ProjectProximity
   score: number
 }
 
@@ -167,6 +280,7 @@ export function evaluateProjects(
   selectedSites: string[],
 ): RankedProject[] {
   const siteCoords = siteCoordsInScope(selectedSites)
+  const sites = siteLocationsInScope(selectedSites)
   const ranked: RankedProject[] = []
 
   for (const p of projects) {
@@ -200,17 +314,22 @@ export function evaluateProjects(
     // Minimum deal size (from the qualitative "deal size" dial).
     if (prefs.minCapacityMw != null && Number(p.capacity_mw || 0) < prefs.minCapacityMw) continue
 
-    // Distance — unknown coords PASS the range filter (don't silently hide
-    // SPP/WECC projects whose zones have no coords) but sort last.
-    const distanceMiles = projectDistanceMiles(p, siteCoords)
-    if (prefs.maxMiles != null && distanceMiles != null && distanceMiles > prefs.maxMiles) continue
+    // Locational proximity — energy keys off the pricing point, capacity off
+    // the capacity zone (LDA). The locality dial gates how strict we are.
+    const proximity = projectProximity(p, summary, sites)
+    const bestTier: ProximityTier =
+      proximity.energy === 'in-zone' || proximity.capacity === 'in-zone' ? 'in-zone'
+      : proximity.energy === 'in-iso' || proximity.capacity === 'in-iso' ? 'in-iso'
+      : 'out'
+    if (prefs.minProximity === 'zone' && bestTier !== 'in-zone') continue
+    if (prefs.minProximity === 'iso' && bestTier === 'out') continue
 
-    // Composite fit score (higher = better). Distance dominates; price headroom
+    // Miles kept only for display / tiebreak (unknown coords sort last).
+    const distanceMiles = projectDistanceMiles(p, siteCoords)
+
+    // Composite fit score (higher = better). Proximity dominates; price headroom
     // and capacity size break ties.
-    const ceiling = prefs.maxMiles ?? MAX_MILES_LIMIT
-    const distComp = distanceMiles == null
-      ? 0.35 // neutral: ranks below near projects, above far ones
-      : Math.max(0, 1 - distanceMiles / ceiling)
+    const distComp = proximity.score
     let priceComp = 0.5
     if (prefs.maxEnergyPricePerMwh != null && energyPrice != null) {
       priceComp = Math.max(0, 1 - energyPrice / prefs.maxEnergyPricePerMwh)
@@ -222,7 +341,7 @@ export function evaluateProjects(
       ? distComp * 3 + priceComp + sizeComp * 0.5
       : distComp * (1 + prefs.priority * 3) + priceComp * (1 + (1 - prefs.priority) * 3) + sizeComp * 0.5
 
-    ranked.push({ project: p, summary, distanceMiles, score })
+    ranked.push({ project: p, summary, distanceMiles, proximity, score })
   }
 
   ranked.sort((a, b) => {
@@ -272,18 +391,26 @@ const invGeo = (value: number, lo: number, hi: number) => Math.round(100 * Math.
 const GREEN: GenerationType[] = ['Solar', 'Wind', 'Hydro']
 const LOW_CARBON: GenerationType[] = ['Solar', 'Wind', 'Hydro', 'Nuclear', 'Hybrid', 'Battery', 'Virtual']
 
-/** Map the qualitative dials to the engine's RecPreferences. */
-export function qualitativeToPreferences(d: QualitativeDials, scopeIsos: string[]): RecPreferences {
+/** Map the qualitative dials to the engine's RecPreferences. An explicit
+ *  generation-type selection (from the gen-type chips or a named AI request)
+ *  wins over the coarse cleanEnergy bucket. */
+export function qualitativeToPreferences(
+  d: QualitativeDials, scopeIsos: string[], explicitGenTypes?: GenerationType[],
+): RecPreferences {
   const genTypes =
-    d.cleanEnergy >= 67 ? [...GREEN]
+    explicitGenTypes && explicitGenTypes.length > 0
+      ? explicitGenTypes.filter((g) => ALL_GEN_TYPES.includes(g))
+    : d.cleanEnergy >= 67 ? [...GREEN]
     : d.cleanEnergy >= 34 ? [...LOW_CARBON]
     : [...ALL_GEN_TYPES]
   return {
     isos: scopeIsos,
     onlyAvailable: d.readiness < 50,
     coverage: d.termCommitment > 50 ? 'full' : 'overlap',
-    // High locality ⇒ tight radius; 0 ⇒ anywhere.
-    maxMiles: d.locality <= 5 ? null : geo(100 - d.locality, 25, MAX_MILES_LIMIT),
+    // Locality is about locational fit, not miles: high ⇒ must sit in the site's
+    // pricing point / capacity zone; mid ⇒ same market; low ⇒ anywhere.
+    minProximity: d.locality >= 70 ? 'zone' : d.locality >= 30 ? 'iso' : 'any',
+    maxMiles: null,
     genTypes,
     requireCapacity: d.needCapacity >= 60,
     requireEnergy: d.needEnergy >= 60,
@@ -304,7 +431,7 @@ export function preferencesToQualitative(p: RecPreferences): QualitativeDials {
   const greenOnly = p.genTypes.length > 0 && p.genTypes.every((g) => GREEN.includes(g))
   const lowCarbon = !greenOnly && p.genTypes.length > 0 && p.genTypes.every((g) => LOW_CARBON.includes(g))
   return {
-    locality: p.maxMiles == null ? 0 : clamp(100 - invGeo(p.maxMiles, 25, MAX_MILES_LIMIT), 0, 100),
+    locality: p.minProximity === 'zone' ? 85 : p.minProximity === 'iso' ? 45 : 0,
     priceAppetite: p.maxEnergyPricePerMwh == null ? 100 : clamp(invGeo(p.maxEnergyPricePerMwh, 20, 120), 0, 100),
     termCommitment: p.coverage === 'full' ? 75 : 25,
     dealSize: p.minCapacityMw == null ? DEFAULT_DIALS.dealSize : clamp(80 + Math.round((p.minCapacityMw / 200) * 20), 0, 100),

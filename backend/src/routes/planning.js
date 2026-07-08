@@ -12,7 +12,7 @@ const router = express.Router();
 // constraints (minimum/maximum), so the range lives in the description and the
 // value is clamped server-side.
 const DIAL_PROPS = {
-  locality:       { type: 'integer', description: '0–100. How local the deal must be. 0 = anywhere / distance irrelevant, 100 = must be right next door' },
+  locality:       { type: 'integer', description: "0–100. How locationally aligned the deal must be. Proximity is judged by pricing point for energy (the LMP settlement zone/node) and by capacity zone (LDA) for capacity — not physical miles. 0 = anywhere in the market, 50 = same ISO/market, 100 = must sit in the site's own pricing point / capacity zone" },
   priceAppetite:  { type: 'integer', description: '0–100. 0 = bargain hunter (cheapest only), 100 = premium OK / price irrelevant' },
   termCommitment: { type: 'integer', description: '0–100. 0 = any term overlap is fine, 100 = must cover the whole service window' },
   dealSize:       { type: 'integer', description: '0–100. 0 = small/flexible deals, 100 = large anchor deals only' },
@@ -46,18 +46,26 @@ router.post('/recommend-intent', authenticate, async (req, res) => {
         additionalProperties: false,
         properties: {
           ...DIAL_PROPS,
+          generationTypes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Exact generation types the buyer explicitly named (e.g. ["Solar"] for "solar offers"). Use names from the available list only. Empty array [] when the buyer did not name a specific type — do NOT infer one from a general "green/clean" request (use the cleanEnergy dial for that).',
+          },
           note: { type: 'string', description: 'One short sentence summarizing how you interpreted the request, e.g. "Green energy, nearby, price-sensitive, full-term".' },
         },
-        required: [...DIAL_KEYS, 'note'],
+        required: [...DIAL_KEYS, 'generationTypes', 'note'],
       },
     };
 
+    const genList = Array.isArray(facets.genTypes) ? facets.genTypes.join(', ') : 'unknown';
     const system =
       'You translate a data-center energy buyer\'s plain-language description of what kind of ' +
       'power contract they want into a set of 0–100 preference dials by calling the set_preferences tool. ' +
       'Infer each dial from the request; leave a dial near its neutral default (around 20–50) when the ' +
-      'buyer does not mention that dimension. Available ISOs: ' + (Array.isArray(facets.isos) ? facets.isos.join(', ') : 'unknown') +
-      '. Available generation types: ' + (Array.isArray(facets.genTypes) ? facets.genTypes.join(', ') : 'unknown') + '.';
+      'buyer does not mention that dimension. When the buyer names a specific generation type ' +
+      '(e.g. "solar", "wind", "nuclear"), put the exact matching type(s) in generationTypes; otherwise leave it []. ' +
+      'Available ISOs: ' + (Array.isArray(facets.isos) ? facets.isos.join(', ') : 'unknown') +
+      '. Available generation types: ' + genList + '.';
 
     const resp = await client.messages.create({
       model: 'claude-haiku-4-5',
@@ -76,7 +84,13 @@ router.post('/recommend-intent', authenticate, async (req, res) => {
       const v = Number(input[k]);
       dials[k] = Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 50;
     }
-    res.json({ dials, note: typeof input.note === 'string' ? input.note : '' });
+    // Keep only named types that exist in the available list (case-insensitive).
+    const avail = Array.isArray(facets.genTypes) ? facets.genTypes : [];
+    const availLower = new Map(avail.map((g) => [String(g).toLowerCase(), g]));
+    const generationTypes = Array.isArray(input.generationTypes)
+      ? [...new Set(input.generationTypes.map((g) => availLower.get(String(g).toLowerCase())).filter(Boolean))]
+      : [];
+    res.json({ dials, generationTypes, note: typeof input.note === 'string' ? input.note : '' });
   } catch (err) {
     console.error('recommend-intent error:', err);
     res.status(502).json({ error: 'AI finder is temporarily unavailable' });

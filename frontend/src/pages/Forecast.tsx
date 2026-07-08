@@ -29,6 +29,7 @@ import {
   EnergyMixChart,
   ContractPortfolioTable,
   BtmCapacityOptions,
+  PlanSectionNav,
 } from '../components/forecast'
 import type { BtmOption } from '../components/forecast'
 
@@ -47,7 +48,7 @@ const GEN_COLORS: Record<string, string> = {
 type XAxisMode = 'hours' | 'months'
 
 export default function Forecast() {
-  const { selectedSites, startYear, endYear, peakMode, startHE, endHE, peekActive, endPeek } = useScopeContext()
+  const { selectedSites, startYear, startMonth, endYear, endMonth, peakMode, startHE, endHE, peekActive, endPeek } = useScopeContext()
   const { subTab: activeTab, setView } = useDashboardView()
   const navigate = useNavigate()
 
@@ -63,8 +64,6 @@ export default function Forecast() {
   const [chartActiveYear, setChartActiveYear] = useState<number>(startYear)
   const [tryOnProject, setTryOnProject] = useState<Project | null>(null)
   const [tryOnSite, setTryOnSite] = useState<string | undefined>(undefined)
-  // Whether the Try-On opens expanded (Examine deep link) or minimized (default).
-  const [tryOnExpanded, setTryOnExpanded] = useState(false)
 
   // Shared "Recommended for <Company>" preferences + computed set (synced with
   // the Map page via RecommendationContext).
@@ -98,7 +97,7 @@ export default function Forecast() {
         case 'mwh': return pnum(s?.energy_mwh_max ?? null) ?? pnum(s?.energy_mwh_min ?? null) ?? -1
         case 'rec': return s?.has_rec ? (pnum(s.rec_pct) ?? -1) : -1
         case 'start': return p.term_start_date ?? ''
-        case 'dist': return item.distanceMiles == null ? Infinity : item.distanceMiles
+        case 'dist': return 1 - item.proximity.score // 0 = best locational fit
       }
     }
     return [...recommended].sort((a, b) => {
@@ -135,6 +134,16 @@ export default function Forecast() {
     () => contracts.filter((c) => !isCapacityBand(c)),
     [contracts],
   )
+  // Which energy contracts are checked in the load-chart legend (null until the
+  // chart reports in ⇒ treat as all). The KPI strip counts only these.
+  const [chartedNames, setChartedNames] = useState<Set<string> | null>(null)
+  const chartedEnergyContracts = useMemo(
+    () => (chartedNames ? energyContracts.filter((c) => chartedNames.has(c.projectName)) : energyContracts),
+    [energyContracts, chartedNames],
+  )
+  // The load chart's Month selection ('all' = every in-scope month), mirrored so
+  // the KPI strip stays in step with the chart controls.
+  const [chartMonth, setChartMonth] = useState<number | 'all'>('all')
   const capacityContracts = useMemo(
     () => contracts.filter(isCapacityBand),
     [contracts],
@@ -186,7 +195,7 @@ export default function Forecast() {
     const examineId = searchParams.get('examine')
     if (!examineId || marketProjects.length === 0) return
     const match = marketProjects.find((p) => p.id === examineId)
-    if (match) { setTryOnExpanded(true); openExamineFit(match) }
+    if (match) openExamineFit(match)
     // consume the param so it doesn't re-trigger on re-render
     const next = new URLSearchParams(searchParams)
     next.delete('examine')
@@ -250,6 +259,7 @@ export default function Forecast() {
       )}
 
       {activeTab === 'energy' && (<>
+        <PlanSectionNav />
         <CapacityBox
           profile={profile}
           startYear={startYear}
@@ -257,15 +267,20 @@ export default function Forecast() {
           peakMode={peakMode}
           startHE={startHE}
           endHE={endHE}
+          startMonth={startMonth}
+          endMonth={endMonth}
+          selectedMonth={chartMonth}
           selectedSites={selectedSites}
-          contracts={energyContracts}
+          contracts={chartedEnergyContracts}
           chartYearMode={chartYearMode}
           chartActiveYear={chartActiveYear}
         />
-        <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
+        <div id="plan-chart" className="scroll-mt-40 bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
           <LoadForecastChart
             profile={profile}
             contracts={energyContracts}
+            onSelectionChange={setChartedNames}
+            onMonthChange={setChartMonth}
             peakMode={peakMode}
             startHE={startHE}
             endHE={endHE}
@@ -279,7 +294,7 @@ export default function Forecast() {
         </div>
         {/* Energy contract portfolio — energy-component contracts attached to
             in-scope sites (already scope-filtered). */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div id="plan-portfolio" className="scroll-mt-40 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100">
             <h2 className="text-base font-bold text-slate-900">Energy Contract Portfolio</h2>
             <p className="text-xs text-slate-500">Energy positions linked to in-scope sites.</p>
@@ -289,7 +304,7 @@ export default function Forecast() {
           </div>
         </div>
         {/* Recommended projects — sits directly under the load chart */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div id="plan-recommended" className="scroll-mt-40 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <RecommendationFilters
             prefs={prefs}
             onChange={setPrefs}
@@ -337,7 +352,7 @@ export default function Forecast() {
                       <th colSpan={3} className="py-1 px-2 text-center font-semibold text-amber-700 border-l border-slate-200 bg-amber-50/40">Energy</th>
                       <th colSpan={2} className="py-1 px-2 text-center font-semibold text-indigo-700 border-l border-slate-200 bg-indigo-50/40">RECs</th>
                       <th rowSpan={2} onClick={() => toggleRecSort('type')} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200 cursor-pointer select-none hover:text-slate-700">Type{recArrow('type')}</th>
-                      <th rowSpan={2} onClick={() => toggleRecSort('dist')} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200 cursor-pointer select-none hover:text-slate-700">Dist (mi){recArrow('dist')}</th>
+                      <th rowSpan={2} onClick={() => toggleRecSort('dist')} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200 cursor-pointer select-none hover:text-slate-700" title="Energy keys off the pricing point; capacity off the capacity zone (LDA)">Proximity{recArrow('dist')}</th>
                       <th rowSpan={2} className="py-2 px-2 align-bottom font-semibold uppercase tracking-wider border-l border-slate-200">Action</th>
                     </tr>
                     <tr className="bg-slate-50 border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400">
@@ -353,7 +368,7 @@ export default function Forecast() {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayedRecommended.map(({ project: p, distanceMiles }) => {
+                    {displayedRecommended.map(({ project: p, distanceMiles, proximity }) => {
                       const s = productSummaries[p.id];
                       const st = projectStatus(p);
                       const tm = projectTerm(p);
@@ -388,10 +403,20 @@ export default function Forecast() {
                           <td className="py-2 px-2 border-l border-slate-100">
                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border truncate" style={{ background: `${GEN_COLORS[p.generation_type] ?? '#64748b'}18`, color: GEN_COLORS[p.generation_type] ?? '#64748b', borderColor: `${GEN_COLORS[p.generation_type] ?? '#64748b'}40` }}>{p.generation_type}</span>
                           </td>
-                          {/* Distance */}
-                          <td className={`py-2 px-2 border-l border-slate-100 whitespace-nowrap ${distanceMiles == null ? 'text-slate-300' : 'text-slate-700'}`} title={distanceMiles == null ? 'Location not mapped' : `${Math.round(distanceMiles)} mi from nearest in-scope site`}>
-                            {distanceMiles == null ? '—' : Math.round(distanceMiles)}
-                          </td>
+                          {/* Proximity — pricing point (energy) / capacity zone (capacity) */}
+                          {(() => {
+                            const best = proximity.energy === 'in-zone' || proximity.capacity === 'in-zone'
+                              ? 'zone' : proximity.energy === 'in-iso' || proximity.capacity === 'in-iso' ? 'iso' : 'out'
+                            const cls = best === 'zone' ? 'bg-emerald-50 text-emerald-700'
+                              : best === 'iso' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-400'
+                            const miles = distanceMiles == null ? 'location not mapped' : `${Math.round(distanceMiles)} mi from nearest in-scope site`
+                            return (
+                              <td className="py-2 px-2 border-l border-slate-100 whitespace-nowrap"
+                                  title={`Energy (pricing node): ${proximity.energy} · Capacity (connection point/LDA): ${proximity.capacity} · ${miles}`}>
+                                <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${cls}`}>{proximity.label}</span>
+                              </td>
+                            )
+                          })()}
                           <td className="py-2 px-2 border-l border-slate-100">
                             <button
                               onClick={() => openExamineFit(p)}
@@ -411,7 +436,7 @@ export default function Forecast() {
             )}
           </div>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div id="plan-overview" className="scroll-mt-28 grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-100 min-h-[400px]">
             <CostTimeChart
               contracts={energyContracts}
@@ -500,13 +525,11 @@ export default function Forecast() {
           onClose={() => {
             setTryOnProject(null);
             setTryOnSite(undefined);
-            setTryOnExpanded(false);
           }}
           scopeSite={tryOnSite}
           initialYear={chartActiveYear}
           onSaved={refetchSiteContracts}
           allSiteContracts={siteContractRows}
-          startMinimized={!tryOnExpanded}
         />
       )}
     </div>

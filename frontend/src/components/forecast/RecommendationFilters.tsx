@@ -29,7 +29,7 @@ type DialKey = keyof QualitativeDials
 // Each slider: label + the plain-language phrase for its current position.
 const DIAL_META: Array<{ key: DialKey; label: string; readout: (v: number) => string }> = [
   { key: 'priority', label: 'What matters most', readout: (v) => (v < 35 ? 'Best price' : v < 65 ? 'Balanced' : 'Best fit') },
-  { key: 'locality', label: 'How local', readout: (v) => (v <= 5 ? 'Anywhere' : v < 30 ? 'Wide area' : v < 55 ? 'Regional' : v < 80 ? 'Nearby' : 'Right next door') },
+  { key: 'locality', label: 'Locational fit', readout: (v) => (v < 30 ? 'Anywhere' : v < 70 ? 'Same ISO/market' : 'Same pricing/capacity zone') },
   { key: 'priceAppetite', label: 'Price appetite', readout: (v) => (v < 20 ? 'Bargain only' : v < 45 ? 'Cost-conscious' : v < 70 ? 'Balanced' : v < 95 ? 'Flexible' : 'Any price') },
   { key: 'cleanEnergy', label: 'Clean energy', readout: (v) => (v < 34 ? 'Any source' : v < 67 ? 'Low-carbon' : 'Green only') },
   { key: 'termCommitment', label: 'Term coverage', readout: (v) => (v <= 50 ? 'Any overlap' : 'Full term') },
@@ -53,13 +53,20 @@ export default function RecommendationFilters({
   const [loading, setLoading] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  // Explicit generation-type selection. Empty ⇒ fall back to the Clean-energy
+  // dial's bucket. When set, it pins the exact types (overriding the bucket).
+  const [genSel, setGenSel] = useState<GenerationType[]>([])
 
-  // Apply a new dial set: update local state and push mapped prefs to the engine.
-  const applyDials = (next: QualitativeDials) => {
-    setDials(next)
-    onChange(qualitativeToPreferences(next, availableIsos.length ? availableIsos : prefs.isos))
+  const isos = availableIsos.length ? availableIsos : prefs.isos
+  // Push the current dials + gen-type selection to the engine as one prefs object.
+  const push = (nextDials: QualitativeDials, nextGen: GenerationType[]) => {
+    setDials(nextDials)
+    setGenSel(nextGen)
+    onChange(qualitativeToPreferences(nextDials, isos, nextGen))
   }
-  const setDial = (key: DialKey, value: number) => applyDials({ ...dials, [key]: value })
+  const setDial = (key: DialKey, value: number) => push({ ...dials, [key]: value }, genSel)
+  const toggleGen = (g: GenerationType) =>
+    push(dials, genSel.includes(g) ? genSel.filter((x) => x !== g) : [...genSel, g])
 
   const interpret = async () => {
     const text = aiText.trim()
@@ -73,8 +80,12 @@ export default function RecommendationFilters({
         body: JSON.stringify({ text, facets: { isos: availableIsos, genTypes: availableGenTypes } }),
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not interpret')
-      const { dials: aiDials, note: aiNote } = (await res.json()) as { dials: Partial<QualitativeDials>; note?: string }
-      applyDials({ ...DEFAULT_DIALS, ...dials, ...aiDials })
+      const { dials: aiDials, note: aiNote, generationTypes } = (await res.json()) as {
+        dials: Partial<QualitativeDials>; note?: string; generationTypes?: string[]
+      }
+      const aiGen = (generationTypes ?? []).filter((g): g is GenerationType =>
+        (availableGenTypes as string[]).includes(g))
+      push({ ...DEFAULT_DIALS, ...dials, ...aiDials }, aiGen)
       setNote(aiNote || null)
     } catch (e) {
       setAiError(e instanceof Error ? e.message : 'Could not interpret — adjust the sliders below instead.')
@@ -86,6 +97,7 @@ export default function RecommendationFilters({
   const reset = () => {
     onReset()
     setDials(DEFAULT_DIALS)
+    setGenSel([])
     setNote(null); setAiError(null); setAiText('')
   }
 
@@ -144,6 +156,39 @@ export default function RecommendationFilters({
             </div>
             {note && <p className="text-[11px] text-indigo-700 mt-1.5">Interpreted as: {note}</p>}
             {aiError && <p className="text-[11px] text-amber-700 mt-1.5">{aiError}</p>}
+          </div>
+
+          {/* Generation type — explicit selection pins exact types (overrides the
+              Clean-energy dial). Empty = follow Clean energy. */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Generation type</span>
+              {genSel.length > 0 && (
+                <button type="button" onClick={() => push(dials, [])} className="text-[10px] font-medium text-teal-600 hover:text-teal-700">
+                  Clear (use Clean energy)
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {availableGenTypes.map((g) => {
+                const active = genSel.includes(g)
+                return (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => toggleGen(g)}
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
+                      active ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {g}
+                  </button>
+                )
+              })}
+            </div>
+            {genSel.length === 0 && (
+              <p className="text-[10px] text-slate-400 italic mt-1">No specific type selected — following the Clean-energy dial.</p>
+            )}
           </div>
 
           {/* Qualitative sliders */}
