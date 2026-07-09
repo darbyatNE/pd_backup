@@ -10,6 +10,7 @@ import { getLmpPeriodType, LMP_HISTORY_START, LMP_PERIODS_ALL, buildSimulatedLmp
 import { LOAD_PROFILES, getForecastCapacityForYear } from '../data/loadProfile';
 import { getSuggestedBessMw } from '../utils/capacity';
 import { useRecommendation } from '../contexts/RecommendationContext';
+import { useSiteContracts } from '../data/siteContractsApi';
 import { evaluateProjects } from '../data/projectRecommendation';
 import type { Project, GenerationType, BTMAssetType } from '../types';
 
@@ -178,6 +179,9 @@ export default function MapPage() {
   // but evaluate them against the map's own (freshly fetched) project list — so
   // newly created/published projects aren't excluded by a stale context set.
   const { prefs: recPrefs, scopeWindow: recScope, productSummaries: recSummaries } = useRecommendation();
+  // Saved contracts (RDS) so a Try-On opened from the map shows the same existing
+  // hedge volumes the Plan energy chart does.
+  const { rows: siteContractRows, refetch: refetchSiteContracts } = useSiteContracts();
   const navigate = useNavigate();
   const { setView, setSubTab } = useDashboardView();
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -1621,6 +1625,8 @@ export default function MapPage() {
             setTryOnSite(undefined);
           }}
           scopeSite={tryOnSite}
+          allSiteContracts={siteContractRows}
+          onSaved={refetchSiteContracts}
         />
       )}
       {/* Sidebar */}
