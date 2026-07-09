@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { Fragment } from 'react'
 import {
-  BarChart as ReBarChart,
+  ComposedChart as ReComposedChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -28,6 +29,9 @@ import { GenTypePatternDefsInner } from './GenPatternDefs'
 import { AssetSelectionLegend, getMapIconSvg } from './AssetSelectionLegend'
 
 const OVERHEDGE_PATTERN_ID = 'pat-overhedge'
+// Locational price line — deliberately a near-black, distinct from every load /
+// generation-type color (teal, amber, red, sky, violet, emerald, cyan, magenta).
+const PRICE_LINE_COLOR = '#111827'
 
 function contractKey(name: string): string {
   return name.replace(/[^a-zA-Z0-9]+/g, '_')
@@ -162,9 +166,13 @@ interface LoadShape2DProps {
   onToggleAsset: (projectName: string) => void
   onSelectAllAssets: () => void
   onDeselectAllAssets: () => void
+  // Locational forward-price line ($/MWh), drawn on a secondary Y axis. hourly is
+  // indexed by HE (index h → HE h+1); monthly is keyed `${year}-${month}`.
+  priceHourly?: (number | null)[]
+  priceMonthly?: Map<string, number>
 }
 
-export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, startYear, startMonth = 1, endYear, endMonth = 12, selectedMonth = 'all', peakMode = 'all', startHE = 1, endHE = 24, selected, onToggleAsset, onSelectAllAssets, onDeselectAllAssets }: LoadShape2DProps) {
+export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, startYear, startMonth = 1, endYear, endMonth = 12, selectedMonth = 'all', peakMode = 'all', startHE = 1, endHE = 24, selected, onToggleAsset, onSelectAllAssets, onDeselectAllAssets, priceHourly, priceMonthly }: LoadShape2DProps) {
   // Which HE columns (1..24 ⇒ index 0..23) belong to the active peak scope.
   const heInScope = (hourIndex: number) => heColumnInScope(peakMode, startHE, endHE, hourIndex + 1)
   // A contiguous in-scope block compacts to just those hours; a non-contiguous
@@ -256,8 +264,8 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     const rows = Array.from({ length: 24 }, (_, h) => {
       const hourHE = `HE${h + 1}` // HE (Hour Ending) — energy industry standard
       if (!contiguousHE && !heInScope(h)) {
-        // Out-of-scope hour on a full axis: labelled column, no bars.
-        return buildRow(hourHE, 0, 0, sortedContracts.map(() => 0))
+        // Out-of-scope hour on a full axis: labelled column, no bars, no price.
+        return { ...buildRow(hourHE, 0, 0, sortedContracts.map(() => 0)), price: null }
       }
       let baseSum = 0
       let peakSum = 0
@@ -266,17 +274,20 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
         baseSum += eff.baseloadMw
         peakSum += eff.peakMw
       }
-      return buildRow(hourHE, baseSum / n, peakSum / n,
-        sortedContracts.map((c) => {
-          let s = 0
-          for (const { y, m } of hoursPairs) s += contractMwAtHourInYear(c, h, m, y)
-          return s / n
-        }),
-      )
+      return {
+        ...buildRow(hourHE, baseSum / n, peakSum / n,
+          sortedContracts.map((c) => {
+            let s = 0
+            for (const { y, m } of hoursPairs) s += contractMwAtHourInYear(c, h, m, y)
+            return s / n
+          }),
+        ),
+        price: priceHourly?.[h] ?? null,
+      }
     })
     return contiguousHE ? rows.filter((_, h) => heInScope(h)) : rows
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, sortedContracts, hoursPairs, peakMode, startHE, endHE, contiguousHE])
+  }, [profile, sortedContracts, hoursPairs, peakMode, startHE, endHE, contiguousHE, priceHourly])
 
   const monthRows = useMemo(() => {
     const yy = (y: number) => `'${String(y).slice(-2)}`
@@ -296,16 +307,19 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       }
       const baseMw = denom ? baseSum / denom : 0
       const peakMw = denom ? peakSum / denom : 0
-      return buildRow(label, baseMw, peakMw,
-        sortedContracts.map((c) => {
-          let s = 0
-          for (let h = 0; h < 24; h++) {
-            const dc = scopeDayCount(peakMode, startHE, endHE, y, month, h + 1)
-            if (dc > 0) s += contractMwAtHourInYear(c, h, month, y) * dc
-          }
-          return denom ? s / denom : 0
-        }),
-      )
+      return {
+        ...buildRow(label, baseMw, peakMw,
+          sortedContracts.map((c) => {
+            let s = 0
+            for (let h = 0; h < 24; h++) {
+              const dc = scopeDayCount(peakMode, startHE, endHE, y, month, h + 1)
+              if (dc > 0) s += contractMwAtHourInYear(c, h, month, y) * dc
+            }
+            return denom ? s / denom : 0
+          }),
+        ),
+        price: priceMonthly?.get(`${y}-${month}`) ?? null,
+      }
     }
     const monthLabels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -330,12 +344,22 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     }
     return monthsInScope.map((m) => rowFor(m, year, monthLabels[m - 1]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, fullScopeYears, profile, sortedContracts, peakMode, startHE, endHE, startMonth, endMonth, startYear, endYear])
+  }, [year, fullScopeYears, profile, sortedContracts, peakMode, startHE, endHE, startMonth, endMonth, startYear, endYear, priceMonthly])
 
   const data = xAxis === 'hours' ? hourlyData : monthRows
   const yLabel = xAxis === 'hours' ? 'MW' : 'MW avg'
+  // Show the locational price line only when we actually have forecast points.
+  const showPrice = data.some((r) => (r as { price?: number | null }).price != null)
 
   const yearsKey = fullScopeYears ? fullScopeYears.join(',') : String(year)
+  // Price data arrives asynchronously (after month/year already settled), so it
+  // must be part of the remount key — otherwise the keyed container won't redraw
+  // the price line when a new forecast lands.
+  const priceKey = xAxis === 'hours'
+    ? (priceHourly ?? []).map((v) => (v == null ? '_' : Math.round(v))).join('.')
+    : priceMonthly
+      ? Array.from(priceMonthly.entries()).map(([k, v]) => `${k}:${Math.round(v)}`).join(',')
+      : ''
   const chartKey =
     profile.siteKey + '|' +
     contracts.map((c) => `${c.projectName}:${c.mwCovered}`).join('|') +
@@ -343,7 +367,8 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
     '|x:' + xAxis +
     '|m:' + String(selectedMonth) +
     '|he:' + peakMode + startHE + '-' + endHE +
-    '|y:' + yearsKey
+    '|y:' + yearsKey +
+    '|pr:' + priceKey
 
   // Calculate max capacity to ensure Y-axis includes the capacity line
   const getCap = (y: number) => {
@@ -372,7 +397,7 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
       {/* Chart - Right Side */}
       <div className="flex-1">
         <ResponsiveContainer width="100%" height={300} key={chartKey}>
-          <ReBarChart data={data} stackOffset="sign" margin={{ top: 8, right: 16, left: 8, bottom: 4 }} barCategoryGap="20%">
+          <ReComposedChart data={data} stackOffset="sign" margin={{ top: 8, right: showPrice ? 8 : 16, left: 8, bottom: 4 }} barCategoryGap="20%">
             <CartesianGrid vertical={false} stroke="rgba(134,133,133,0.2)" />
             <XAxis
               dataKey="label"
@@ -387,6 +412,16 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
               label={{ value: yLabel, angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11, offset: 10 }}
               domain={[0, Math.round(Math.max(maxCapacity * 1.1, 10))]}
             />
+            {showPrice && (
+              <YAxis
+                yAxisId="price"
+                orientation="right"
+                tick={{ fill: PRICE_LINE_COLOR, fontSize: 11, fontFamily: 'Inter' }}
+                axisLine={false} tickLine={false} width={48}
+                tickFormatter={(v) => `$${v}`}
+                label={{ value: '$/MWh', angle: 90, position: 'insideRight', fill: PRICE_LINE_COLOR, fontSize: 11, offset: 10 }}
+              />
+            )}
             <Tooltip content={<ChartTooltip contracts={chartContracts} yLabel={yLabel} />} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
             {(() => {
               // In multi-year view, show capacity line for each year segment
@@ -489,7 +524,21 @@ export function LoadShape2D({ profile, xAxis, year, fullScopeYears, contracts, s
               name="Over-hedge"
               isAnimationActive={false}
             />
-          </ReBarChart>
+
+            {showPrice && (
+              <Line
+                yAxisId="price"
+                type="monotone"
+                dataKey="price"
+                stroke={PRICE_LINE_COLOR}
+                strokeWidth={2.5}
+                dot={false}
+                connectNulls
+                name="Forecast $/MWh"
+                isAnimationActive={false}
+              />
+            )}
+          </ReComposedChart>
         </ResponsiveContainer>
 
         {/* Pattern Legend - Below X-axis */}

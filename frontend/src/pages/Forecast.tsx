@@ -32,6 +32,7 @@ import {
   PlanSectionNav,
 } from '../components/forecast'
 import type { BtmOption } from '../components/forecast'
+import { useZonePriceLine, type PriceWindow } from '../data/zonePriceForecast'
 
 const GEN_COLORS: Record<string, string> = {
   Solar: '#f59e0b',
@@ -107,9 +108,10 @@ export default function Forecast() {
     })
   }, [recommended, recSort, productSummaries])
 
-  const profiles = selectedSites
-    .map((k) => LOAD_PROFILE_MAP[k])
-    .filter(Boolean) as SiteLoadProfile[]
+  const profiles = useMemo(
+    () => selectedSites.map((k) => LOAD_PROFILE_MAP[k]).filter(Boolean) as SiteLoadProfile[],
+    [selectedSites],
+  )
 
   const profile = profiles.length === 0
     ? LOAD_PROFILES[0]
@@ -144,6 +146,33 @@ export default function Forecast() {
   // The load chart's Month selection ('all' = every in-scope month), mirrored so
   // the KPI strip stays in step with the chart controls.
   const [chartMonth, setChartMonth] = useState<number | 'all'>('all')
+
+  // Locational price line ($/MWh) overlaid on the energy chart. The fetch window
+  // mirrors exactly what the chart is displaying, so the line updates on every
+  // scope or chart-control change:
+  //   • year range  — the active year when viewing a single year, else the full
+  //                    in-scope span (all-years mode or the Months view)
+  //   • months      — the single selected month in the Hours view, else all
+  // The hook then volume-weights the in-scope zones by load.
+  const singleYear = loadXAxis === 'hours' && chartYearMode !== 'all'
+  const priceWindow = useMemo<PriceWindow>(() => ({
+    startYear: singleYear ? chartActiveYear : startYear,
+    endYear: singleYear ? chartActiveYear : endYear,
+    months: loadXAxis === 'hours' && chartMonth !== 'all' ? [chartMonth] : [],
+  }), [singleYear, loadXAxis, chartYearMode, startYear, endYear, chartActiveYear, chartMonth])
+  const { hourly: priceHourly, monthly: priceMonthly } = useZonePriceLine(profiles, priceWindow)
+
+  // Expected-load-cost KPI: prices scoped to the same period the KPI strip
+  // summarizes (single active year, else the full scope span; chart month).
+  const costWindow = useMemo<PriceWindow>(() => {
+    const single = chartYearMode === 'single' && chartActiveYear
+    return {
+      startYear: single ? chartActiveYear : startYear,
+      endYear: single ? chartActiveYear : endYear,
+      months: chartMonth === 'all' ? [] : [chartMonth],
+    }
+  }, [chartYearMode, chartActiveYear, startYear, endYear, chartMonth])
+  const { hourly: costHourly, monthly: costMonthly } = useZonePriceLine(profiles, costWindow)
   const capacityContracts = useMemo(
     () => contracts.filter(isCapacityBand),
     [contracts],
@@ -274,6 +303,8 @@ export default function Forecast() {
           contracts={chartedEnergyContracts}
           chartYearMode={chartYearMode}
           chartActiveYear={chartActiveYear}
+          priceHourly={costHourly}
+          priceMonthly={costMonthly}
         />
         <div id="plan-chart" className="scroll-mt-40 bg-white rounded-2xl p-8 shadow-sm border border-slate-100">
           <LoadForecastChart
@@ -290,6 +321,8 @@ export default function Forecast() {
             onYearChange={setChartActiveYear}
             yearMode={chartYearMode}
             onYearModeChange={setChartYearMode}
+            priceHourly={priceHourly}
+            priceMonthly={priceMonthly}
           />
         </div>
         {/* Energy contract portfolio — energy-component contracts attached to

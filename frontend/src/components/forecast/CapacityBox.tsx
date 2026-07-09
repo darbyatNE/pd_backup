@@ -28,9 +28,19 @@ interface CapacityBoxProps {
   // level — exploring (proposed), pending (committed), and contracted (accepted)
   // — so the KPI strip reflects all of them.
   contracts?: LinkedContract[]
+  // Locational forward price for the "expected load cost" KPI. hourly is the
+  // HE1–24 shape (index h → HE h+1); monthly is keyed `${year}-${month}`. Both
+  // are already scoped to the KPI period and load-weighted across zones.
+  priceHourly?: (number | null)[]
+  priceMonthly?: Map<string, number>
 }
 
-export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMonth = 12, peakMode = 'all', startHE = 1, endHE = 24, selectedMonth = 'all', selectedSites, chartYearMode, chartActiveYear, contracts = [] }: CapacityBoxProps) {
+export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMonth = 12, peakMode = 'all', startHE = 1, endHE = 24, selectedMonth = 'all', selectedSites, chartYearMode, chartActiveYear, contracts = [], priceHourly, priceMonthly }: CapacityBoxProps) {
+  // Mean of the hourly price shape — used to spread a month's average price
+  // across the day (price(m,h) ≈ monthLevel × heShape(h) / heMean) so the cost
+  // reflects the diurnal shape and stays correct under an HE/peak filter.
+  const heVals = (priceHourly ?? []).filter((v): v is number => v != null)
+  const heMean = heVals.length ? heVals.reduce((s, v) => s + v, 0) / heVals.length : 0
   // Peak scope: KPIs below are weighted by the number of in-scope days per
   // (month, hour) via the NERC 5×16 calendar — exact for on/off-peak.
   const allHours = peakMode === 'all'
@@ -58,9 +68,13 @@ export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMo
     const siteContracts = contracts
     let baseOverSum = 0, peakOverSum = 0, totalLoad = 0, baseSum = 0, peakSum = 0, hourInst = 0
     let baseCovSum = 0, peakCovSum = 0, coveredSum = 0, contractedSum = 0, contractedValue = 0
+    // Expected cost of serving the load at forecast LMPs, plus the priced MWh
+    // (load that actually had a forecast price) so we can report a $/MWh average.
+    let expectedCost = 0, pricedLoad = 0
 
     for (let m = 1; m <= 12; m++) {
       if (!monthInScope(year, m)) continue
+      const monthLevel = priceMonthly?.get(`${year}-${m}`) ?? null
       for (let h = 0; h < 24; h++) {
         // Days this (month, hour) is in scope — 0 skips it, else the exact count.
         const days = scopeDayCount(peakMode, startHE, endHE, year, m, h + 1)
@@ -72,6 +86,18 @@ export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMo
         baseSum += baseLd * days
         peakSum += peakLd * days
         hourInst += days
+
+        // Forecast price for this (month, hour): monthly level shaped by the hour,
+        // falling back to whichever series is available.
+        const heP = priceHourly?.[h] ?? null
+        const price = monthLevel != null && heMean > 0 && heP != null ? monthLevel * (heP / heMean)
+          : heP != null ? heP
+          : monthLevel != null ? monthLevel
+          : null
+        if (price != null) {
+          expectedCost += (baseLd + peakLd) * price * days
+          pricedLoad += (baseLd + peakLd) * days
+        }
 
         // Sum contracted MW in this hour, split by the load tier each contract
         // hedges (wind/nuclear → base, solar/peaker → peak).
@@ -127,6 +153,8 @@ export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMo
       coveredMwh: coveredSum,
       contractedMwh: contractedSum,
       contractedValue,
+      expectedCost,
+      pricedLoadMwh: pricedLoad,
     }
   }
 
@@ -193,9 +221,20 @@ export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMo
   const totalCoveredMwhAll = perYear.reduce((s, y) => s + y.coveredMwh, 0)
   const pctHedged = totalLoadMwhAll > 0 ? Math.round((totalCoveredMwhAll / totalLoadMwhAll) * 100) : 0
 
+  // Expected load cost at forecast LMPs: the load-weighted average $/MWh over the
+  // period, plus the mean annual $ it implies. hasPrice is false when no in-scope
+  // zone has a forecast (e.g. non-PJM sites), so the tile can show "—".
+  const totalExpectedCost = perYear.reduce((s, y) => s + y.expectedCost, 0)
+  const totalPricedMwh = perYear.reduce((s, y) => s + y.pricedLoadMwh, 0)
+  const hasPrice = totalPricedMwh > 0
+  const avgLoadCostPerMwh = hasPrice ? totalExpectedCost / totalPricedMwh : 0
+  const annualExpectedCost = totalExpectedCost / (perYear.length || 1)
+  const fmtUsd = (v: number) =>
+    v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${Math.round(v / 1e3)}K` : `$${Math.round(v)}`
+
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-6 py-3 flex items-center justify-between gap-4">
-      <div className="flex flex-col gap-0.5 w-[112px] flex-shrink-0">
+      <div className="flex flex-col gap-0.5 w-[56px] flex-shrink-0">
         <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">Site</p>
         <p className="text-sm font-bold text-slate-900 truncate">{profile.name}</p>
         {(() => {
@@ -266,6 +305,23 @@ export function CapacityBox({ profile, startYear, endYear, startMonth = 1, endMo
           </div>
           <p className="text-xs text-slate-400 whitespace-nowrap">
             vol-wtd · {isRange ? `avg ${scopeLabel}` : displayYears[0]}
+          </p>
+        </div>
+
+        <span className="w-px h-10 bg-slate-100 flex-shrink-0 hidden sm:block" />
+
+        <div className="flex flex-col gap-0.5 min-w-0 flex-[1.5]">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">
+            Avg Expected Load Cost
+          </p>
+          <div className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-2xl font-extrabold text-slate-900 leading-none">
+              {hasPrice ? `$${avgLoadCostPerMwh.toFixed(2)}` : '—'}
+            </span>
+            {hasPrice && <span className="text-sm font-semibold text-slate-700">/MWh</span>}
+          </div>
+          <p className="text-xs text-slate-400 whitespace-nowrap">
+            {hasPrice ? `${fmtUsd(annualExpectedCost)}/yr at forecast LMP` : 'no zone forecast'}
           </p>
         </div>
 

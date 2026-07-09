@@ -24,9 +24,13 @@ interface LoadForecastChartProps {
   onSelectionChange?: (selected: Set<string>) => void
   // Notifies the parent of the chart's Month selection so the KPI strip matches.
   onMonthChange?: (month: number | 'all') => void
+  // Locational forward-price line ($/MWh): HE1–24 shape (index h = HE h+1) and a
+  // per-month series keyed `${year}-${month}`. Rendered on a secondary Y axis.
+  priceHourly?: (number | null)[]
+  priceMonthly?: Map<string, number>
 }
 
-export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange, peakMode = 'all', startHE = 1, endHE = 24, onSelectionChange, onMonthChange }: LoadForecastChartProps) {
+export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, activeYear: externalYear, onYearChange, yearMode: externalYearMode, onYearModeChange, peakMode = 'all', startHE = 1, endHE = 24, onSelectionChange, onMonthChange, priceHourly, priceMonthly }: LoadForecastChartProps) {
   const [view, setView] = useState<'2d' | '3d'>('2d')
   const { startYear, endYear, startMonth, endMonth } = useScopeContext()
 
@@ -249,6 +253,8 @@ export function LoadForecastChart({ profile, contracts, xAxis, onXAxisChange, ac
           onToggleAsset={toggleAsset}
           onSelectAllAssets={selectAllAssets}
           onDeselectAllAssets={deselectAllAssets}
+          priceHourly={priceHourly}
+          priceMonthly={priceMonthly}
         />
       )}
       {view === '3d' && (

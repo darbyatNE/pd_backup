@@ -266,4 +266,71 @@ router.delete('/groups/:id', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/planning/zone-price-forecast
+//   ?zones=DOM,PSEG&startYear=2027&endYear=2027&months=1,2,3
+// Per-zone forward LMP price series for the locational price line on the Plan
+// energy chart. Both series come from planning.lmp_forecast_forward_nodes_hourly:
+//   • hourly  — the HE1–24 price shape (avg forecasted_total_lmp by EPT hour-
+//               ending) across the requested delivery window
+//   • monthly — avg forecasted_total_lmp per delivery month in the window
+// The window is a year range + optional calendar-month filter, so the frontend
+// can request exactly the period the chart is displaying (a single month, a
+// single year, or the full scope). The frontend then volume-weights the per-zone
+// series by in-scope load per hour/month.
+router.get('/zone-price-forecast', authenticate, async (req, res) => {
+  try {
+    const zones = String(req.query.zones || '')
+      .split(',').map((z) => z.trim().toUpperCase()).filter(Boolean);
+    if (zones.length === 0) return res.json({ zones: {}, missing: [] });
+    const iv = (v, d) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : d; };
+    const startYear = iv(req.query.startYear, 2026);
+    const endYear = iv(req.query.endYear, 2035);
+    const months = String(req.query.months || '')
+      .split(',').map((x) => parseInt(x, 10)).filter((n) => n >= 1 && n <= 12);
+    const T = 'planning.lmp_forecast_forward_nodes_hourly';
+    // Empty months ⇒ all months in the year range.
+    const monthClause = months.length ? ' AND delivery_month = ANY($4)' : '';
+    const params = months.length ? [zones, startYear, endYear, months] : [zones, startYear, endYear];
+    const whereBase = `node_name = ANY($1) AND delivery_year BETWEEN $2 AND $3${monthClause}`;
+    const r2 = (x) => (x == null ? null : Math.round(Number(x) * 100) / 100);
+
+    // HE1–24 price shape (EPT hour-ending = local hour + 1, stamps are hour-beginning)
+    const { rows: heRows } = await query(
+      `SELECT node_name,
+              (EXTRACT(hour FROM forecast_hour_utc AT TIME ZONE 'America/New_York')::int + 1) AS he,
+              AVG(forecasted_total_lmp)::float AS price
+         FROM ${T}
+        WHERE ${whereBase}
+        GROUP BY node_name, he`,
+      params,
+    );
+    // Monthly average per delivery month
+    const { rows: moRows } = await query(
+      `SELECT node_name, delivery_year AS year, delivery_month AS month,
+              AVG(forecasted_total_lmp)::float AS price
+         FROM ${T}
+        WHERE ${whereBase}
+        GROUP BY node_name, delivery_year, delivery_month`,
+      params,
+    );
+
+    const out = {};
+    for (const z of zones) out[z] = { hourly: Array(24).fill(null), monthly: [] };
+    for (const r of heRows) {
+      const z = out[r.node_name];
+      if (z && r.he >= 1 && r.he <= 24) z.hourly[r.he - 1] = r2(r.price);
+    }
+    for (const r of moRows) {
+      const z = out[r.node_name];
+      if (z) z.monthly.push({ year: r.year, month: r.month, price: r2(r.price) });
+    }
+    for (const z of zones) out[z].monthly.sort((a, b) => a.year - b.year || a.month - b.month);
+    const missing = zones.filter((z) => out[z].hourly.every((v) => v == null));
+    res.json({ zones: out, missing });
+  } catch (e) {
+    console.error('zone-price-forecast error:', e);
+    res.status(500).json({ error: 'Failed to load zone price forecast' });
+  }
+});
+
 export default router;
