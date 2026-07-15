@@ -1,7 +1,9 @@
 import express from 'express';
 import { getSupabaseWithUser } from '../services/supabase.js';
 import { authenticate } from '../middleware/auth.js';
-import { createS3Upload, generatePresignedUrl, deleteFile } from '../services/s3.js';
+import { createS3Upload } from '../services/s3.js';
+import { buildFileMetadata, parseCustomMetadata } from '../utils/uploads.js';
+import { createGetByIdHandler, createDeleteHandler } from '../utils/resourceHandlers.js';
 
 const router = express.Router();
 
@@ -60,13 +62,9 @@ router.post('/upload', authenticate, uploadToS3.array('files', 10), async (req, 
     }
 
     // Parse custom metadata if provided
-    let parsedMetadata = {};
-    if (customMetadata) {
-      try {
-        parsedMetadata = typeof customMetadata === 'string' ? JSON.parse(customMetadata) : customMetadata;
-      } catch (e) {
-        return res.status(400).json({ error: 'Invalid metadata format' });
-      }
+    const { metadata: parsedMetadata, error: metadataError } = parseCustomMetadata(customMetadata);
+    if (metadataError) {
+      return res.status(400).json({ error: metadataError });
     }
 
     // Determine file type from extension
@@ -89,14 +87,7 @@ router.post('/upload', authenticate, uploadToS3.array('files', 10), async (req, 
       file_type: getFileType(file.originalname),
       file_size: file.size,
       uploaded_by: req.user.id,
-      metadata: {
-        uploaded_at: new Date().toISOString(),
-        mime_type: file.mimetype,
-        checksum: file.etag || null, // S3 ETag serves as checksum for integrity verification
-        s3_version_id: file.versionId || null, // S3 version ID if versioning is enabled
-        s3_location: file.location || null, // Full S3 URL
-        ...parsedMetadata, // Merge custom metadata
-      },
+      metadata: buildFileMetadata(file, parsedMetadata),
       uploaded_at: new Date().toISOString(),
     }));
 
@@ -169,85 +160,20 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // GET /api/technical-documents/:id - Get technical document by ID with download URL
-router.get('/:id', authenticate, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Use user-scoped Supabase client to respect RLS
-    const supabase = getSupabaseWithUser(req.userToken);
-
-    const { data: document, error } = await supabase
-      .from('technical_documents')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !document) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-
-    // Check if user has access to this document
-    if (document.uploaded_by !== req.user.id) {
-      // TODO: Add logic to check if user is part of the project
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    // Generate presigned URL for download
-    const downloadUrl = await generatePresignedUrl(document.file_path, 3600);
-
-    res.json({
-      ...document,
-      download_url: downloadUrl,
-    });
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Failed to retrieve document' });
-  }
-});
+router.get('/:id', authenticate, createGetByIdHandler({
+  table: 'technical_documents',
+  ownerField: 'uploaded_by',
+  notFoundError: 'Document not found',
+  retrieveError: 'Failed to retrieve document',
+}));
 
 // DELETE /api/technical-documents/:id - Delete a technical document
-router.delete('/:id', authenticate, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Use user-scoped Supabase client to respect RLS
-    const supabase = getSupabaseWithUser(req.userToken);
-
-    // Fetch the document to get file_path and verify ownership
-    const { data: document, error: fetchError } = await supabase
-      .from('technical_documents')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (fetchError || !document) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-
-    // Check ownership
-    if (document.uploaded_by !== req.user.id) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    // Delete from S3
-    await deleteFile(document.file_path);
-
-    // Delete from database
-    const { error: deleteError } = await supabase
-      .from('technical_documents')
-      .delete()
-      .eq('id', id);
-
-    if (deleteError) {
-      console.error('Error deleting document from DB:', deleteError);
-      return res.status(500).json({ error: 'Failed to delete document' });
-    }
-
-    res.json({ message: 'Document deleted successfully' });
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Failed to delete document' });
-  }
-});
+router.delete('/:id', authenticate, createDeleteHandler({
+  table: 'technical_documents',
+  ownerField: 'uploaded_by',
+  notFoundError: 'Document not found',
+  deleteError: 'Failed to delete document',
+  successMessage: 'Document deleted successfully',
+}));
 
 export default router;

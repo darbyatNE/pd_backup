@@ -1,4 +1,3 @@
-import { supabase } from './supabase';
 import type {
   BuyerUploadParams,
   SellerUploadParams,
@@ -11,20 +10,9 @@ import type {
   SellerType,
   TechnologyType,
 } from '../types';
+import { API_BASE_URL, apiRequest, buildFormData, buildQueryString } from './http';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
-
-/**
- * Get auth token from Supabase session
- */
-const getAuthToken = async (): Promise<string | null> => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
-  } catch {
-    return null;
-  }
-};
+export { API_BASE_URL };
 
 /**
  * Upload files to the documents API
@@ -37,34 +25,14 @@ export const uploadDocuments = async (
   files: File[],
   documentType: string = 'other',
   transactionId?: string
-): Promise<Record<string, unknown>> => {
-  const formData = new FormData();
-
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-
-  formData.append('document_type', documentType);
-  if (transactionId) {
-    formData.append('transaction_id', transactionId);
-  }
-
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+): Promise<Record<string, unknown>> =>
+  apiRequest('/documents/upload', 'Failed to upload documents', {
     method: 'POST',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: formData,
+    body: buildFormData(files, {
+      document_type: documentType,
+      transaction_id: transactionId,
+    }),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Failed to upload documents');
-  }
-
-  return response.json();
-};
 
 /**
  * Upload technical documents to the API
@@ -75,33 +43,11 @@ export const uploadDocuments = async (
 export const uploadTechnicalDocuments = async (
   files: File[],
   projectId?: string
-): Promise<Record<string, unknown>> => {
-  const formData = new FormData();
-
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-
-  if (projectId) {
-    formData.append('project_id', projectId);
-  }
-
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/technical-documents/upload`, {
+): Promise<Record<string, unknown>> =>
+  apiRequest('/technical-documents/upload', 'Failed to upload technical documents', {
     method: 'POST',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: formData,
+    body: buildFormData(files, { project_id: projectId }),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Failed to upload technical documents');
-  }
-
-  return response.json();
-};
 
 /**
  * Upload power plan files to the API
@@ -112,112 +58,42 @@ export const uploadTechnicalDocuments = async (
 export const uploadPowerPlans = async (
   files: File[],
   planType: string = 'historical'
-): Promise<Record<string, unknown>> => {
-  const formData = new FormData();
-
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-
-  formData.append('plan_type', planType);
-
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/power-plans/upload`, {
+): Promise<Record<string, unknown>> =>
+  apiRequest('/power-plans/upload', 'Failed to upload power plans', {
     method: 'POST',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: formData,
+    body: buildFormData(files, { plan_type: planType }),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Failed to upload power plans');
-  }
-
-  return response.json();
-};
 
 /**
  * Get download URL for a document
  * @param documentId - Document ID
  * @returns Promise with document data including download URL
  */
-export const getDocumentDownloadUrl = async (documentId: string): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to get document' }));
-    throw new Error(error.error || 'Failed to retrieve document');
-  }
-
-  return response.json();
-};
+export const getDocumentDownloadUrl = async (documentId: string): Promise<Record<string, unknown>> =>
+  apiRequest(`/documents/${documentId}`, 'Failed to retrieve document');
 
 /**
  * Get download URL for a technical document
  * @param documentId - Technical document ID
  * @returns Promise with document data including download URL
  */
-export const getTechnicalDocumentDownloadUrl = async (documentId: string): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/technical-documents/${documentId}`, {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to get document' }));
-    throw new Error(error.error || 'Failed to retrieve document');
-  }
-
-  return response.json();
-};
+export const getTechnicalDocumentDownloadUrl = async (documentId: string): Promise<Record<string, unknown>> =>
+  apiRequest(`/technical-documents/${documentId}`, 'Failed to retrieve document');
 
 /**
  * Get download URL for a power plan
  * @param planId - Power plan ID
  * @returns Promise with plan data including download URL
  */
-export const getPowerPlanDownloadUrl = async (planId: string): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/power-plans/${planId}`, {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to get power plan' }));
-    throw new Error(error.error || 'Failed to retrieve power plan');
-  }
-
-  return response.json();
-};
+export const getPowerPlanDownloadUrl = async (planId: string): Promise<Record<string, unknown>> =>
+  apiRequest(`/power-plans/${planId}`, 'Failed to retrieve power plan');
 
 /**
  * Delete a document
  * @param documentId - Document ID
  */
 export const deleteDocument = async (documentId: string): Promise<void> => {
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
-    method: 'DELETE',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to delete document' }));
-    throw new Error(error.error || 'Failed to delete document');
-  }
+  await apiRequest(`/documents/${documentId}`, 'Failed to delete document', { method: 'DELETE' });
 };
 
 /**
@@ -225,18 +101,7 @@ export const deleteDocument = async (documentId: string): Promise<void> => {
  * @param documentId - Technical document ID
  */
 export const deleteTechnicalDocument = async (documentId: string): Promise<void> => {
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/technical-documents/${documentId}`, {
-    method: 'DELETE',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to delete document' }));
-    throw new Error(error.error || 'Failed to delete document');
-  }
+  await apiRequest(`/technical-documents/${documentId}`, 'Failed to delete document', { method: 'DELETE' });
 };
 
 /**
@@ -244,18 +109,7 @@ export const deleteTechnicalDocument = async (documentId: string): Promise<void>
  * @param planId - Power plan ID
  */
 export const deletePowerPlan = async (planId: string): Promise<void> => {
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/power-plans/${planId}`, {
-    method: 'DELETE',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to delete power plan' }));
-    throw new Error(error.error || 'Failed to delete power plan');
-  }
+  await apiRequest(`/power-plans/${planId}`, 'Failed to delete power plan', { method: 'DELETE' });
 };
 
 // ============================================================================
@@ -270,35 +124,15 @@ export const deletePowerPlan = async (planId: string): Promise<void> => {
 export const uploadBuyerDocument = async (params: BuyerUploadParams): Promise<Record<string, unknown>> => {
   const { files, facility_type, document_category, plan_type = 'historical', metadata } = params;
 
-  const formData = new FormData();
-
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-
-  formData.append('facility_type', facility_type);
-  formData.append('document_category', document_category);
-  formData.append('plan_type', plan_type);
-
-  if (metadata) {
-    formData.append('metadata', JSON.stringify(metadata));
-  }
-
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/power-plans/upload`, {
+  return apiRequest('/power-plans/upload', 'Failed to upload buyer documents', {
     method: 'POST',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: formData,
+    body: buildFormData(files, {
+      facility_type,
+      document_category,
+      plan_type,
+      metadata: metadata ? JSON.stringify(metadata) : undefined,
+    }),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Failed to upload buyer documents');
-  }
-
-  return response.json();
 };
 
 /**
@@ -306,24 +140,12 @@ export const uploadBuyerDocument = async (params: BuyerUploadParams): Promise<Re
  * @param formData - Greenfield form data
  * @returns Promise with submission response
  */
-export const submitGreenfieldForm = async (formData: GreenfieldFormData): Promise<Record<string, unknown>> => {
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/power-plans/greenfield-form`, {
+export const submitGreenfieldForm = async (formData: GreenfieldFormData): Promise<Record<string, unknown>> =>
+  apiRequest('/power-plans/greenfield-form', 'Failed to submit greenfield form', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(formData),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Submission failed' }));
-    throw new Error(error.error || 'Failed to submit greenfield form');
-  }
-
-  return response.json();
-};
 
 /**
  * Upload seller documents (carbon-free/utility)
@@ -333,45 +155,16 @@ export const submitGreenfieldForm = async (formData: GreenfieldFormData): Promis
 export const uploadSellerDocument = async (params: SellerUploadParams): Promise<Record<string, unknown>> => {
   const { files, seller_type, technology_type, contract_type, project_id, metadata } = params;
 
-  const formData = new FormData();
-
-  files.forEach((file) => {
-    formData.append('files', file);
-  });
-
-  formData.append('seller_type', seller_type);
-
-  if (seller_type === 'carbon_free' && technology_type) {
-    formData.append('technology_type', technology_type);
-  }
-
-  if (seller_type === 'utility' && contract_type) {
-    formData.append('contract_type', contract_type);
-  }
-
-  if (project_id) {
-    formData.append('project_id', project_id);
-  }
-
-  if (metadata) {
-    formData.append('metadata', JSON.stringify(metadata));
-  }
-
-  const token = await getAuthToken();
-  const response = await fetch(`${API_BASE_URL}/technical-documents/upload`, {
+  return apiRequest('/technical-documents/upload', 'Failed to upload seller documents', {
     method: 'POST',
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: formData,
+    body: buildFormData(files, {
+      seller_type,
+      technology_type: seller_type === 'carbon_free' ? technology_type : undefined,
+      contract_type: seller_type === 'utility' ? contract_type : undefined,
+      project_id,
+      metadata: metadata ? JSON.stringify(metadata) : undefined,
+    }),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-    throw new Error(error.error || 'Failed to upload seller documents');
-  }
-
-  return response.json();
 };
 
 /**
@@ -386,27 +179,13 @@ export const getExampleDocuments = async (
   facilityType?: FacilityType,
   sellerType?: SellerType
 ): Promise<{ examples?: Record<string, ExampleDocument>; example?: ExampleDocument }> => {
-  const token = await getAuthToken();
-
-  const params = new URLSearchParams();
-  if (facilityType) params.append('facility_type', facilityType);
-  if (sellerType) params.append('seller_type', sellerType);
-  if (category) params.append('category', category);
-
-  const url = `${API_BASE_URL}/example-documents${params.toString() ? `?${params.toString()}` : ''}`;
-
-  const response = await fetch(url, {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
+  const query = buildQueryString({
+    facility_type: facilityType,
+    seller_type: sellerType,
+    category,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to fetch examples' }));
-    throw new Error(error.error || 'Failed to retrieve example documents');
-  }
-
-  return response.json();
+  return apiRequest(`/example-documents${query}`, 'Failed to retrieve example documents');
 };
 
 /**
@@ -419,27 +198,13 @@ export const getPowerPlans = async (filters?: {
   facility_type?: FacilityType;
   document_category?: BuyerDocumentCategory;
 }): Promise<{ plans: PowerPlan[] }> => {
-  const token = await getAuthToken();
-
-  const params = new URLSearchParams();
-  if (filters?.plan_type) params.append('plan_type', filters.plan_type);
-  if (filters?.facility_type) params.append('facility_type', filters.facility_type);
-  if (filters?.document_category) params.append('document_category', filters.document_category);
-
-  const url = `${API_BASE_URL}/power-plans${params.toString() ? `?${params.toString()}` : ''}`;
-
-  const response = await fetch(url, {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
+  const query = buildQueryString({
+    plan_type: filters?.plan_type,
+    facility_type: filters?.facility_type,
+    document_category: filters?.document_category,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to fetch power plans' }));
-    throw new Error(error.error || 'Failed to retrieve power plans');
-  }
-
-  return response.json();
+  return apiRequest(`/power-plans${query}`, 'Failed to retrieve power plans');
 };
 
 /**
@@ -453,28 +218,14 @@ export const getTechnicalDocuments = async (filters?: {
   seller_type?: SellerType;
   technology_type?: TechnologyType;
 }): Promise<{ documents: TechnicalDocument[] }> => {
-  const token = await getAuthToken();
-
-  const params = new URLSearchParams();
-  if (filters?.project_id) params.append('project_id', filters.project_id);
-  if (filters?.file_type) params.append('file_type', filters.file_type);
-  if (filters?.seller_type) params.append('seller_type', filters.seller_type);
-  if (filters?.technology_type) params.append('technology_type', filters.technology_type);
-
-  const url = `${API_BASE_URL}/technical-documents${params.toString() ? `?${params.toString()}` : ''}`;
-
-  const response = await fetch(url, {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
+  const query = buildQueryString({
+    project_id: filters?.project_id,
+    file_type: filters?.file_type,
+    seller_type: filters?.seller_type,
+    technology_type: filters?.technology_type,
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to fetch documents' }));
-    throw new Error(error.error || 'Failed to retrieve technical documents');
-  }
-
-  return response.json();
+  return apiRequest(`/technical-documents${query}`, 'Failed to retrieve technical documents');
 };
 
 // ============================================================================
@@ -493,28 +244,4 @@ export const getMyProjects = async (): Promise<{
     capacity_mw: number;
     status: string;
   }>
-}> => {
-  const token = await getAuthToken();
-  console.log('API: getMyProjects called');
-  console.log('API: Token exists?', !!token);
-  console.log('API: URL:', `${API_BASE_URL}/projects/my-projects`);
-
-  const response = await fetch(`${API_BASE_URL}/projects/my-projects`, {
-    headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  });
-
-  console.log('API: Response status:', response.status);
-  console.log('API: Response ok?', response.ok);
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to fetch projects' }));
-    console.error('API: Error response:', error);
-    throw new Error(error.error || 'Failed to retrieve your projects');
-  }
-
-  const data = await response.json();
-  console.log('API: Response data:', data);
-  return data;
-};
+}> => apiRequest('/projects/my-projects', 'Failed to retrieve your projects');

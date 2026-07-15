@@ -1,7 +1,9 @@
 import express from 'express';
 import { getSupabaseWithUser } from '../services/supabase.js';
 import { authenticate } from '../middleware/auth.js';
-import { createS3Upload, generatePresignedUrl, deleteFile } from '../services/s3.js';
+import { createS3Upload } from '../services/s3.js';
+import { buildFileMetadata, parseCustomMetadata } from '../utils/uploads.js';
+import { createGetByIdHandler, createDeleteHandler } from '../utils/resourceHandlers.js';
 
 const router = express.Router();
 
@@ -49,13 +51,9 @@ router.post('/upload', authenticate, uploadToS3.array('files', 10), async (req, 
     }
 
     // Parse custom metadata if provided
-    let parsedMetadata = {};
-    if (customMetadata) {
-      try {
-        parsedMetadata = typeof customMetadata === 'string' ? JSON.parse(customMetadata) : customMetadata;
-      } catch (e) {
-        return res.status(400).json({ error: 'Invalid metadata format' });
-      }
+    const { metadata: parsedMetadata, error: metadataError } = parseCustomMetadata(customMetadata);
+    if (metadataError) {
+      return res.status(400).json({ error: metadataError });
     }
 
     if (!files || files.length === 0) {
@@ -71,14 +69,7 @@ router.post('/upload', authenticate, uploadToS3.array('files', 10), async (req, 
       file_name: file.originalname,
       file_path: file.key, // S3 key
       file_size: file.size,
-      metadata: {
-        uploaded_at: new Date().toISOString(),
-        mime_type: file.mimetype,
-        checksum: file.etag || null, // S3 ETag serves as checksum for integrity verification
-        s3_version_id: file.versionId || null, // S3 version ID if versioning is enabled
-        s3_location: file.location || null, // Full S3 URL
-        ...parsedMetadata, // Merge custom metadata (utility_provider, date_range, etc.)
-      },
+      metadata: buildFileMetadata(file, parsedMetadata),
       created_at: new Date().toISOString(),
     }));
 
@@ -210,89 +201,20 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 // GET /api/power-plans/:id - Get power plan by ID with download URL
-router.get('/:id', authenticate, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Use user-scoped Supabase client to respect RLS
-    const supabase = getSupabaseWithUser(req.userToken);
-
-    const { data: plan, error } = await supabase
-      .from('power_plans')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !plan) {
-      return res.status(404).json({ error: 'Power plan not found' });
-    }
-
-    // Check if user has access to this plan
-    if (plan.buyer_id !== req.user.id) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    // Generate presigned URL for download if file exists
-    let downloadUrl = null;
-    if (plan.file_path) {
-      downloadUrl = await generatePresignedUrl(plan.file_path, 3600);
-    }
-
-    res.json({
-      ...plan,
-      download_url: downloadUrl,
-    });
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Failed to retrieve power plan' });
-  }
-});
+router.get('/:id', authenticate, createGetByIdHandler({
+  table: 'power_plans',
+  ownerField: 'buyer_id',
+  notFoundError: 'Power plan not found',
+  retrieveError: 'Failed to retrieve power plan',
+}));
 
 // DELETE /api/power-plans/:id - Delete a power plan
-router.delete('/:id', authenticate, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Use user-scoped Supabase client to respect RLS
-    const supabase = getSupabaseWithUser(req.userToken);
-
-    // Fetch the plan to get file_path and verify ownership
-    const { data: plan, error: fetchError } = await supabase
-      .from('power_plans')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (fetchError || !plan) {
-      return res.status(404).json({ error: 'Power plan not found' });
-    }
-
-    // Check ownership
-    if (plan.buyer_id !== req.user.id) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    // Delete from S3 if file exists
-    if (plan.file_path) {
-      await deleteFile(plan.file_path);
-    }
-
-    // Delete from database
-    const { error: deleteError } = await supabase
-      .from('power_plans')
-      .delete()
-      .eq('id', id);
-
-    if (deleteError) {
-      console.error('Error deleting power plan from DB:', deleteError);
-      return res.status(500).json({ error: 'Failed to delete power plan' });
-    }
-
-    res.json({ message: 'Power plan deleted successfully' });
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Failed to delete power plan' });
-  }
-});
+router.delete('/:id', authenticate, createDeleteHandler({
+  table: 'power_plans',
+  ownerField: 'buyer_id',
+  notFoundError: 'Power plan not found',
+  deleteError: 'Failed to delete power plan',
+  successMessage: 'Power plan deleted successfully',
+}));
 
 export default router;
