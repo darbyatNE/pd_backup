@@ -19,9 +19,14 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
  */
 const getAuthToken = async (): Promise<string | null> => {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) {
+      console.error('Failed to retrieve auth session:', error);
+      return null;
+    }
     return session?.access_token || null;
-  } catch {
+  } catch (error) {
+    console.error('Unexpected error retrieving auth session:', error);
     return null;
   }
 };

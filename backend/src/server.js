@@ -43,6 +43,23 @@ app.post('/api/client-errors', clientErrorLogger.middleware());
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+});
+
+server.on('error', (err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
+
+// Surface otherwise-silent async failures instead of letting them pass unnoticed.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  // An uncaught exception leaves the process in an undefined state; exit so the
+  // orchestrator (ECS) can replace the task with a healthy one.
+  process.exit(1);
 });

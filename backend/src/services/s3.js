@@ -92,7 +92,9 @@ export const createS3Upload = (folder, maxSizeMB = 25, options = {}) => {
       if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(fileExt)) {
         cb(null, true);
       } else {
-        cb(new Error(`Invalid file type. Allowed types: ${allowedExtensions.join(', ')}`));
+        const err = new Error(`Invalid file type. Allowed types: ${allowedExtensions.join(', ')}`);
+        err.statusCode = 400;
+        cb(err);
       }
     },
   });
