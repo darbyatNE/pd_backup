@@ -16,9 +16,28 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// CORS: restrict to an explicit allowlist. Set CORS_ALLOWED_ORIGINS to a
+// comma-separated list of origins (e.g. "https://app.example.com").
+// Falls back to common local dev origins when unset.
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ||
+  'http://localhost:5173,http://localhost:3000')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow same-origin / non-browser requests (no Origin header).
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+};
+
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '1mb' }));
 
 // Health check
 app.get('/health', (req, res) => {
