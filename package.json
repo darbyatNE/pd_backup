@@ -11,7 +11,8 @@
     "dev": "npm run dev --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
     "frontend": "npm run dev --workspace=frontend",
-    "backend": "npm run dev --workspace=backend"
+    "backend": "npm run dev --workspace=backend",
+    "test": "npm run test --workspaces --if-present"
   },
   "keywords": [
     "renewable-energy",
