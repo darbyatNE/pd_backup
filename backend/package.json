@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch-logs": "^3.933.0",

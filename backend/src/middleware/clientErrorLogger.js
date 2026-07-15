@@ -14,7 +14,7 @@
 
 import { CloudWatchLogsClient, PutLogEventsCommand, CreateLogStreamCommand } from '@aws-sdk/client-cloudwatch-logs';
 
-class ClientErrorLogger {
+export class ClientErrorLogger {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
     this.logGroupName = options.logGroupName || process.env.FRONTEND_ERROR_LOG_GROUP || '/client/powerdime-frontend-errors';
