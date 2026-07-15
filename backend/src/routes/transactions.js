@@ -9,11 +9,16 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const db = getSupabaseWithUser(req.userToken);
 
-    const { data: userData } = await db
+    const { data: userData, error: userError } = await db
       .from('users')
       .select('role')
       .eq('id', req.user.id)
       .single();
+
+    if (userError || !userData) {
+      console.error('Get transactions error: failed to resolve user role:', userError);
+      return res.status(500).json({ error: 'Failed to resolve user role' });
+    }
 
     let query = db
       .from('transactions')
@@ -115,11 +120,20 @@ router.put('/:id/status', authenticate, async (req, res) => {
 
     const db = getSupabaseWithUser(req.userToken);
 
-    const { data: transaction } = await db
+    const { data: transaction, error: fetchError } = await db
       .from('transactions')
       .select('seller_id')
       .eq('id', id)
       .single();
+
+    if (fetchError) {
+      // PGRST116 = no rows returned (transaction not found or hidden by RLS)
+      if (fetchError.code === 'PGRST116') {
+        return res.status(404).json({ error: 'Transaction not found' });
+      }
+      console.error('Update transaction error: failed to fetch transaction:', fetchError);
+      return res.status(500).json({ error: fetchError.message });
+    }
 
     if (!transaction || transaction.seller_id !== req.user.id) {
       return res.status(403).json({ error: 'Not authorized' });
